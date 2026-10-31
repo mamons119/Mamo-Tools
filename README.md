@@ -12,6 +12,9 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   - Comandi in basso (in orizzontale: colonna a destra): cambia camera, registra con timer
     sotto/sopra il pulsante, impostazioni. In alto: qualita', stabilizzazione, torcia.
   - Gesti: pizzica per lo zoom, tocca per mettere a fuoco ed esporre.
+  - Lenti: sopra i comandi compaiono i pulsanti x0.5, x1, x3... (uno per lente rilevata, con
+    il fattore rispetto alla camera principale). Si usano insieme allo zoom digitale. Il tasto
+    di rotazione passa tra posteriore e frontale.
   - Impostazioni: qualita'/fps, stabilizzazione, audio on/off, zoom, esposizione (EV),
     bilanciamento del bianco, griglia dei terzi, timer di avvio (3/5/10 s).
 
@@ -24,6 +27,16 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
     formattato, elenchi, tabelle semplici, immagini, dimensioni pagina. Intestazioni, pie'
     di pagina, caselle di testo e forme non vengono disegnati. Il formato .doc vecchio non
     e' supportato.
+
+- **Image Converter**: sceglie un'immagine (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...)
+  e la salva come JPG, PNG, WEBP o BMP in Immagini/MamoTools, con qualita' regolabile per
+  JPG e WEBP. Non e' possibile scrivere GIF, TIFF o HEIC: Android non li sa codificare.
+- **Video Editor**: sceglie un video dalla Galleria, anteprima con timeline a miniature,
+  taglio di parti (segna Inizio/Fine e "Taglia via"), audio originale on/off, colonna sonora
+  dal telefono con punto di inizio a scelta, in sostituzione oppure in aggiunta all'originale
+  abbassato di 3-30 dB. Salva in Movies/MamoTools (`MamoEdit_*.mp4`). I tagli non ricodificano
+  il video: qualita' invariata, ma il punto di taglio puo' slittare al fotogramma chiave
+  precedente.
 
 ## Aggiungere un nuovo strumento
 

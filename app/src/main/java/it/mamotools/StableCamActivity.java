@@ -31,6 +31,7 @@ import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Environment;
 import android.os.Handler;
@@ -143,6 +144,10 @@ public class StableCamActivity extends Activity {
         boolean afVideo;    // messa a fuoco continua per video
         boolean flash;      // torcia disponibile
         float maxZoom = 1f;
+        float minZoom = 1f;        // < 1 solo con CONTROL_ZOOM_RATIO (ultra grandangolo)
+        boolean zoomRatio;         // zoom tramite CONTROL_ZOOM_RATIO (Android 11+)
+        float equiv;               // lunghezza focale equivalente 35 mm (0 = sconosciuta)
+        final List<Float> physEquiv = new ArrayList<>();   // lenti fisiche di una camera logica
         Rect active;
         int evMin, evMax;
         float evStep;
@@ -156,6 +161,18 @@ public class StableCamActivity extends Activity {
     private interface IntCb {
         void on(int v);
     }
+
+    /** Una lente selezionabile: camera + zoom (relativo a quella camera) + fattore mostrato. */
+    private static final class Lens {
+        int camIdx;
+        float zoom;
+        float factor;
+        String label;
+        TextView view;
+    }
+
+    private final List<Lens> lenses = new ArrayList<>();
+    private LinearLayout lensRow;
 
     // ------------------------------------------------------------------ stato
 
@@ -438,6 +455,9 @@ public class StableCamActivity extends Activity {
         timerText.setText("●  00:00");
         controlBar.addView(timerText, new LinearLayout.LayoutParams(MATCH, WRAP));
 
+        buildLensRow();
+        controlBar.addView(lensRow, new LinearLayout.LayoutParams(MATCH, WRAP));
+
         controlRow = new LinearLayout(this);
         controlRow.setGravity(Gravity.CENTER);
 
@@ -490,6 +510,7 @@ public class StableCamActivity extends Activity {
             clp = new FrameLayout.LayoutParams(dp(112), MATCH, Gravity.END);
             bar.setCornerRadii(new float[]{r, r, 0, 0, 0, 0, r, r});
             controlRow.setOrientation(LinearLayout.VERTICAL);
+            lensRow.setOrientation(LinearLayout.VERTICAL);
             for (View c : new View[]{cellFlip, cellRec, cellSettings}) {
                 c.setLayoutParams(new LinearLayout.LayoutParams(MATCH, 0, 1f));
             }
@@ -499,6 +520,7 @@ public class StableCamActivity extends Activity {
             clp = new FrameLayout.LayoutParams(MATCH, WRAP, Gravity.BOTTOM);
             bar.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0});
             controlRow.setOrientation(LinearLayout.HORIZONTAL);
+            lensRow.setOrientation(LinearLayout.HORIZONTAL);
             for (View c : new View[]{cellFlip, cellRec, cellSettings}) {
                 c.setLayoutParams(new LinearLayout.LayoutParams(0, dp(96), 1f));
             }
@@ -567,6 +589,7 @@ public class StableCamActivity extends Activity {
         timerText.setVisibility(recording ? View.VISIBLE : View.INVISIBLE);
 
         boolean multi = cams.size() > 1;
+        updateLensHighlight();
         flipBtn.setEnabled(idle && multi);
         flipBtn.setAlpha(idle && multi ? 1f : 0.4f);
 
@@ -658,9 +681,10 @@ public class StableCamActivity extends Activity {
         if (cams.isEmpty()) {
             return;
         }
-        zoom = Math.max(1f, Math.min(z, curCam().maxZoom));
+        zoom = Math.max(curCam().minZoom, Math.min(z, curCam().maxZoom));
         flashLabel(String.format(Locale.US, "%.1f×", zoom));
         refreshRequest();
+        updateLensHighlight();
     }
 
     private void flashLabel(String s) {
@@ -804,17 +828,18 @@ public class StableCamActivity extends Activity {
         // --- immagine
         body.addView(sectionTitle("Immagine"));
         if (ci.maxZoom > 1.05f) {
-            final int zmax = Math.round((ci.maxZoom - 1f) * 10f);
-            body.addView(sheetSeek("Zoom", zmax, Math.round((zoom - 1f) * 10f),
+            final float zmin = ci.minZoom;
+            final int zmax = Math.round((ci.maxZoom - zmin) * 10f);
+            body.addView(sheetSeek("Zoom", zmax, Math.round((zoom - zmin) * 10f),
                     new SeekFmt() {
                         @Override
                         public String format(int p) {
-                            return String.format(Locale.US, "%.1f×", 1f + p / 10f);
+                            return String.format(Locale.US, "%.1f×", zmin + p / 10f);
                         }
                     }, new IntCb() {
                         @Override
                         public void on(int v) {
-                            setZoom(1f + v / 10f);
+                            setZoom(zmin + v / 10f);
                         }
                     }));
             body.addView(caption("Puoi anche pizzicare lo schermo."));
@@ -1149,6 +1174,26 @@ public class StableCamActivity extends Activity {
                 ci.flash = fl != null && fl;
                 Float mz = ch.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM);
                 ci.maxZoom = mz == null ? 1f : Math.max(1f, Math.min(mz, 10f));
+                if (Build.VERSION.SDK_INT >= 30) {
+                    Range<Float> zr = ch.get(CameraCharacteristics.CONTROL_ZOOM_RATIO_RANGE);
+                    if (zr != null && zr.getUpper() > 1.05f) {
+                        ci.zoomRatio = true;
+                        ci.minZoom = Math.min(1f, zr.getLower());
+                        ci.maxZoom = Math.max(1f, Math.min(zr.getUpper(), 10f));
+                    }
+                }
+                ci.equiv = equivFocal(ch);
+                if (Build.VERSION.SDK_INT >= 28 && ci.zoomRatio) {
+                    try {
+                        for (String pid : ch.getPhysicalCameraIds()) {
+                            float pe = equivFocal(manager.getCameraCharacteristics(pid));
+                            if (pe > 0) {
+                                ci.physEquiv.add(pe);
+                            }
+                        }
+                    } catch (Exception ignored) {
+                    }
+                }
                 ci.active = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
                 Range<Integer> evr = ch.get(CameraCharacteristics.CONTROL_AE_COMPENSATION_RANGE);
                 if (evr != null) {
@@ -1183,6 +1228,87 @@ public class StableCamActivity extends Activity {
         camIndex = 0;
         qualityIndex = 0;
         resetCameraState();
+        buildLenses();
+        buildLensRow();
+        updateLensHighlight();
+    }
+
+    /** Lunghezza focale equivalente 35 mm, o 0 se il telefono non fornisce i dati. */
+    private static float equivFocal(CameraCharacteristics ch) {
+        float[] fl = ch.get(CameraCharacteristics.LENS_INFO_AVAILABLE_FOCAL_LENGTHS);
+        android.util.SizeF ps = ch.get(CameraCharacteristics.SENSOR_INFO_PHYSICAL_SIZE);
+        if (fl == null || fl.length == 0 || ps == null || ps.getWidth() <= 0 || ps.getHeight() <= 0) {
+            return 0f;
+        }
+        double diag = Math.hypot(ps.getWidth(), ps.getHeight());
+        return (float) (fl[0] * 43.27 / diag);
+    }
+
+    /** Costruisce l'elenco delle lenti posteriori con il loro fattore (x0.5, x1, x3...). */
+    private void buildLenses() {
+        lenses.clear();
+        CamInfo ref = null;
+        for (CamInfo c : cams) {
+            if (!c.front && c.equiv > 0
+                    && (ref == null || Math.abs(c.equiv - 26f) < Math.abs(ref.equiv - 26f))) {
+                ref = c;
+            }
+        }
+        if (ref == null) {
+            return;
+        }
+        // la camera di riferimento viene prima, cosi' vince nei duplicati
+        List<Integer> order = new ArrayList<>();
+        order.add(cams.indexOf(ref));
+        for (int i = 0; i < cams.size(); i++) {
+            if (!cams.get(i).front && i != order.get(0)) {
+                order.add(i);
+            }
+        }
+        for (int i : order) {
+            CamInfo c = cams.get(i);
+            if (c.equiv <= 0) {
+                continue;
+            }
+            List<Float> rel = new ArrayList<>();   // zoom relativo a questa camera
+            rel.add(1f);
+            if (c.zoomRatio) {
+                for (float pe : c.physEquiv) {
+                    rel.add(pe / c.equiv);
+                }
+            }
+            for (float z : rel) {
+                if (z < c.minZoom - 0.02f || z > c.maxZoom + 0.02f) {
+                    continue;
+                }
+                float factor = z * c.equiv / ref.equiv;
+                boolean dup = false;
+                for (Lens l : lenses) {
+                    if (Math.abs(l.factor / factor - 1f) < 0.1f) {
+                        dup = true;
+                        break;
+                    }
+                }
+                if (dup) {
+                    continue;
+                }
+                Lens l = new Lens();
+                l.camIdx = i;
+                l.zoom = Math.max(c.minZoom, Math.min(z, c.maxZoom));
+                l.factor = factor;
+                l.label = lensLabel(factor);
+                lenses.add(l);
+            }
+        }
+        Collections.sort(lenses, (a, b) -> Float.compare(a.factor, b.factor));
+    }
+
+    private static String lensLabel(float f) {
+        float r = Math.round(f);
+        if (f >= 0.95f && Math.abs(f - r) < 0.2f) {
+            return "x" + (int) r;
+        }
+        return String.format(Locale.US, "x%.1f", f);
     }
 
     private void buildQualities(CamInfo ci) {
@@ -1300,12 +1426,124 @@ public class StableCamActivity extends Activity {
         if (cams.size() < 2 || recording || counting) {
             return;
         }
-        camIndex = (camIndex + 1) % cams.size();
+        // alterna posteriore <-> frontale; la posteriore riparte dalla lente x1
+        boolean toFront = !curCam().front;
+        int target = -1;
+        float zoomTo = 1f;
+        if (toFront) {
+            for (int i = 0; i < cams.size(); i++) {
+                if (cams.get(i).front) {
+                    target = i;
+                    break;
+                }
+            }
+        } else {
+            for (Lens l : lenses) {
+                if (Math.abs(l.factor - 1f) < 0.1f) {
+                    target = l.camIdx;
+                    zoomTo = l.zoom;
+                    break;
+                }
+            }
+            for (int i = 0; target < 0 && i < cams.size(); i++) {
+                if (!cams.get(i).front) {
+                    target = i;
+                }
+            }
+        }
+        if (target < 0) {
+            return;
+        }
+        goToCamera(target, zoomTo);
+    }
+
+    /** Passa a un'altra camera mantenendo, se possibile, la stessa qualita'. */
+    private void goToCamera(int target, float zoomTo) {
+        String keep = curQuality().shortLabel;
+        camIndex = target;
         qualityIndex = 0;
+        List<Quality> qs = curCam().qualities;
+        for (int i = 0; i < qs.size(); i++) {
+            if (qs.get(i).shortLabel.equals(keep)) {
+                qualityIndex = i;
+                break;
+            }
+        }
         resetCameraState();
+        zoom = Math.max(curCam().minZoom, Math.min(zoomTo, curCam().maxZoom));
         closeCamera();
         openCamera();
         updateUi();
+    }
+
+    private void selectLens(Lens l) {
+        if (cams.isEmpty()) {
+            return;
+        }
+        if (l.camIdx == camIndex) {
+            setZoom(l.zoom);
+            return;
+        }
+        if (recording || counting) {
+            toast("Questa lente e' una camera separata: ferma la registrazione per cambiarla.");
+            return;
+        }
+        goToCamera(l.camIdx, l.zoom);
+    }
+
+    /** Evidenzia il pulsante della lente in uso; nasconde la riga con la camera frontale. */
+    private void updateLensHighlight() {
+        if (lensRow == null) {
+            return;
+        }
+        boolean show = !cams.isEmpty() && !curCam().front && lenses.size() > 1;
+        lensRow.setVisibility(show ? View.VISIBLE : View.GONE);
+        if (!show) {
+            return;
+        }
+        Lens best = null;
+        for (Lens l : lenses) {
+            if (l.camIdx == camIndex && l.zoom <= zoom + 0.05f
+                    && (best == null || l.zoom > best.zoom)) {
+                best = l;
+            }
+        }
+        if (best == null) {
+            for (Lens l : lenses) {
+                if (l.camIdx == camIndex) {
+                    best = l;
+                    break;
+                }
+            }
+        }
+        for (Lens l : lenses) {
+            boolean on = l == best;
+            l.view.setTextColor(on ? Color.BLACK : Color.WHITE);
+            l.view.setBackground(rounded(on ? ACCENT : PILL_BG, 100));
+        }
+    }
+
+    private void buildLensRow() {
+        if (lensRow == null) {
+            lensRow = new LinearLayout(this);
+            lensRow.setGravity(Gravity.CENTER);
+        }
+        lensRow.removeAllViews();
+        for (final Lens l : lenses) {
+            TextView t = pill(l.label);
+            t.setGravity(Gravity.CENTER);
+            t.setMinWidth(dp(48));
+            t.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectLens(l);
+                }
+            });
+            l.view = t;
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, WRAP);
+            lp.setMargins(dp(4), dp(4), dp(4), dp(4));
+            lensRow.addView(t, lp);
+        }
     }
 
     // ------------------------------------------------------------------ apertura camera
@@ -1543,7 +1781,9 @@ public class StableCamActivity extends Activity {
             }
         }
         // zoom digitale
-        if (ci.active != null) {
+        if (ci.zoomRatio && Build.VERSION.SDK_INT >= 30) {
+            b.set(CaptureRequest.CONTROL_ZOOM_RATIO, Math.max(ci.minZoom, Math.min(zoom, ci.maxZoom)));
+        } else if (ci.active != null) {
             float z = zoom;
             b.set(CaptureRequest.SCALER_CROP_REGION, z > 1.001f ? cropFor(ci, z) : ci.active);
         }

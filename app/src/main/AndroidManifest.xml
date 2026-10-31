@@ -49,6 +49,16 @@
             android:label="PDF e Word"
             android:exported="false" />
 
+        <activity
+            android:name=".ImageConverterActivity"
+            android:label="Image Converter"
+            android:exported="false" />
+
+        <activity
+            android:name=".VideoEditorActivity"
+            android:label="Video Editor"
+            android:exported="false" />
+
         <service
             android:name=".BoostService"
             android:exported="false" />

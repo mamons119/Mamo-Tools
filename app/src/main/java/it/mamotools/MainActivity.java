@@ -44,6 +44,13 @@ public class MainActivity extends Activity {
                     "Converte un PDF in Word (.docx) o un Word in PDF e salva il risultato "
                             + "in Download.",
                     ConverterActivity.class),
+            new Tool("🖼", "Image Converter",
+                    "Converte un'immagine in JPG, PNG, WEBP o BMP partendo dai formati "
+                            + "piu' diffusi.",
+                    ImageConverterActivity.class),
+            new Tool("🎬", "Video Editor",
+                    "Taglia parti del video, togli l'audio o aggiungi una colonna sonora.",
+                    VideoEditorActivity.class),
     };
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
