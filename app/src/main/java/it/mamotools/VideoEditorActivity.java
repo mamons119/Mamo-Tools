@@ -455,8 +455,10 @@ public class VideoEditorActivity extends Activity {
     }
 
     /** Aggiorna il cursore e salta le parti tagliate durante la riproduzione. */
+    private volatile boolean skipping = false;
+
     private void tick() {
-        if (videoUri == null || !videoView.isPlaying()) {
+        if (videoUri == null || !videoView.isPlaying() || skipping) {
             return;
         }
         long p = videoView.getCurrentPosition();
@@ -469,7 +471,7 @@ public class VideoEditorActivity extends Activity {
                     videoView.seekTo((int) p);
                 } else {
                     p = c[1];
-                    videoView.seekTo((int) p);
+                    seekExact(p);
                 }
                 break;
             }
@@ -477,6 +479,34 @@ public class VideoEditorActivity extends Activity {
         timeline.setPos(p);
         updateTexts();
     }
+
+    /** Salto preciso (non al fotogramma chiave precedente) con blocco anti-ripetizione. */
+    private void seekExact(long ms) {
+        if (videoPlayer == null) {
+            videoView.seekTo((int) ms);
+            return;
+        }
+        skipping = true;
+        handler.removeCallbacks(clearSkip);
+        handler.postDelayed(clearSkip, 800);   // rete di sicurezza
+        try {
+            videoPlayer.setOnSeekCompleteListener(mp -> {
+                skipping = false;
+                handler.removeCallbacks(clearSkip);
+            });
+            videoPlayer.seekTo((int) ms, MediaPlayer.SEEK_CLOSEST);
+        } catch (Exception e) {
+            skipping = false;
+            videoView.seekTo((int) ms);
+        }
+    }
+
+    private final Runnable clearSkip = new Runnable() {
+        @Override
+        public void run() {
+            skipping = false;
+        }
+    };
 
     private void toggleSoundTest() {
         if (soundPlayer != null) {

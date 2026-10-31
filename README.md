@@ -38,6 +38,12 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   il video: qualita' invariata, ma il punto di taglio puo' slittare al fotogramma chiave
   precedente.
 
+- **System Monitor**: grafici in tempo reale (1 s) di CPU con una linea colorata per core, RAM/swap
+  e traffico di rete (download/upload), piu' schede con memoria, archiviazione e microSD,
+  batteria, temperature, GPU, schermo, dispositivo, funzioni e sensori. Android blocca alcune
+  letture alle app: se `/proc/stat` non e' leggibile il carico per core e' stimato dalla frequenza,
+  e temperature/GPU compaiono solo se il telefono le espone.
+
 ## Aggiungere un nuovo strumento
 
 1. Crea una nuova Activity in `app/src/main/java/it/mamotools/`.

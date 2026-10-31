@@ -51,6 +51,10 @@ public class MainActivity extends Activity {
             new Tool("🎬", "Video Editor",
                     "Taglia parti del video, togli l'audio o aggiungi una colonna sonora.",
                     VideoEditorActivity.class),
+            new Tool("📊", "System Monitor",
+                    "CPU per core, RAM e traffico di rete in tempo reale, piu' tutte le "
+                            + "informazioni del telefono.",
+                    SystemMonitorActivity.class),
     };
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;

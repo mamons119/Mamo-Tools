@@ -10,6 +10,8 @@
         tools:ignore="ProtectedPermissions" />
 
     <!-- Stable Cam -->
+    <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
     <uses-feature
@@ -52,6 +54,11 @@
         <activity
             android:name=".ImageConverterActivity"
             android:label="Image Converter"
+            android:exported="false" />
+
+        <activity
+            android:name=".SystemMonitorActivity"
+            android:label="System Monitor"
             android:exported="false" />
 
         <activity
