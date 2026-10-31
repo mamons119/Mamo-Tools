@@ -9,6 +9,11 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
 - **Stable Cam**: registra video con la stabilizzazione del telefono (elettronica + ottica)
   alla qualita' massima supportata dalla camera. Il video finisce in Galleria
   (cartella Movies/MamoTools) con nome `MamoRecord_AAAAMMGG_OOMMSS.mp4`.
+  - Comandi in basso (in orizzontale: colonna a destra): cambia camera, registra con timer
+    sotto/sopra il pulsante, impostazioni. In alto: qualita', stabilizzazione, torcia.
+  - Gesti: pizzica per lo zoom, tocca per mettere a fuoco ed esporre.
+  - Impostazioni: qualita'/fps, stabilizzazione, audio on/off, zoom, esposizione (EV),
+    bilanciamento del bianco, griglia dei terzi, timer di avvio (3/5/10 s).
 
 - **PDF <-> Word**: sceglie un file con il selettore di sistema e lo converte nell'altro
   formato, salvandolo in Download.
