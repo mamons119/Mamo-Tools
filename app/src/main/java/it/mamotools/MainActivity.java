@@ -40,6 +40,10 @@ public class MainActivity extends Activity {
                     "Registra video stabilizzati alla massima qualita' del telefono "
                             + "e li salva in Galleria.",
                     StableCamActivity.class),
+            new Tool("📄", "PDF ↔ Word",
+                    "Converte un PDF in Word (.docx) o un Word in PDF e salva il risultato "
+                            + "in Download.",
+                    ConverterActivity.class),
     };
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;

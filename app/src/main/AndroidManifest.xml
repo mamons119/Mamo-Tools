@@ -44,6 +44,11 @@
             android:screenOrientation="sensor"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
+        <activity
+            android:name=".ConverterActivity"
+            android:label="PDF e Word"
+            android:exported="false" />
+
         <service
             android:name=".BoostService"
             android:exported="false" />

@@ -10,6 +10,16 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   alla qualita' massima supportata dalla camera. Il video finisce in Galleria
   (cartella Movies/MamoTools) con nome `MamoRecord_AAAAMMGG_OOMMSS.mp4`.
 
+- **PDF <-> Word**: sceglie un file con il selettore di sistema e lo converte nell'altro
+  formato, salvandolo in Download.
+  - PDF -> Word (.docx): estrae il testo (libreria PdfBox-Android) e lo rimette in paragrafi
+    con titoli e grassetto. Non mantiene immagini, tabelle e impaginazione; i PDF
+    scansionati (solo immagini) non funzionano perche' serve l'OCR.
+  - Word (.docx) -> PDF: lettore e rendering scritti a mano (nessuna libreria): testo
+    formattato, elenchi, tabelle semplici, immagini, dimensioni pagina. Intestazioni, pie'
+    di pagina, caselle di testo e forme non vengono disegnati. Il formato .doc vecchio non
+    e' supportato.
+
 ## Aggiungere un nuovo strumento
 
 1. Crea una nuova Activity in `app/src/main/java/it/mamotools/`.
