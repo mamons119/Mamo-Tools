@@ -40,7 +40,7 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
 
 - **System Monitor**: grafici in tempo reale (1 s) di CPU con una linea colorata per core, RAM/swap
   e traffico di rete (download/upload), piu' schede con memoria, archiviazione e microSD,
-  batteria, temperature, GPU, schermo, dispositivo, funzioni e sensori. Android blocca alcune
+  batteria (icona grande), termometri CPU/RAM/SoC/batteria, GPU, schermo (con disegno del telefono), dispositivo, funzioni e sensori. Android blocca alcune
   letture alle app: se `/proc/stat` non e' leggibile il carico per core e' stimato dalla frequenza,
   e temperature/GPU compaiono solo se il telefono le espone.
 

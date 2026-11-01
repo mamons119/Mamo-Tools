@@ -4,42 +4,47 @@ import android.app.Activity;
 import android.content.ContentResolver;
 import android.content.ContentValues;
 import android.content.Intent;
+import android.content.res.ColorStateList;
 import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
-import android.graphics.Paint;
 import android.graphics.ImageDecoder;
+import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
+import android.text.Editable;
+import android.text.InputType;
+import android.text.TextUtils;
+import android.text.TextWatcher;
+import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
-import android.text.InputType;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
-import android.widget.RadioButton;
-import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
 import java.io.BufferedOutputStream;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
 import java.io.OutputStream;
 import java.util.Locale;
 
 /**
  * Converte un'immagine in un altro formato. Legge tutto cio' che Android sa decodificare
- * (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...) e scrive JPG, PNG, WEBP o BMP.
+ * (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...) e scrive JPG, PNG, WEBP, BMP o ICO.
  */
 public class ImageConverterActivity extends Activity {
 
@@ -47,22 +52,30 @@ public class ImageConverterActivity extends Activity {
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
 
+    private static final int C_CARD = 0xFF1A1D24, C_CARD2 = 0xFF262B35, C_ACCENT = 0xFF4DD0E1,
+            C_TEXT = 0xFFECEFF4, C_DIM = 0xFF9AA3B2, C_BG = 0xFF0F1115;
+
     private static final String[] FORMATS = {"JPG", "PNG", "WEBP", "BMP", "ICO"};
+    private static final int[] ICO_SIZES = {16, 32, 48, 64, 128, 256};
 
     private Uri pickedUri;
     private String pickedName;
+    private long pickedBytes = -1;
     private Uri resultUri;
     private volatile boolean busy = false;
     private int format = 0;
     private int quality = 92;
     private int icoSize = 64;
-    private EditText icoEdit;
-    private LinearLayout icoBox;
+    private String originalSize = "";
 
-    private TextView fileName, fileInfo, status, qualityLabel;
-    private ImageView preview;
-    private Button pickBtn, convertBtn, openBtn;
-    private SeekBar qualityBar;
+    private TextView pickTitle, pickSub, inInfo, outInfo, qualityLabel, status;
+    private ImageView inPreview, outPreview;
+    private LinearLayout inCard, outCard, qualityBox, icoBox;
+    private TextView[] fmtChips = new TextView[FORMATS.length];
+    private TextView[] icoChips = new TextView[ICO_SIZES.length];
+    private EditText icoEdit;
+    private boolean icoEditing = false;
+    private Button convertBtn, openBtn;
     private ProgressBar progress;
 
     @Override
@@ -72,81 +85,82 @@ public class ImageConverterActivity extends Activity {
         ScrollView scroll = new ScrollView(this);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(40), dp(16), dp(24));
+        root.setPadding(dp(16), dp(36), dp(16), dp(28));
         scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
 
-        root.addView(text("Image Converter", 28, R.color.text, true));
-        TextView sub = text("Scegli un'immagine, il formato di uscita, e la salvo in "
-                + "Immagini/MamoTools.", 14, R.color.text_dim, false);
-        sub.setPadding(0, dp(6), 0, dp(20));
+        root.addView(text("Image Converter", 28, C_TEXT, true));
+        TextView sub = text("Converti un'immagine in JPG, PNG, WEBP, BMP o ICO.", 14, C_DIM, false);
+        sub.setPadding(0, dp(4), 0, dp(16));
         root.addView(sub);
 
-        pickBtn = new Button(this);
-        pickBtn.setText("Scegli un'immagine");
-        pickBtn.setAllCaps(false);
-        pickBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pick();
-            }
-        });
-        root.addView(pickBtn, new LinearLayout.LayoutParams(MATCH, WRAP));
+        // ---- scelta
+        LinearLayout pickCard = card();
+        pickCard.setOrientation(LinearLayout.HORIZONTAL);
+        pickCard.setGravity(Gravity.CENTER_VERTICAL);
+        pickCard.setClickable(true);
+        pickCard.setOnClickListener(v -> pick());
+        TextView ic = text("🖼", 26, C_TEXT, false);
+        ic.setGravity(Gravity.CENTER);
+        ic.setBackground(round(C_BG, 100));
+        pickCard.addView(ic, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout pt = new LinearLayout(this);
+        pt.setOrientation(LinearLayout.VERTICAL);
+        pt.setPadding(dp(14), 0, dp(8), 0);
+        pickTitle = text("Scegli un'immagine", 17, C_TEXT, true);
+        pickTitle.setSingleLine(true);
+        pickTitle.setEllipsize(TextUtils.TruncateAt.MIDDLE);
+        pickSub = text("Dalla Galleria o dai file", 13, C_DIM, false);
+        pt.addView(pickTitle);
+        pt.addView(pickSub);
+        pickCard.addView(pt, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        pickCard.addView(text("›", 28, C_DIM, false));
+        root.addView(pickCard, lp(MATCH, WRAP, 0, 0));
 
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(getColor(R.color.card));
-        bg.setCornerRadius(dp(16));
-        card.setBackground(bg);
-        card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        preview = new ImageView(this);
-        preview.setAdjustViewBounds(true);
-        preview.setMaxHeight(dp(220));
-        preview.setVisibility(View.GONE);
-        card.addView(preview, new LinearLayout.LayoutParams(MATCH, WRAP));
-        fileName = text("Nessuna immagine scelta", 16, R.color.text, true);
-        fileInfo = text("", 13, R.color.text_dim, false);
-        fileInfo.setPadding(0, dp(4), 0, 0);
-        card.addView(fileName);
-        card.addView(fileInfo);
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(MATCH, WRAP);
-        clp.topMargin = dp(16);
-        root.addView(card, clp);
+        // ---- anteprima ingresso
+        inCard = card();
+        inCard.setVisibility(View.GONE);
+        inCard.addView(sectionTitle("Originale"));
+        inPreview = preview();
+        inCard.addView(inPreview, new LinearLayout.LayoutParams(MATCH, dp(190)));
+        inInfo = text("", 13, C_TEXT, false);
+        inInfo.setPadding(0, dp(10), 0, 0);
+        inCard.addView(inInfo);
+        root.addView(inCard, lp(MATCH, WRAP, 0, 12));
 
-        TextView fl = text("Formato di uscita", 14, R.color.text_dim, false);
-        fl.setPadding(0, dp(20), 0, dp(4));
-        root.addView(fl);
-
-        RadioGroup group = new RadioGroup(this);
-        group.setOrientation(LinearLayout.HORIZONTAL);
+        // ---- formato
+        LinearLayout fcard = card();
+        fcard.addView(sectionTitle("Formato di uscita"));
+        LinearLayout r1 = new LinearLayout(this);
+        LinearLayout r2 = new LinearLayout(this);
         for (int i = 0; i < FORMATS.length; i++) {
-            RadioButton rb = new RadioButton(this);
-            rb.setId(1000 + i);
-            rb.setText(FORMATS[i]);
-            rb.setTextColor(getColor(R.color.text));
-            group.addView(rb, new RadioGroup.LayoutParams(0, WRAP, 1f));
+            final int idx = i;
+            TextView chip = chip(FORMATS[i]);
+            chip.setOnClickListener(v -> selectFormat(idx));
+            fmtChips[i] = chip;
+            (i < 3 ? r1 : r2).addView(chip, lp(0, dp(44), i % 3 == 0 ? 0 : 8, 0, 1f));
         }
-        group.check(1000);
-        group.setOnCheckedChangeListener(new RadioGroup.OnCheckedChangeListener() {
-            @Override
-            public void onCheckedChanged(RadioGroup g, int id) {
-                format = id - 1000;
-                updateQualityVisibility();
-            }
-        });
-        root.addView(group, new LinearLayout.LayoutParams(MATCH, WRAP));
+        r2.addView(new View(this), lp(0, dp(44), 8, 0, 1f));
+        fcard.addView(r1, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout.LayoutParams r2p = new LinearLayout.LayoutParams(MATCH, WRAP);
+        r2p.topMargin = dp(8);
+        fcard.addView(r2, r2p);
 
-        qualityLabel = text("", 14, R.color.text, false);
-        qualityLabel.setPadding(0, dp(16), 0, 0);
-        root.addView(qualityLabel);
-        qualityBar = new SeekBar(this);
-        qualityBar.setMax(99);
-        qualityBar.setProgress(quality - 1);
-        qualityBar.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+        // qualita'
+        qualityBox = new LinearLayout(this);
+        qualityBox.setOrientation(LinearLayout.VERTICAL);
+        qualityLabel = text("", 14, C_TEXT, false);
+        qualityLabel.setPadding(0, dp(18), 0, 0);
+        qualityBox.addView(qualityLabel);
+        SeekBar qb = new SeekBar(this);
+        qb.setMax(99);
+        qb.setProgress(quality - 1);
+        qb.setProgressTintList(ColorStateList.valueOf(C_ACCENT));
+        qb.setThumbTintList(ColorStateList.valueOf(C_ACCENT));
+        qb.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
                 quality = p + 1;
-                updateQualityVisibility();
+                refreshQualityLabel();
             }
 
             @Override
@@ -157,103 +171,154 @@ public class ImageConverterActivity extends Activity {
             public void onStopTrackingTouch(SeekBar s) {
             }
         });
-        root.addView(qualityBar, new LinearLayout.LayoutParams(MATCH, WRAP));
-        updateQualityVisibility();
+        qualityBox.addView(qb, new LinearLayout.LayoutParams(MATCH, WRAP));
+        fcard.addView(qualityBox, new LinearLayout.LayoutParams(MATCH, WRAP));
 
+        // dimensione ICO
         icoBox = new LinearLayout(this);
         icoBox.setOrientation(LinearLayout.VERTICAL);
         icoBox.setVisibility(View.GONE);
-        TextView il = text("Dimensione dell'icona (pixel, da 1 a 256)", 14, R.color.text, false);
-        il.setPadding(0, dp(16), 0, dp(4));
+        TextView il = text("Dimensione dell'icona (pixel, da 1 a 256)", 14, C_TEXT, false);
+        il.setPadding(0, dp(18), 0, dp(8));
         icoBox.addView(il);
         LinearLayout presets = new LinearLayout(this);
-        for (final int sz : new int[]{16, 32, 48, 64, 128, 256}) {
-            Button pb = new Button(this);
-            pb.setText(String.valueOf(sz));
-            pb.setAllCaps(false);
-            pb.setMinWidth(0);
-            pb.setMinimumWidth(0);
-            pb.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    icoEdit.setText(String.valueOf(sz));
-                }
-            });
-            presets.addView(pb, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        for (int i = 0; i < ICO_SIZES.length; i++) {
+            final int sz = ICO_SIZES[i];
+            TextView chip = chip(String.valueOf(sz));
+            chip.setTextSize(13);
+            chip.setPadding(0, 0, 0, 0);
+            chip.setOnClickListener(v -> setIcoSize(sz, true));
+            icoChips[i] = chip;
+            presets.addView(chip, lp(0, dp(40), i == 0 ? 0 : 6, 0, 1f));
         }
         icoBox.addView(presets, new LinearLayout.LayoutParams(MATCH, WRAP));
         icoEdit = new EditText(this);
         icoEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
-        icoEdit.setText(String.valueOf(icoSize));
-        icoEdit.setTextColor(getColor(R.color.text));
-        icoEdit.setHint("pixel");
-        icoBox.addView(icoEdit, new LinearLayout.LayoutParams(MATCH, WRAP));
-        TextView in = text("L'icona e' quadrata: l'immagine viene rimpicciolita per stare "
-                + "dentro il quadrato, con sfondo trasparente nei lati liberi.",
-                12, R.color.text_dim, false);
-        icoBox.addView(in);
-        root.addView(icoBox, new LinearLayout.LayoutParams(MATCH, WRAP));
-
-        convertBtn = new Button(this);
-        convertBtn.setAllCaps(false);
-        convertBtn.setText("Converti");
-        convertBtn.setEnabled(false);
-        convertBtn.setOnClickListener(new View.OnClickListener() {
+        icoEdit.setTextColor(C_TEXT);
+        icoEdit.setHintTextColor(C_DIM);
+        icoEdit.setHint("oppure scrivi i pixel");
+        icoEdit.setBackground(round(C_CARD2, 12));
+        icoEdit.setPadding(dp(14), dp(10), dp(14), dp(10));
+        icoEdit.addTextChangedListener(new TextWatcher() {
             @Override
-            public void onClick(View v) {
-                convert();
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable e) {
+                if (icoEditing) {
+                    return;
+                }
+                try {
+                    int v = Integer.parseInt(e.toString().trim());
+                    icoSize = Math.max(1, Math.min(256, v));
+                } catch (Exception ex) {
+                    icoSize = 0;
+                }
+                refreshChips();
             }
         });
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(MATCH, WRAP);
-        blp.topMargin = dp(16);
-        root.addView(convertBtn, blp);
+        LinearLayout.LayoutParams ep = new LinearLayout.LayoutParams(MATCH, WRAP);
+        ep.topMargin = dp(10);
+        icoBox.addView(icoEdit, ep);
+        TextView in = text("L'icona e' quadrata: l'immagine viene rimpicciolita per stare "
+                + "dentro il quadrato, con i lati liberi trasparenti.", 12, C_DIM, false);
+        in.setPadding(0, dp(8), 0, 0);
+        icoBox.addView(in);
+        fcard.addView(icoBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+        root.addView(fcard, lp(MATCH, WRAP, 0, 12));
+
+        // ---- converti
+        convertBtn = btn("Converti", C_ACCENT, Color.BLACK, v -> convert());
+        convertBtn.setTextSize(16);
+        convertBtn.setEnabled(false);
+        root.addView(convertBtn, lp(MATCH, dp(54), 0, 16));
 
         progress = new ProgressBar(this);
         progress.setIndeterminate(true);
+        progress.setIndeterminateTintList(ColorStateList.valueOf(C_ACCENT));
         progress.setVisibility(View.GONE);
         LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(WRAP, WRAP);
-        plp.topMargin = dp(16);
-        plp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
+        plp.topMargin = dp(12);
+        plp.gravity = Gravity.CENTER_HORIZONTAL;
         root.addView(progress, plp);
 
-        status = text("", 14, R.color.text, false);
-        status.setPadding(0, dp(12), 0, dp(8));
+        status = text("", 14, C_TEXT, false);
+        status.setPadding(0, dp(10), 0, 0);
         root.addView(status);
 
-        openBtn = new Button(this);
-        openBtn.setAllCaps(false);
-        openBtn.setText("Apri l'immagine convertita");
-        openBtn.setVisibility(View.GONE);
-        openBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openResult();
-            }
-        });
-        root.addView(openBtn, new LinearLayout.LayoutParams(MATCH, WRAP));
+        // ---- risultato
+        outCard = card();
+        outCard.setVisibility(View.GONE);
+        outCard.addView(sectionTitle("Risultato"));
+        outPreview = preview();
+        outCard.addView(outPreview, new LinearLayout.LayoutParams(MATCH, dp(190)));
+        outInfo = text("", 13, C_TEXT, false);
+        outInfo.setPadding(0, dp(10), 0, dp(12));
+        outCard.addView(outInfo);
+        openBtn = btn("Visualizza in Galleria", C_CARD2, C_ACCENT, v -> openResult());
+        outCard.addView(openBtn, new LinearLayout.LayoutParams(MATCH, dp(48)));
+        root.addView(outCard, lp(MATCH, WRAP, 0, 14));
 
         TextView note = text("In ingresso: tutto cio' che il telefono sa aprire (JPG, PNG, WEBP, "
                 + "GIF, BMP, ICO, HEIC/HEIF, RAW DNG...). Le GIF animate usano il primo "
-                + "fotogramma. In uscita: JPG, PNG, WEBP (con qualita' regolabile), BMP e ICO (dimensione a scelta, fino a 256 px). "
-                + "Gli sfondi trasparenti diventano bianchi in JPG e BMP.",
-                12, R.color.text_dim, false);
-        note.setPadding(0, dp(24), 0, 0);
+                + "fotogramma. Gli sfondi trasparenti diventano bianchi in JPG e BMP.",
+                12, C_DIM, false);
+        note.setPadding(0, dp(20), 0, 0);
         root.addView(note);
 
         setContentView(scroll);
+        setIcoSize(icoSize, true);
+        selectFormat(0);
     }
 
-    private void updateQualityVisibility() {
-        boolean lossy = format == 0 || format == 2;
-        qualityLabel.setVisibility(lossy ? View.VISIBLE : View.GONE);
-        qualityBar.setVisibility(lossy ? View.VISIBLE : View.GONE);
+    // ---------------------------------------------------------------- selezioni
+
+    private void selectFormat(int idx) {
+        format = idx;
+        qualityBox.setVisibility(idx == 0 || idx == 2 ? View.VISIBLE : View.GONE);
+        icoBox.setVisibility(idx == 4 ? View.VISIBLE : View.GONE);
+        refreshQualityLabel();
+        refreshChips();
+    }
+
+    private void setIcoSize(int px, boolean updateEdit) {
+        icoSize = px;
+        if (updateEdit && icoEdit != null) {
+            icoEditing = true;
+            icoEdit.setText(String.valueOf(px));
+            icoEditing = false;
+        }
+        refreshChips();
+    }
+
+    private void refreshQualityLabel() {
         qualityLabel.setText("Qualita': " + quality + "%");
-        if (icoBox != null) {
-            icoBox.setVisibility(format == 4 ? View.VISIBLE : View.GONE);
+    }
+
+    private void refreshChips() {
+        for (int i = 0; i < fmtChips.length; i++) {
+            style(fmtChips[i], i == format);
+        }
+        for (int i = 0; i < icoChips.length; i++) {
+            style(icoChips[i], icoSize == ICO_SIZES[i]);
         }
     }
 
-    // ------------------------------------------------------------------ scelta
+    private void style(TextView t, boolean on) {
+        if (t == null) {
+            return;
+        }
+        t.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44FFFFFF),
+                round(on ? C_ACCENT : C_CARD2, 12), null));
+        t.setTextColor(on ? Color.BLACK : C_TEXT);
+    }
+
+    // ---------------------------------------------------------------- scelta file
 
     private void pick() {
         if (busy) {
@@ -278,28 +343,33 @@ public class ImageConverterActivity extends Activity {
         }
         pickedUri = data.getData();
         pickedName = queryName(pickedUri);
+        pickedBytes = querySize(pickedUri);
         resultUri = null;
-        openBtn.setVisibility(View.GONE);
+        outCard.setVisibility(View.GONE);
         status.setText("");
-        fileName.setText(pickedName);
+        pickTitle.setText(pickedName);
         String mime = getContentResolver().getType(pickedUri);
-        fileInfo.setText((mime == null ? "immagine" : mime));
-        convertBtn.setEnabled(true);
         try {
-            Bitmap bmp = decode(pickedUri, 800);
-            preview.setImageBitmap(bmp);
-            preview.setVisibility(View.VISIBLE);
-            fileInfo.setText(fileInfo.getText() + " · " + originalSize + " px");
+            Bitmap bmp = decode(pickedUri, 900);
+            inPreview.setImageBitmap(bmp);
+            inCard.setVisibility(View.VISIBLE);
+            inInfo.setText(describe(mime, originalSize, pickedBytes));
+            pickSub.setText(humanSize(pickedBytes) + " · tocca per cambiare immagine");
+            convertBtn.setEnabled(true);
         } catch (Throwable t) {
-            preview.setVisibility(View.GONE);
+            inCard.setVisibility(View.GONE);
+            pickSub.setText("Immagine non leggibile");
             status.setText("Questa immagine non sembra leggibile dal telefono.");
             convertBtn.setEnabled(false);
         }
     }
 
-    private String originalSize = "";
+    private static String describe(String mime, String dims, long bytes) {
+        String f = mime == null ? "immagine" : mime.replace("image/", "").toUpperCase(Locale.ROOT);
+        return f + "  ·  " + dims + " px  ·  " + humanSize(bytes);
+    }
 
-    /** Decodifica l'immagine; maxSide > 0 la riduce (anteprima), 0 = dimensione originale. */
+    /** Decodifica; maxSide > 0 riduce (anteprima), 0 = dimensione originale. */
     private Bitmap decode(Uri uri, final int maxSide) throws IOException {
         ImageDecoder.Source src = ImageDecoder.createSource(getContentResolver(), uri);
         return ImageDecoder.decodeBitmap(src, new ImageDecoder.OnHeaderDecodedListener() {
@@ -336,32 +406,51 @@ public class ImageConverterActivity extends Activity {
         return last == null ? "immagine" : last;
     }
 
-    // ------------------------------------------------------------------ conversione
+    private long querySize(Uri uri) {
+        try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.SIZE},
+                null, null, null)) {
+            if (c != null && c.moveToFirst() && !c.isNull(0)) {
+                return c.getLong(0);
+            }
+        } catch (Exception ignored) {
+        }
+        return -1;
+    }
+
+    private static String humanSize(long b) {
+        if (b < 0) {
+            return "dimensione n/d";
+        }
+        if (b < 1024) {
+            return b + " B";
+        }
+        if (b < 1024 * 1024) {
+            return String.format(Locale.US, "%.1f KB", b / 1024f);
+        }
+        return String.format(Locale.US, "%.2f MB", b / 1048576f);
+    }
+
+    // ---------------------------------------------------------------- conversione
 
     private void convert() {
         if (busy || pickedUri == null) {
             return;
         }
+        final int fmt = format;
+        final int q = quality;
+        if (fmt == 4 && icoSize < 1) {
+            Toast.makeText(this, "Scrivi una dimensione valida per l'icona.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        final int icoPx = Math.max(1, Math.min(256, icoSize));
         busy = true;
         resultUri = null;
-        openBtn.setVisibility(View.GONE);
+        outCard.setVisibility(View.GONE);
         progress.setVisibility(View.VISIBLE);
-        pickBtn.setEnabled(false);
         convertBtn.setEnabled(false);
         status.setText("Conversione in corso...");
 
         final Uri src = pickedUri;
-        final int fmt = format;
-        final int q = quality;
-        int sz = 64;
-        try {
-            sz = Integer.parseInt(icoEdit.getText().toString().trim());
-        } catch (Exception ignored) {
-        }
-        final int icoPx = Math.max(1, Math.min(256, sz));
-        if (fmt == 4 && sz != icoPx) {
-            icoEdit.setText(String.valueOf(icoPx));
-        }
         final String base = baseName(pickedName);
 
         new Thread(new Runnable() {
@@ -371,33 +460,24 @@ public class ImageConverterActivity extends Activity {
                     Bitmap bmp = decode(src, 0);
                     final String ext;
                     final String mime;
-                    if (fmt == 0) {
-                        ext = "jpg";
-                        mime = "image/jpeg";
-                    } else if (fmt == 1) {
-                        ext = "png";
-                        mime = "image/png";
-                    } else if (fmt == 2) {
-                        ext = "webp";
-                        mime = "image/webp";
-                    } else if (fmt == 3) {
-                        ext = "bmp";
-                        mime = "image/bmp";
-                    } else {
-                        ext = "ico";
-                        mime = "image/x-icon";
-                    }
-                    if (fmt == 4) {
-                        bmp = squareFit(bmp, icoPx);
+                    switch (fmt) {
+                        case 0: ext = "jpg"; mime = "image/jpeg"; break;
+                        case 1: ext = "png"; mime = "image/png"; break;
+                        case 2: ext = "webp"; mime = "image/webp"; break;
+                        case 3: ext = "bmp"; mime = "image/bmp"; break;
+                        default: ext = "ico"; mime = "image/x-icon"; break;
                     }
                     if (fmt == 0 || fmt == 3) {
                         bmp = flatten(bmp);
+                    }
+                    if (fmt == 4) {
+                        bmp = squareFit(bmp, icoPx);
                     }
                     final Bitmap out = bmp;
                     Uri saved = saveImage(base + "." + ext, mime, new Writer() {
                         @Override
                         public void write(OutputStream os) throws IOException {
-                            boolean ok;
+                            boolean ok = true;
                             if (fmt == 0) {
                                 ok = out.compress(Bitmap.CompressFormat.JPEG, q, os);
                             } else if (fmt == 1) {
@@ -408,17 +488,15 @@ public class ImageConverterActivity extends Activity {
                                         : Bitmap.CompressFormat.WEBP_LOSSY, q, os);
                             } else if (fmt == 3) {
                                 writeBmp(out, os);
-                                ok = true;
                             } else {
                                 writeIco(out, os);
-                                ok = true;
                             }
                             if (!ok) {
                                 throw new IOException("codifica non riuscita");
                             }
                         }
                     });
-                    done(saved);
+                    done(saved, mime, out.getWidth() + "x" + out.getHeight());
                 } catch (OutOfMemoryError oom) {
                     fail("Memoria insufficiente: l'immagine e' troppo grande per questo telefono.");
                 } catch (Throwable t) {
@@ -428,6 +506,49 @@ public class ImageConverterActivity extends Activity {
                 }
             }
         }).start();
+    }
+
+    private void done(final Uri uri, final String mime, final String dims) {
+        final long bytes = querySize(uri);
+        Bitmap pv = null;
+        try {
+            pv = decode(uri, 900);
+        } catch (Throwable ignored) {
+        }
+        final Bitmap preview = pv;
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                busy = false;
+                resultUri = uri;
+                progress.setVisibility(View.GONE);
+                convertBtn.setEnabled(true);
+                status.setText("Fatto! Salvata in Immagini/MamoTools.");
+                if (preview != null) {
+                    outPreview.setImageBitmap(preview);
+                }
+                StringBuilder sb = new StringBuilder(describe(mime, dims, bytes));
+                if (pickedBytes > 0 && bytes > 0) {
+                    double ch = 100.0 * (bytes - pickedBytes) / pickedBytes;
+                    sb.append(String.format(Locale.US, "\n%s del file originale (%+.0f%%)",
+                            ch <= 0 ? "Piu' leggero" : "Piu' pesante", ch));
+                }
+                outInfo.setText(sb.toString());
+                outCard.setVisibility(View.VISIBLE);
+            }
+        });
+    }
+
+    private void fail(final String msg) {
+        runOnUiThread(new Runnable() {
+            @Override
+            public void run() {
+                busy = false;
+                progress.setVisibility(View.GONE);
+                convertBtn.setEnabled(pickedUri != null);
+                status.setText(msg);
+            }
+        });
     }
 
     /** Appiattisce la trasparenza su sfondo bianco. */
@@ -448,7 +569,6 @@ public class ImageConverterActivity extends Activity {
         int w = Math.max(1, Math.round(src.getWidth() * scale));
         int h = Math.max(1, Math.round(src.getHeight() * scale));
         Bitmap cur = src;
-        // riduzione a gradini per non perdere qualita'
         while (cur.getWidth() / 2 >= w && cur.getHeight() / 2 >= h) {
             Bitmap n = Bitmap.createScaledBitmap(cur, cur.getWidth() / 2, cur.getHeight() / 2, true);
             if (cur != src) {
@@ -462,14 +582,13 @@ public class ImageConverterActivity extends Activity {
         }
         Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(out);
-        Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
-        c.drawBitmap(scaled, (size - w) / 2f, (size - h) / 2f, p);
+        c.drawBitmap(scaled, (size - w) / 2f, (size - h) / 2f, new Paint(Paint.FILTER_BITMAP_FLAG));
         return out;
     }
 
     /** ICO con una sola immagine, memorizzata come PNG (valido da Windows Vista in poi). */
     private static void writeIco(Bitmap b, OutputStream os) throws IOException {
-        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        ByteArrayOutputStream png = new ByteArrayOutputStream();
         if (!b.compress(Bitmap.CompressFormat.PNG, 100, png)) {
             throw new IOException("codifica PNG non riuscita");
         }
@@ -568,34 +687,6 @@ public class ImageConverterActivity extends Activity {
         return uri;
     }
 
-    private void done(final Uri uri) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                busy = false;
-                resultUri = uri;
-                progress.setVisibility(View.GONE);
-                pickBtn.setEnabled(true);
-                convertBtn.setEnabled(true);
-                openBtn.setVisibility(View.VISIBLE);
-                status.setText("Fatto! Salvata in Immagini/MamoTools (la trovi in Galleria).");
-            }
-        });
-    }
-
-    private void fail(final String msg) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                busy = false;
-                progress.setVisibility(View.GONE);
-                pickBtn.setEnabled(true);
-                convertBtn.setEnabled(pickedUri != null);
-                status.setText(msg);
-            }
-        });
-    }
-
     private void openResult() {
         if (resultUri == null) {
             return;
@@ -621,11 +712,97 @@ public class ImageConverterActivity extends Activity {
         return (n.isEmpty() ? "immagine" : n) + "_conv";
     }
 
-    private TextView text(String s, int sp, int colorRes, boolean bold) {
+    // ---------------------------------------------------------------- componenti grafici
+
+    private final class RoundButton extends Button {
+        RoundButton(android.content.Context c) {
+            super(c);
+        }
+
+        @Override
+        public void setEnabled(boolean e) {
+            super.setEnabled(e);
+            setAlpha(e ? 1f : 0.4f);
+        }
+    }
+
+    private Button btn(String label, int bg, int fg, View.OnClickListener l) {
+        Button b = new RoundButton(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextColor(fg);
+        b.setTextSize(14);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setStateListAnimator(null);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), round(bg, 12), null));
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    private TextView chip(String label) {
+        TextView t = new TextView(this);
+        t.setText(label);
+        t.setGravity(Gravity.CENTER);
+        t.setTextSize(15);
+        t.setTypeface(Typeface.DEFAULT_BOLD);
+        t.setSingleLine(true);
+        t.setClickable(true);
+        style(t, false);
+        return t;
+    }
+
+    private ImageView preview() {
+        ImageView v = new ImageView(this);
+        v.setScaleType(ImageView.ScaleType.FIT_CENTER);
+        v.setBackground(round(C_BG, 14));
+        v.setPadding(dp(6), dp(6), dp(6), dp(6));
+        return v;
+    }
+
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(round(C_CARD, 16));
+        c.setPadding(dp(16), dp(14), dp(16), dp(16));
+        return c;
+    }
+
+    private GradientDrawable round(int color, int radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(radiusDp));
+        return g;
+    }
+
+    private LinearLayout.LayoutParams lp(int w, int h, int leftDp, int topDp) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(w, h);
+        p.leftMargin = dp(leftDp);
+        p.topMargin = dp(topDp);
+        return p;
+    }
+
+    private LinearLayout.LayoutParams lp(int w, int h, int leftDp, int topDp, float weight) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(w, h, weight);
+        p.leftMargin = dp(leftDp);
+        p.topMargin = dp(topDp);
+        return p;
+    }
+
+    private TextView sectionTitle(String s) {
+        TextView t = text(s, 15, C_ACCENT, true);
+        t.setPadding(0, 0, 0, dp(10));
+        return t;
+    }
+
+    private TextView text(String s, int sp, int color, boolean bold) {
         TextView t = new TextView(this);
         t.setText(s);
         t.setTextSize(sp);
-        t.setTextColor(getColor(colorRes));
+        t.setTextColor(color);
         if (bold) {
             t.setTypeface(Typeface.DEFAULT_BOLD);
         }

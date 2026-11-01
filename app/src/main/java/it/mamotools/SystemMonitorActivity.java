@@ -92,10 +92,13 @@ public class SystemMonitorActivity extends Activity {
 
     // altre schede
     private LinearLayout storageBox;
+    private ThermoView thermoCpu, thermoRam, thermoSoc, thermoBat;
+    private PhoneView phoneView;
+    private Kv displayKv;
     private BatteryView batteryView;
     private Kv batteryKv;
     private final java.util.Map<String, StorageRow> storageRows = new java.util.LinkedHashMap<>();
-    private TextView deviceText, displayText, sensorsText, thermalText,
+    private TextView deviceText, sensorsText, thermalText,
             gpuText, systemText;
 
     private final Runnable loop = new Runnable() {
@@ -186,9 +189,30 @@ public class SystemMonitorActivity extends Activity {
         bkp.leftMargin = dp(16);
         batRow.addView(batteryKv, bkp);
         bat.addView(batRow, new LinearLayout.LayoutParams(MATCH, WRAP));
-        thermalText = info(root, "Temperature");
+        LinearLayout th = card(root, "Temperature");
+        LinearLayout thRow = new LinearLayout(this);
+        thermoCpu = new ThermoView(this, "CPU", 20f, 90f);
+        thermoRam = new ThermoView(this, "RAM", 20f, 80f);
+        thermoSoc = new ThermoView(this, "SoC", 20f, 90f);
+        thermoBat = new ThermoView(this, "Batteria", 10f, 60f);
+        for (ThermoView t : new ThermoView[]{thermoCpu, thermoRam, thermoSoc, thermoBat}) {
+            thRow.addView(t, new LinearLayout.LayoutParams(0, dp(230), 1f));
+        }
+        th.addView(thRow, new LinearLayout.LayoutParams(MATCH, WRAP));
+        thermalText = text("", 12, R.color.text_dim, false);
+        thermalText.setPadding(0, dp(8), 0, 0);
+        th.addView(thermalText);
         gpuText = info(root, "Grafica (GPU)");
-        displayText = info(root, "Schermo");
+        LinearLayout dc = card(root, "Schermo");
+        LinearLayout dRow = new LinearLayout(this);
+        dRow.setGravity(Gravity.CENTER_VERTICAL);
+        phoneView = new PhoneView(this);
+        dRow.addView(phoneView, new LinearLayout.LayoutParams(dp(130), dp(240)));
+        displayKv = new Kv(this);
+        LinearLayout.LayoutParams dkp = new LinearLayout.LayoutParams(0, WRAP, 1f);
+        dkp.leftMargin = dp(14);
+        dRow.addView(displayKv, dkp);
+        dc.addView(dRow, new LinearLayout.LayoutParams(MATCH, WRAP));
         deviceText = info(root, "Dispositivo");
         systemText = info(root, "Sistema e funzioni");
         sensorsText = info(root, "Sensori");
@@ -733,34 +757,78 @@ public class SystemMonitorActivity extends Activity {
 
     // ---- temperature / GPU
 
-    private void updateThermal() {
-        StringBuilder sb = new StringBuilder();
-        File[] zones = new File("/sys/class/thermal").listFiles();
-        int shown = 0;
-        if (zones != null) {
-            List<File> zs = new ArrayList<>();
-            for (File z : zones) {
-                if (z.getName().startsWith("thermal_zone")) {
-                    zs.add(z);
-                }
+    private static boolean has(String t, String... keys) {
+        for (String k : keys) {
+            if (t.contains(k)) {
+                return true;
             }
-            Collections.sort(zs);
-            for (File z : zs) {
+        }
+        return false;
+    }
+
+    private static float avg(List<Float> l) {
+        if (l.isEmpty()) {
+            return Float.NaN;
+        }
+        float sum = 0;
+        for (float f : l) {
+            sum += f;
+        }
+        return sum / l.size();
+    }
+
+    private void updateThermal() {
+        List<Float> cpu = new ArrayList<>();
+        List<Float> ram = new ArrayList<>();
+        List<Float> soc = new ArrayList<>();
+        List<Float> bat = new ArrayList<>();
+
+        File[] zones = new File("/sys/class/thermal").listFiles();
+        if (zones != null) {
+            for (File z : zones) {
+                if (!z.getName().startsWith("thermal_zone")) {
+                    continue;
+                }
                 long t = readLong(new File(z, "temp").getPath());
                 String type = read(new File(z, "type").getPath());
                 if (t == -1 || type == null) {
                     continue;
                 }
                 float c = Math.abs(t) > 1000 ? t / 1000f : t;
-                if (c < -20 || c > 150) {
+                if (c < -20 || c > 150 || c == 0f) {
                     continue;
                 }
-                sb.append(String.format(Locale.US, "%s: %.1f °C\n", type.trim(), c));
-                shown++;
+                String n = type.trim().toLowerCase(Locale.ROOT);
+                if (has(n, "batt", "bms", "fuel", "charger", "chg")) {
+                    bat.add(c);
+                } else if (has(n, "ddr", "dram", "lpddr", "memory", "mem_", "_mem", "-mem", "ram")) {
+                    ram.add(c);
+                } else if (has(n, "cpu", "cluster", "big", "mid", "little", "core", "kryo", "mtktscpu")) {
+                    cpu.add(c);
+                } else if (has(n, "soc", "gpu", "npu", "nsp", "aoss", "tsens", "apc", "ap_", "xo_", "pop",
+                        "mtktsap", "mtktsbts", "video", "isp", "modem", "mdm")) {
+                    soc.add(c);
+                }
             }
         }
-        if (shown == 0) {
-            sb.append("Sensori termici del kernel non accessibili (bloccati da Android).\n");
+        // la temperatura della batteria e' sempre disponibile
+        Intent bi = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
+        if (bi != null) {
+            int bt = bi.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Integer.MIN_VALUE);
+            if (bt != Integer.MIN_VALUE && bat.isEmpty()) {
+                bat.add(bt / 10f);
+            }
+        }
+        thermoCpu.set(avg(cpu), cpu.size());
+        thermoRam.set(avg(ram), ram.size());
+        thermoSoc.set(avg(soc), soc.size());
+        thermoBat.set(avg(bat), bat.size());
+
+        StringBuilder sb = new StringBuilder();
+        sb.append("Ogni indicatore e' la media dei sensori del kernel di quel gruppo. ");
+        if (cpu.isEmpty() && ram.isEmpty() && soc.isEmpty()) {
+            sb.append("I sensori del kernel non sono accessibili su questo telefono "
+                    + "(Android li blocca): resta solo la batteria.\n");
         }
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null && Build.VERSION.SDK_INT >= 29) {
@@ -843,26 +911,41 @@ public class SystemMonitorActivity extends Activity {
         cpuStatic.setText(c.toString().trim());
 
         // schermo
-        StringBuilder d = new StringBuilder();
         DisplayMetrics dm = getResources().getDisplayMetrics();
         Display disp = getWindowManager().getDefaultDisplay();
         DisplayMetrics real = new DisplayMetrics();
         disp.getRealMetrics(real);
-        d.append("Risoluzione: ").append(real.widthPixels).append(" x ").append(real.heightPixels).append(" px\n");
-        d.append("Densita': ").append(dm.densityDpi).append(" dpi (x").append(dm.density).append(")\n");
-        d.append(String.format(Locale.US, "DPI fisici: %.0f x %.0f\n", real.xdpi, real.ydpi));
-        d.append(String.format(Locale.US, "Diagonale: %.1f pollici\n",
-                Math.hypot(real.widthPixels / real.xdpi, real.heightPixels / real.ydpi)));
-        d.append(String.format(Locale.US, "Frequenza di aggiornamento: %.0f Hz\n", disp.getRefreshRate()));
+        int pw = Math.min(real.widthPixels, real.heightPixels);
+        int ph = Math.max(real.widthPixels, real.heightPixels);
+        float xdpi = Math.max(1f, Math.min(real.xdpi, real.ydpi) > 0 ? real.xdpi : 400f);
+        float ydpi = Math.max(1f, real.ydpi > 0 ? real.ydpi : 400f);
+        boolean port = real.widthPixels <= real.heightPixels;
+        double wIn = (port ? pw / xdpi : pw / ydpi);
+        double hIn = (port ? ph / ydpi : ph / xdpi);
+        double diag = Math.hypot(wIn, hIn);
+        phoneView.set(pw, ph, (float) diag);
+
         Display.Mode[] modes = disp.getSupportedModes();
-        List<String> ms = new ArrayList<>();
+        java.util.TreeSet<Integer> rates = new java.util.TreeSet<>();
         for (Display.Mode m : modes) {
-            ms.add(m.getPhysicalWidth() + "x" + m.getPhysicalHeight() + "@" + Math.round(m.getRefreshRate()));
+            rates.add(Math.round(m.getRefreshRate()));
         }
-        d.append("Modalita': ").append(join(ms, ", ")).append('\n');
-        d.append("HDR: ").append(disp.isHdr() ? "si" : "no").append("  ·  Colore ampio: ")
-                .append(disp.isWideColorGamut() ? "si" : "no");
-        displayText.setText(d.toString());
+        List<String> rs = new ArrayList<>();
+        for (int r : rates) {
+            rs.add(String.valueOf(r));
+        }
+        int g = gcd(pw, ph);
+        displayKv.set(new String[][]{
+                {"Diagonale", String.format(Locale.US, "%.2f pollici", diag)},
+                {"Risoluzione", pw + " x " + ph + " px"},
+                {"Rapporto", (pw / g) + ":" + (ph / g)},
+                {"Dimensioni", String.format(Locale.US, "%.1f x %.1f cm", wIn * 2.54, hIn * 2.54)},
+                {"Densita'", dm.densityDpi + " dpi"},
+                {"DPI fisici", String.format(Locale.US, "%.0f x %.0f", real.xdpi, real.ydpi)},
+                {"Aggiornamento", String.format(Locale.US, "%.0f Hz", disp.getRefreshRate())},
+                {"Frequenze", join(rs, " / ") + " Hz"},
+                {"HDR", disp.isHdr() ? "si" : "no"},
+                {"Colore ampio", disp.isWideColorGamut() ? "si" : "no"}});
 
         // dispositivo
         StringBuilder v = new StringBuilder();
@@ -950,6 +1033,10 @@ public class SystemMonitorActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- utilita'
+
+    private static int gcd(int a, int b) {
+        return b == 0 ? Math.max(1, a) : gcd(b, a % b);
+    }
 
     private static String size(long b) {
         if (b < 0) {
@@ -1159,6 +1246,181 @@ public class SystemMonitorActivity extends Activity {
                 p.setColor(0xFFFFFFFF);
                 c.drawPath(bolt, p);
             }
+        }
+    }
+
+    /** Disegno di un telefono con diagonale e dimensioni in pixel scritte sullo schermo. */
+    private static final class PhoneView extends View {
+        private int pw = 1080, ph = 2400;
+        private float diag = 6f;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint t = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF body = new android.graphics.RectF();
+        private final android.graphics.RectF scr = new android.graphics.RectF();
+        private final float d;
+
+        PhoneView(Context c) {
+            super(c);
+            d = c.getResources().getDisplayMetrics().density;
+            t.setTextAlign(Paint.Align.CENTER);
+            t.setTypeface(Typeface.DEFAULT_BOLD);
+        }
+
+        void set(int w, int h, float dg) {
+            pw = Math.max(1, w);
+            ph = Math.max(1, h);
+            diag = dg;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float vw = getWidth();
+            float vh = getHeight();
+            float bez = 7f * d;
+            float aspect = (float) pw / ph;
+            float maxW = vw - 8f * d;
+            float maxH = vh - 8f * d;
+            float sw = Math.min(maxW - 2 * bez, (maxH - 2 * bez) * aspect);
+            float sh = sw / aspect;
+            float bw = sw + 2 * bez;
+            float bh = sh + 2 * bez;
+            float l = (vw - bw) / 2f;
+            float tp = (vh - bh) / 2f;
+            body.set(l, tp, l + bw, tp + bh);
+            scr.set(l + bez, tp + bez, l + bez + sw, tp + bez + sh);
+
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF2E3440);
+            c.drawRoundRect(body, 20f * d, 20f * d, p);
+            p.setColor(0xFF0F1115);
+            c.drawRoundRect(scr, 14f * d, 14f * d, p);
+            // contorno e tasto
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(1.5f * d);
+            p.setColor(0xFF9AA3B2);
+            c.drawRoundRect(body, 20f * d, 20f * d, p);
+            // fotocamera frontale
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF2E3440);
+            c.drawCircle(scr.centerX(), scr.top + 9f * d, 3.5f * d, p);
+
+            // diagonale tratteggiata
+            p.setStyle(Paint.Style.STROKE);
+            p.setColor(0xFF4DD0E1);
+            p.setStrokeWidth(1.6f * d);
+            p.setPathEffect(new android.graphics.DashPathEffect(new float[]{8f * d, 6f * d}, 0));
+            c.drawLine(scr.left + 8f * d, scr.bottom - 8f * d, scr.right - 8f * d, scr.top + 22f * d, p);
+            p.setPathEffect(null);
+
+            // diagonale in pollici al centro
+            t.setColor(0xFF4DD0E1);
+            t.setTextSize(22f * d);
+            float cx = scr.centerX();
+            float cy = scr.centerY();
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF0F1115);
+            c.drawRoundRect(cx - 34f * d, cy - 17f * d, cx + 34f * d, cy + 17f * d, 8f * d, 8f * d, p);
+            c.drawText(String.format(Locale.US, "%.1f\"", diag), cx, cy + 8f * d, t);
+
+            // larghezza in alto
+            t.setColor(0xFFECEFF4);
+            t.setTextSize(11f * d);
+            c.drawText(pw + " px", cx, scr.top + 30f * d, t);
+            // altezza sul lato, ruotata
+            c.save();
+            c.rotate(-90f, scr.left + 15f * d, cy);
+            c.drawText(ph + " px", scr.left + 15f * d, cy + 4f * d, t);
+            c.restore();
+        }
+    }
+
+    /** Termometro verticale: livello colorato e valore numerico. */
+    private static final class ThermoView extends View {
+        private final String name;
+        private final float min, max;
+        private float temp = Float.NaN;
+        private int count = 0;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint t = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF r = new android.graphics.RectF();
+        private final float d;
+
+        ThermoView(Context c, String name, float min, float max) {
+            super(c);
+            this.name = name;
+            this.min = min;
+            this.max = max;
+            d = c.getResources().getDisplayMetrics().density;
+            t.setTextAlign(Paint.Align.CENTER);
+            t.setTypeface(Typeface.DEFAULT_BOLD);
+        }
+
+        void set(float v, int n) {
+            temp = v;
+            count = n;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float w = getWidth();
+            float h = getHeight();
+            float cx = w / 2f;
+            boolean ok = !Float.isNaN(temp);
+
+            t.setColor(0xFFECEFF4);
+            t.setTextSize(15f * d);
+            c.drawText(ok ? String.format(Locale.US, "%.1f°", temp) : "n/d", cx, 18f * d, t);
+
+            float tubeTop = 30f * d;
+            float labelH = 34f * d;
+            float bulbR = 13f * d;
+            float tubeW = 14f * d;
+            float bulbCy = h - labelH - bulbR;
+            float tubeBottom = bulbCy - bulbR * 0.4f;
+
+            float frac = ok ? Math.max(0f, Math.min(1f, (temp - min) / (max - min))) : 0f;
+            int color = !ok ? 0xFF5A6270 : frac < 0.35f ? 0xFF4DD0E1 : frac < 0.55f ? 0xFF66BB6A
+                    : frac < 0.75f ? 0xFFFFB74D : 0xFFFF5252;
+
+            // tubo e bulbo (sfondo)
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF262B35);
+            r.set(cx - tubeW / 2f, tubeTop, cx + tubeW / 2f, tubeBottom + 4f * d);
+            c.drawRoundRect(r, tubeW / 2f, tubeW / 2f, p);
+            c.drawCircle(cx, bulbCy, bulbR, p);
+
+            // liquido
+            p.setColor(color);
+            float inner = tubeW - 6f * d;
+            float liqTop = tubeBottom - (tubeBottom - tubeTop - 6f * d) * frac;
+            r.set(cx - inner / 2f, liqTop, cx + inner / 2f, tubeBottom + 6f * d);
+            c.drawRoundRect(r, inner / 2f, inner / 2f, p);
+            c.drawCircle(cx, bulbCy, bulbR - 3f * d, p);
+
+            // tacche
+            p.setColor(0xFF9AA3B2);
+            p.setStrokeWidth(1f * d);
+            for (int i = 0; i <= 4; i++) {
+                float y = tubeBottom - (tubeBottom - tubeTop - 6f * d) * i / 4f;
+                c.drawLine(cx + tubeW / 2f + 4f * d, y, cx + tubeW / 2f + 10f * d, y, p);
+            }
+            t.setTextSize(9f * d);
+            t.setColor(0xFF9AA3B2);
+            t.setTextAlign(Paint.Align.LEFT);
+            c.drawText(String.valueOf(Math.round(max)), cx + tubeW / 2f + 12f * d, tubeTop + 8f * d, t);
+            c.drawText(String.valueOf(Math.round(min)), cx + tubeW / 2f + 12f * d, tubeBottom + 2f * d, t);
+            t.setTextAlign(Paint.Align.CENTER);
+
+            // nome e numero sensori
+            t.setColor(0xFFECEFF4);
+            t.setTextSize(12f * d);
+            c.drawText(name, cx, h - 16f * d, t);
+            t.setColor(0xFF9AA3B2);
+            t.setTextSize(10f * d);
+            c.drawText(count > 0 ? count + (count == 1 ? " sensore" : " sensori") : "nessun sensore",
+                    cx, h - 3f * d, t);
         }
     }
 
