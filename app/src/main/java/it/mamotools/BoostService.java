@@ -52,6 +52,7 @@ public class BoostService extends Service {
         applyBoost(p.getBoolean("boost_on", false), p.getInt("gain_mb", 0));
         applyEq(p.getBoolean("eq_on", false), p);
         applyBalance(p.getBoolean("bal_fx", true), p.getFloat("bal", 0f));
+        BoostWidgetProvider.refresh(this);
         return START_STICKY;
     }
 
@@ -208,6 +209,7 @@ public class BoostService extends Service {
         boostStatus = "Spento";
         eqStatus = "Spento";
         balStatus = "Spento";
+        BoostWidgetProvider.refresh(this);
         super.onDestroy();
     }
 

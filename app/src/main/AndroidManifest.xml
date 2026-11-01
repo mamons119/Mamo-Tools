@@ -66,6 +66,59 @@
             android:label="Video Editor"
             android:exported="false" />
 
+        <activity
+            android:name=".PdfReaderActivity"
+            android:label="Mamo Tools (PDF)"
+            android:exported="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/pdf" />
+                <data android:mimeType="application/x-pdf" />
+            </intent-filter>
+        </activity>
+
+        <provider
+            android:name=".PdfShareProvider"
+            android:authorities="it.mamotools.pdfshare"
+            android:exported="false"
+            android:grantUriPermissions="true" />
+
+        <receiver
+            android:name=".MonitorWidgetProvider"
+            android:label="Mamo Tools · System Monitor"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_monitor_info" />
+        </receiver>
+
+        <receiver
+            android:name=".BoostWidgetProvider"
+            android:label="Mamo Tools · Volume Boost"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_boost_info" />
+        </receiver>
+
+        <service
+            android:name=".MonitorWidgetViewsService"
+            android:exported="false"
+            android:permission="android.permission.BIND_REMOTEVIEWS" />
+
+        <service
+            android:name=".MonitorWidgetService"
+            android:exported="false" />
+
         <service
             android:name=".BoostService"
             android:exported="false" />

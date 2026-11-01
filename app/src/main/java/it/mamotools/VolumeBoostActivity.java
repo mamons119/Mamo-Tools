@@ -502,6 +502,7 @@ public class VolumeBoostActivity extends Activity {
         } else {
             stopService(i);
         }
+        BoostWidgetProvider.refresh(this);
     }
 
     private void updateDevice() {

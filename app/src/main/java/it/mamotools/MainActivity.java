@@ -55,6 +55,9 @@ public class MainActivity extends Activity {
                     "CPU per core, RAM e traffico di rete in tempo reale, piu' tutte le "
                             + "informazioni del telefono.",
                     SystemMonitorActivity.class),
+            new Tool("📕", "PDF Reader",
+                    "Leggi i PDF con zoom, ricerca, vai a pagina, notte, condividi e stampa.",
+                    PdfReaderActivity.class),
     };
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
