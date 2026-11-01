@@ -47,10 +47,10 @@ public class MainActivity extends Activity {
                     "Registra video stabilizzati alla massima qualita' del telefono "
                             + "e li salva in Galleria.",
                     StableCamActivity.class),
-            new Tool("📄", "PDF ↔ Word",
-                    "Converte un PDF in Word (.docx) o un Word in PDF e salva il risultato "
-                            + "in Download.",
-                    ConverterActivity.class),
+            new Tool("📄", "PDF Tools",
+                    "PDF ↔ Word, unisci, dividi, estrai, elimina e ruota pagine, "
+                            + "immagini ↔ PDF.",
+                    PdfToolsActivity.class),
             new Tool("📕", "PDF Reader",
                     "Leggi i PDF con zoom, ricerca, vai a pagina, notte, condividi e stampa.",
                     PdfReaderActivity.class),
@@ -61,6 +61,10 @@ public class MainActivity extends Activity {
             new Tool("🎬", "Video Editor",
                     "Taglia parti del video, togli l'audio o aggiungi una colonna sonora.",
                     VideoEditorActivity.class),
+            new Tool("🎧", "Audio Editor",
+                    "Taglia, copia e incolla parti di un audio, filtri passa-alto/basso/banda "
+                            + "e volume.",
+                    AudioEditorActivity.class),
             new Tool("📊", "System Monitor",
                     "CPU per core, RAM e traffico di rete in tempo reale, piu' tutte le "
                             + "informazioni del telefono.",

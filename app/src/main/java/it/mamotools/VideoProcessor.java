@@ -287,7 +287,7 @@ final class VideoProcessor {
     // =========================================================================== PCM
 
     /** Scrive PCM 16 bit stereo a 44100 Hz su file, ricampionando in modo lineare. */
-    private static final class PcmWriter {
+    static final class PcmWriter {
         private final OutputStream os;
         private double pos = 0;
         private boolean havePrev = false;
@@ -352,7 +352,7 @@ final class VideoProcessor {
     }
 
     /** Decodifica l'audio di uri tra startUs e endUs nel writer (che lo converte). */
-    private static void decodeRange(Context ctx, Uri uri, long startUs, long endUs,
+    static void decodeRange(Context ctx, Uri uri, long startUs, long endUs,
                                     PcmWriter w) throws IOException {
         MediaExtractor ex = new MediaExtractor();
         MediaCodec dec = null;

@@ -23,6 +23,7 @@
         android:roundIcon="@mipmap/ic_launcher_round"
         android:label="Mamo Tools"
         android:allowBackup="false"
+        android:largeHeap="true"
         android:theme="@style/AppTheme">
 
         <activity
@@ -49,6 +50,26 @@
         <activity
             android:name=".ConverterActivity"
             android:label="PDF e Word"
+            android:exported="false" />
+
+        <activity
+            android:name=".PdfToolsActivity"
+            android:label="PDF Tools"
+            android:exported="false" />
+
+        <activity
+            android:name=".PdfOrganizeActivity"
+            android:label="PDF Tools"
+            android:exported="false" />
+
+        <activity
+            android:name=".PdfImagesActivity"
+            android:label="PDF Tools"
+            android:exported="false" />
+
+        <activity
+            android:name=".AudioEditorActivity"
+            android:label="Audio Editor"
             android:exported="false" />
 
         <activity

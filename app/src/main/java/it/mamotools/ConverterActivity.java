@@ -1,160 +1,86 @@
 package it.mamotools;
 
 import android.app.Activity;
-import android.content.ContentResolver;
-import android.content.ContentValues;
 import android.content.Intent;
-import android.database.Cursor;
-import android.graphics.Typeface;
-import android.graphics.drawable.GradientDrawable;
 import android.net.Uri;
 import android.os.Bundle;
-import android.os.Environment;
 import android.provider.MediaStore;
-import android.provider.OpenableColumns;
 import android.view.View;
-import android.view.ViewGroup;
 import android.widget.Button;
 import android.widget.LinearLayout;
-import android.widget.ProgressBar;
-import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedOutputStream;
 import java.io.File;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.Locale;
 
-/**
- * Converte PDF in Word (.docx) e Word (.docx) in PDF.
- * Il file si sceglie con il selettore di sistema e il risultato va nella cartella Download.
- */
+/** Converte PDF in Word (.docx) e Word (.docx) in PDF; il risultato va in Download/MamoTools. */
 public class ConverterActivity extends Activity {
 
     private static final int REQ_PICK = 31;
     private static final String MIME_PDF = "application/pdf";
     private static final String MIME_DOCX =
             "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
-
-    private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
-    private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
-
-    private interface Writer {
-        void write(OutputStream os) throws IOException;
-    }
+    private static final String DIR = "Download/MamoTools";
 
     private Uri pickedUri;
     private String pickedName;
     private boolean pickedIsPdf;
-    private long pickedSize = -1;
-    private Uri resultUri;
-    private String resultMime;
     private volatile boolean busy = false;
 
-    private TextView fileName, fileInfo, status;
-    private Button pickBtn, convertBtn, openBtn;
-    private ProgressBar progress;
+    private Ui.PickCard pick;
+    private TextView direction;
+    private Button convertBtn;
+    private ResultCard result;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        LinearLayout root = Ui.screen(this, "PDF ↔ Word",
+                "Scegli un PDF o un Word (.docx): lo converto nell'altro formato.");
 
-        ScrollView scroll = new ScrollView(this);
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(40), dp(16), dp(24));
-        scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
+        pick = new Ui.PickCard(this, "📄", "Scegli un file", "PDF oppure Word (.docx)",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        pick();
+                    }
+                });
+        root.addView(pick.view);
 
-        root.addView(text("PDF ↔ Word", 28, R.color.text, true));
-        TextView sub = text("Scegli un file PDF o Word (.docx): lo converto nell'altro formato "
-                + "e lo salvo in Download.", 14, R.color.text_dim, false);
-        sub.setPadding(0, dp(6), 0, dp(20));
-        root.addView(sub);
+        direction = Ui.text(this, "", 15, Ui.ACCENT, true);
+        direction.setGravity(android.view.Gravity.CENTER);
+        direction.setPadding(0, Ui.dp(this, 16), 0, 0);
+        root.addView(direction);
 
-        pickBtn = new Button(this);
-        pickBtn.setText("Scegli un file");
-        pickBtn.setAllCaps(false);
-        pickBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pick();
-            }
-        });
-        root.addView(pickBtn, new LinearLayout.LayoutParams(MATCH, WRAP));
-
-        LinearLayout card = new LinearLayout(this);
-        card.setOrientation(LinearLayout.VERTICAL);
-        GradientDrawable bg = new GradientDrawable();
-        bg.setColor(getColor(R.color.card));
-        bg.setCornerRadius(dp(16));
-        card.setBackground(bg);
-        card.setPadding(dp(16), dp(16), dp(16), dp(16));
-        fileName = text("Nessun file scelto", 16, R.color.text, true);
-        fileInfo = text("", 13, R.color.text_dim, false);
-        fileInfo.setPadding(0, dp(4), 0, 0);
-        card.addView(fileName);
-        card.addView(fileInfo);
-        LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(MATCH, WRAP);
-        clp.topMargin = dp(16);
-        root.addView(card, clp);
-
-        convertBtn = new Button(this);
-        convertBtn.setAllCaps(false);
-        convertBtn.setText("Converti");
-        convertBtn.setEnabled(false);
-        convertBtn.setOnClickListener(new View.OnClickListener() {
+        convertBtn = Ui.btn(this, "Converti", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 convert();
             }
         });
-        LinearLayout.LayoutParams blp = new LinearLayout.LayoutParams(MATCH, WRAP);
-        blp.topMargin = dp(16);
-        root.addView(convertBtn, blp);
+        convertBtn.setTextSize(16);
+        convertBtn.setEnabled(false);
+        root.addView(convertBtn, Ui.lp(this, Ui.MATCH, Ui.dp(this, 54), 0, 12));
 
-        progress = new ProgressBar(this);
-        progress.setIndeterminate(true);
-        progress.setVisibility(View.GONE);
-        LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(WRAP, WRAP);
-        plp.topMargin = dp(16);
-        plp.gravity = android.view.Gravity.CENTER_HORIZONTAL;
-        root.addView(progress, plp);
+        result = new ResultCard(this);
+        root.addView(result.view, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 14));
 
-        status = text("", 14, R.color.text, false);
-        status.setPadding(0, dp(12), 0, dp(8));
-        root.addView(status);
-
-        openBtn = new Button(this);
-        openBtn.setAllCaps(false);
-        openBtn.setText("Apri il file convertito");
-        openBtn.setVisibility(View.GONE);
-        openBtn.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                openResult();
-            }
-        });
-        root.addView(openBtn, new LinearLayout.LayoutParams(MATCH, WRAP));
-
-        TextView note = text("PDF → Word: estrae il testo e lo rimette in paragrafi "
-                + "(titoli, grassetto e dimensioni). Immagini, tabelle e impaginazione "
-                + "non vengono mantenute, e i PDF scansionati (solo immagini) non funzionano.\n\n"
-                + "Word → PDF: mantiene testo formattato, elenchi, tabelle semplici e "
-                + "immagini. Intestazioni, pie' di pagina e caselle di testo non vengono "
-                + "disegnati, e i font possono differire dall'originale. "
-                + "Il formato .doc vecchio non e' supportato: salvalo prima come .docx.",
-                12, R.color.text_dim, false);
-        note.setPadding(0, dp(24), 0, 0);
-        root.addView(note);
-
-        setContentView(scroll);
+        LinearLayout notes = Ui.card(this);
+        notes.addView(Ui.text(this, "Cosa aspettarsi", 14, Ui.ACCENT, true));
+        TextView t = Ui.text(this, "PDF → Word: estrae il testo e lo rimette in paragrafi "
+                + "(titoli, grassetto e dimensioni). Immagini, tabelle e impaginazione non "
+                + "vengono mantenute, e i PDF scansionati (solo immagini) non funzionano.\n\n"
+                + "Word → PDF: mantiene testo formattato, elenchi, tabelle semplici e immagini. "
+                + "Intestazioni, pie' di pagina e caselle di testo non vengono disegnati e i "
+                + "font possono differire. Il vecchio .doc non e' supportato: salvalo prima "
+                + "come .docx.", 12, Ui.DIM, false);
+        t.setPadding(0, Ui.dp(this, 6), 0, 0);
+        notes.addView(t);
+        root.addView(notes, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 18));
     }
-
-    // ------------------------------------------------------------------ scelta del file
 
     private void pick() {
         if (busy) {
@@ -179,12 +105,10 @@ public class ConverterActivity extends Activity {
             return;
         }
         Uri uri = data.getData();
-        String name = queryName(uri);
+        String name = FileUtil.queryName(this, uri);
         String lower = name.toLowerCase(Locale.ROOT);
         String mime = getContentResolver().getType(uri);
-
-        resultUri = null;
-        openBtn.setVisibility(View.GONE);
+        result.hide();
 
         if (lower.endsWith(".pdf") || MIME_PDF.equals(mime)) {
             pickedIsPdf = true;
@@ -193,9 +117,10 @@ public class ConverterActivity extends Activity {
         } else {
             pickedUri = null;
             convertBtn.setEnabled(false);
-            fileName.setText(name);
-            fileInfo.setText("");
-            status.setText(lower.endsWith(".doc")
+            direction.setText("");
+            pick.title.setText(name);
+            pick.sub.setText("Formato non supportato");
+            result.error(lower.endsWith(".doc")
                     ? "Il formato .doc (Word vecchio) non e' supportato: aprilo in Word e "
                     + "salvalo come .docx."
                     : "Formato non supportato: scegli un file PDF o .docx.");
@@ -203,262 +128,92 @@ public class ConverterActivity extends Activity {
         }
         pickedUri = uri;
         pickedName = name;
-        pickedSize = querySize(uri);
-        fileName.setText(name);
-        fileInfo.setText((pickedIsPdf ? "PDF" : "Word (.docx)")
-                + (pickedSize >= 0 ? " · " + humanSize(pickedSize) : ""));
-        convertBtn.setText(pickedIsPdf ? "Converti in Word (.docx)" : "Converti in PDF");
+        pick.title.setText(name);
+        pick.sub.setText((pickedIsPdf ? "PDF" : "Word (.docx)") + " · "
+                + FileUtil.humanSize(FileUtil.querySize(this, uri)));
+        direction.setText(pickedIsPdf ? "PDF  →  Word (.docx)" : "Word (.docx)  →  PDF");
+        convertBtn.setText(pickedIsPdf ? "Converti in Word" : "Converti in PDF");
         convertBtn.setEnabled(true);
-        status.setText("");
     }
-
-    private String queryName(Uri uri) {
-        try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.DISPLAY_NAME},
-                null, null, null)) {
-            if (c != null && c.moveToFirst()) {
-                String n = c.getString(0);
-                if (n != null && !n.isEmpty()) {
-                    return n;
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        String last = uri.getLastPathSegment();
-        return last == null ? "documento" : last;
-    }
-
-    private long querySize(Uri uri) {
-        try (Cursor c = getContentResolver().query(uri, new String[]{OpenableColumns.SIZE},
-                null, null, null)) {
-            if (c != null && c.moveToFirst() && !c.isNull(0)) {
-                return c.getLong(0);
-            }
-        } catch (Exception ignored) {
-        }
-        return -1;
-    }
-
-    private static String humanSize(long b) {
-        if (b < 1024) {
-            return b + " B";
-        }
-        if (b < 1024 * 1024) {
-            return String.format(Locale.getDefault(), "%.0f KB", b / 1024f);
-        }
-        return String.format(Locale.getDefault(), "%.1f MB", b / 1048576f);
-    }
-
-    // ------------------------------------------------------------------ conversione
 
     private void convert() {
         if (busy || pickedUri == null) {
             return;
         }
         busy = true;
-        resultUri = null;
-        openBtn.setVisibility(View.GONE);
-        progress.setVisibility(View.VISIBLE);
-        pickBtn.setEnabled(false);
         convertBtn.setEnabled(false);
-        setStatus("Conversione in corso...");
+        result.start("Conversione in corso...");
 
         final Uri src = pickedUri;
         final boolean pdf = pickedIsPdf;
-        final String base = baseName(pickedName);
+        final String base = FileUtil.baseName(pickedName);
 
         new Thread(new Runnable() {
             @Override
             public void run() {
                 File tmp = new File(getCacheDir(), pdf ? "input.pdf" : "input.docx");
                 try {
-                    copyToFile(src, tmp);
+                    FileUtil.copyToFile(ConverterActivity.this, src, tmp);
                     Uri saved;
                     String mime;
+                    String name;
                     if (pdf) {
                         final PdfTextExtractor.Result r = PdfTextExtractor.extract(
                                 ConverterActivity.this, tmp, new PdfTextExtractor.Progress() {
                                     @Override
                                     public void onPage(int page, int total) {
-                                        setStatus("Lettura pagina " + page + " di " + total + "...");
+                                        result.progress("Lettura pagina " + page + " di " + total,
+                                                page * 100 / Math.max(1, total));
                                     }
                                 });
-                        setStatus("Creazione del file Word...");
+                        result.progress("Creazione del file Word...", -1);
                         mime = MIME_DOCX;
-                        saved = saveToDownloads(base + ".docx", mime, new Writer() {
-                            @Override
-                            public void write(OutputStream os) throws IOException {
-                                DocxWriter.write(r.paras, r.pageW, r.pageH, os);
-                            }
-                        });
+                        name = base + ".docx";
+                        saved = FileUtil.save(ConverterActivity.this,
+                                MediaStore.Downloads.EXTERNAL_CONTENT_URI, DIR, name, mime,
+                                new FileUtil.Writer() {
+                                    @Override
+                                    public void write(OutputStream os) throws IOException {
+                                        DocxWriter.write(r.paras, r.pageW, r.pageH, os);
+                                    }
+                                });
                     } else {
-                        setStatus("Lettura del documento Word...");
+                        result.progress("Lettura del documento Word...", -1);
                         final DocModel model = DocxParser.parse(tmp);
-                        setStatus("Creazione del PDF...");
+                        result.progress("Creazione del PDF...", -1);
                         mime = MIME_PDF;
-                        saved = saveToDownloads(base + ".pdf", mime, new Writer() {
-                            @Override
-                            public void write(OutputStream os) throws IOException {
-                                DocxToPdf.render(model, os);
-                            }
-                        });
+                        name = base + ".pdf";
+                        saved = FileUtil.save(ConverterActivity.this,
+                                MediaStore.Downloads.EXTERNAL_CONTENT_URI, DIR, name, mime,
+                                new FileUtil.Writer() {
+                                    @Override
+                                    public void write(OutputStream os) throws IOException {
+                                        DocxToPdf.render(model, os);
+                                    }
+                                });
                     }
-                    done(saved, mime);
+                    result.ok("Fatto! Salvato in Download/MamoTools/" + FileUtil.displayName(
+                            ConverterActivity.this, saved), saved, mime,
+                            pdf ? "Apri il file Word" : "Apri il PDF");
                 } catch (OutOfMemoryError oom) {
-                    fail("Memoria insufficiente: il documento e' troppo grande per essere "
+                    result.error("Memoria insufficiente: il documento e' troppo grande per essere "
                             + "convertito su questo telefono.");
                 } catch (Throwable t) {
                     String m = t.getMessage();
-                    fail("Conversione non riuscita"
+                    result.error("Conversione non riuscita"
                             + (m != null && !m.isEmpty() ? ": " + m : " (" + t.getClass().getSimpleName() + ")"));
                 } finally {
                     //noinspection ResultOfMethodCallIgnored
                     tmp.delete();
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            busy = false;
+                            convertBtn.setEnabled(pickedUri != null);
+                        }
+                    });
                 }
             }
         }).start();
-    }
-
-    private void done(final Uri uri, final String mime) {
-        final String name = displayNameOf(uri);
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                busy = false;
-                resultUri = uri;
-                resultMime = mime;
-                progress.setVisibility(View.GONE);
-                pickBtn.setEnabled(true);
-                convertBtn.setEnabled(true);
-                openBtn.setVisibility(View.VISIBLE);
-                status.setText("Fatto! Salvato in Download: " + name);
-            }
-        });
-    }
-
-    private void fail(final String msg) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                busy = false;
-                progress.setVisibility(View.GONE);
-                pickBtn.setEnabled(true);
-                convertBtn.setEnabled(pickedUri != null);
-                status.setText(msg);
-            }
-        });
-    }
-
-    private void setStatus(final String msg) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                status.setText(msg);
-            }
-        });
-    }
-
-    private void copyToFile(Uri src, File dst) throws IOException {
-        try (InputStream in = getContentResolver().openInputStream(src);
-             OutputStream os = new FileOutputStream(dst)) {
-            if (in == null) {
-                throw new IOException("impossibile leggere il file scelto");
-            }
-            byte[] buf = new byte[64 * 1024];
-            int n;
-            while ((n = in.read(buf)) > 0) {
-                os.write(buf, 0, n);
-            }
-        }
-    }
-
-    /** Salva nella cartella Download tramite MediaStore (non servono permessi). */
-    private Uri saveToDownloads(String name, String mime, Writer w) throws IOException {
-        ContentResolver cr = getContentResolver();
-        ContentValues v = new ContentValues();
-        v.put(MediaStore.Downloads.DISPLAY_NAME, name);
-        v.put(MediaStore.Downloads.MIME_TYPE, mime);
-        v.put(MediaStore.Downloads.RELATIVE_PATH, Environment.DIRECTORY_DOWNLOADS);
-        v.put(MediaStore.Downloads.IS_PENDING, 1);
-        Uri uri = cr.insert(MediaStore.Downloads.EXTERNAL_CONTENT_URI, v);
-        if (uri == null) {
-            throw new IOException("impossibile creare il file in Download");
-        }
-        boolean ok = false;
-        try {
-            try (OutputStream raw = cr.openOutputStream(uri)) {
-                if (raw == null) {
-                    throw new IOException("impossibile scrivere il file in Download");
-                }
-                BufferedOutputStream os = new BufferedOutputStream(raw, 64 * 1024);
-                w.write(os);
-                os.flush();
-            }
-            ok = true;
-        } finally {
-            if (ok) {
-                ContentValues u = new ContentValues();
-                u.put(MediaStore.Downloads.IS_PENDING, 0);
-                cr.update(uri, u, null, null);
-            } else {
-                cr.delete(uri, null, null);
-            }
-        }
-        return uri;
-    }
-
-    private String displayNameOf(Uri uri) {
-        try (Cursor c = getContentResolver().query(uri,
-                new String[]{MediaStore.Downloads.DISPLAY_NAME}, null, null, null)) {
-            if (c != null && c.moveToFirst()) {
-                String n = c.getString(0);
-                if (n != null) {
-                    return n;
-                }
-            }
-        } catch (Exception ignored) {
-        }
-        return "file convertito";
-    }
-
-    private static String baseName(String name) {
-        String n = name == null ? "documento" : name;
-        int dot = n.lastIndexOf('.');
-        if (dot > 0) {
-            n = n.substring(0, dot);
-        }
-        n = n.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
-        return n.isEmpty() ? "documento" : n;
-    }
-
-    private void openResult() {
-        if (resultUri == null) {
-            return;
-        }
-        Intent i = new Intent(Intent.ACTION_VIEW);
-        i.setDataAndType(resultUri, resultMime);
-        i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-        try {
-            startActivity(i);
-        } catch (Exception e) {
-            Toast.makeText(this, "Nessuna app per aprire questo file. Lo trovi in Download.",
-                    Toast.LENGTH_LONG).show();
-        }
-    }
-
-    // ------------------------------------------------------------------ utilita'
-
-    private TextView text(String s, int sp, int colorRes, boolean bold) {
-        TextView t = new TextView(this);
-        t.setText(s);
-        t.setTextSize(sp);
-        t.setTextColor(getColor(colorRes));
-        if (bold) {
-            t.setTypeface(Typeface.DEFAULT_BOLD);
-        }
-        return t;
-    }
-
-    private int dp(int v) {
-        return (int) (v * getResources().getDisplayMetrics().density);
     }
 }

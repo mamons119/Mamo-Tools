@@ -18,8 +18,14 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   - Impostazioni: qualita'/fps, stabilizzazione, audio on/off, zoom, esposizione (EV),
     bilanciamento del bianco, griglia dei terzi, timer di avvio (3/5/10 s).
 
-- **PDF <-> Word**: sceglie un file con il selettore di sistema e lo converte nell'altro
-  formato, salvandolo in Download.
+- **PDF Tools**: menu con tutte le operazioni sui PDF; i file nuovi vanno in Download/MamoTools.
+  - Unisci (ordine a scelta con frecce), Dividi (una pagina per file o a gruppi di N), Estrai
+    pagine, Elimina pagine, Ruota pagine (90/180/270). Le pagine si indicano come `1-3, 5, 8-`.
+    Usa PdfBox-Android; i PDF protetti da password non sono supportati.
+  - Immagini -> PDF: foto in ordine, pagina A4 (con margini) o grande come l'immagine
+    (lato massimo 1600 px per pagina). PDF -> Immagini: JPG o PNG, 72/150/300 dpi, in
+    Immagini/MamoTools.
+  - PDF <-> Word: sceglie un file con il selettore di sistema e lo converte nell'altro formato.
   - PDF -> Word (.docx): estrae il testo (libreria PdfBox-Android) e lo rimette in paragrafi
     con titoli e grassetto. Non mantiene immagini, tabelle e impaginazione; i PDF
     scansionati (solo immagini) non funzionano perche' serve l'OCR.
@@ -37,6 +43,12 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   abbassato di 3-30 dB. Salva in Movies/MamoTools (`MamoEdit_*.mp4`). I tagli non ricodificano
   il video: qualita' invariata, ma il punto di taglio puo' slittare al fotogramma chiave
   precedente.
+
+- **Audio Editor**: apre un audio (o l'audio di un video), forma d'onda con zoom a pizzico,
+  selezione con Inizio/Fine, taglia/copia/incolla/elimina/mantieni, annulla (30 passi), inserisci
+  un altro audio al cursore. Filtri passa-alto, passa-basso e passa-banda (12 o 24 dB/ottava,
+  taglio 20 Hz-20 kHz) e volume da -20 a +20 dB, udibili in ascolto e applicati all'esportazione
+  (M4A AAC o WAV) in Musica/MamoTools. Internamente 44,1 kHz stereo.
 
 - **System Monitor**: grafici in tempo reale (1 s) di CPU con una linea colorata per core, RAM/swap
   e traffico di rete (download/upload), piu' schede con memoria, archiviazione e microSD,
