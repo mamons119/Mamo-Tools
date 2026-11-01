@@ -7,6 +7,13 @@ import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Bundle;
+import android.text.Editable;
+import android.text.TextWatcher;
+import android.view.inputmethod.InputMethodManager;
+import android.widget.EditText;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
@@ -44,6 +51,9 @@ public class MainActivity extends Activity {
                     "Converte un PDF in Word (.docx) o un Word in PDF e salva il risultato "
                             + "in Download.",
                     ConverterActivity.class),
+            new Tool("📕", "PDF Reader",
+                    "Leggi i PDF con zoom, ricerca, vai a pagina, notte, condividi e stampa.",
+                    PdfReaderActivity.class),
             new Tool("🖼", "Image Converter",
                     "Converte un'immagine in JPG, PNG, WEBP o BMP partendo dai formati "
                             + "piu' diffusi.",
@@ -55,9 +65,6 @@ public class MainActivity extends Activity {
                     "CPU per core, RAM e traffico di rete in tempo reale, piu' tutte le "
                             + "informazioni del telefono.",
                     SystemMonitorActivity.class),
-            new Tool("📕", "PDF Reader",
-                    "Leggi i PDF con zoom, ricerca, vai a pagina, notte, condividi e stampa.",
-                    PdfReaderActivity.class),
     };
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
@@ -80,27 +87,126 @@ public class MainActivity extends Activity {
         title.setTextColor(getColor(R.color.text));
         root.addView(title);
 
-        TextView sub = new TextView(this);
+        // riga "I tuoi strumenti" + lente per cercare
+        final LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, dp(4), 0, dp(20));
+        final TextView sub = new TextView(this);
         sub.setText("I tuoi strumenti");
         sub.setTextSize(15);
         sub.setTextColor(getColor(R.color.text_dim));
-        sub.setPadding(0, dp(4), 0, dp(24));
-        root.addView(sub);
+        row.addView(sub, new LinearLayout.LayoutParams(0, WRAP, 1f));
 
+        final TextView lens = new TextView(this);
+        lens.setText("🔍");
+        lens.setTextSize(18);
+        lens.setGravity(Gravity.CENTER);
+        GradientDrawable lensBg = new GradientDrawable();
+        lensBg.setShape(GradientDrawable.OVAL);
+        lensBg.setColor(getColor(R.color.card));
+        lens.setBackground(lensBg);
+        lens.setContentDescription("Cerca uno strumento");
+        row.addView(lens, new LinearLayout.LayoutParams(dp(44), dp(44)));
+
+        final EditText search = new EditText(this);
+        search.setHint("Cerca uno strumento");
+        search.setHintTextColor(getColor(R.color.text_dim));
+        search.setTextColor(getColor(R.color.text));
+        search.setSingleLine(true);
+        GradientDrawable sbg = new GradientDrawable();
+        sbg.setColor(getColor(R.color.card));
+        sbg.setCornerRadius(dp(22));
+        search.setBackground(sbg);
+        search.setPadding(dp(16), 0, dp(16), 0);
+        search.setVisibility(View.GONE);
+        row.addView(search, new LinearLayout.LayoutParams(0, dp(44), 1f));
+
+        final TextView close = new TextView(this);
+        close.setText("✕");
+        close.setTextSize(16);
+        close.setTextColor(getColor(R.color.text_dim));
+        close.setGravity(Gravity.CENTER);
+        close.setVisibility(View.GONE);
+        row.addView(close, new LinearLayout.LayoutParams(dp(44), dp(44)));
+        root.addView(row);
+
+        final List<View> cards = new ArrayList<>();
         for (final Tool t : TOOLS) {
-            root.addView(toolCard(t.icon, t.name, t.description, new View.OnClickListener() {
+            View card = toolCard(t.icon, t.name, t.description, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     startActivity(new Intent(MainActivity.this, t.target));
                 }
-            }));
+            });
+            cards.add(card);
+            root.addView(card);
         }
 
         // segnaposto per i prossimi strumenti
-        View soon = toolCard("➕", "Altri strumenti in arrivo",
+        final View soon = toolCard("➕", "Altri strumenti in arrivo",
                 "Qui compariranno i prossimi tool.", null);
         soon.setAlpha(0.45f);
         root.addView(soon);
+
+        final TextView none = new TextView(this);
+        none.setText("Nessuno strumento trovato.");
+        none.setTextColor(getColor(R.color.text_dim));
+        none.setTextSize(15);
+        none.setGravity(Gravity.CENTER);
+        none.setPadding(0, dp(24), 0, 0);
+        none.setVisibility(View.GONE);
+        root.addView(none);
+
+        final InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
+        lens.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                sub.setVisibility(View.GONE);
+                lens.setVisibility(View.GONE);
+                search.setVisibility(View.VISIBLE);
+                close.setVisibility(View.VISIBLE);
+                search.requestFocus();
+                imm.showSoftInput(search, 0);
+            }
+        });
+        close.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                search.setText("");
+                search.setVisibility(View.GONE);
+                close.setVisibility(View.GONE);
+                sub.setVisibility(View.VISIBLE);
+                lens.setVisibility(View.VISIBLE);
+                imm.hideSoftInputFromWindow(search.getWindowToken(), 0);
+            }
+        });
+        search.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable e) {
+                String q = e.toString().trim().toLowerCase(Locale.ROOT);
+                int shown = 0;
+                for (int i = 0; i < TOOLS.length; i++) {
+                    Tool t = TOOLS[i];
+                    boolean ok = q.isEmpty()
+                            || t.name.toLowerCase(Locale.ROOT).contains(q)
+                            || t.description.toLowerCase(Locale.ROOT).contains(q);
+                    cards.get(i).setVisibility(ok ? View.VISIBLE : View.GONE);
+                    if (ok) {
+                        shown++;
+                    }
+                }
+                soon.setVisibility(q.isEmpty() ? View.VISIBLE : View.GONE);
+                none.setVisibility(!q.isEmpty() && shown == 0 ? View.VISIBLE : View.GONE);
+            }
+        });
 
         setContentView(scroll);
     }

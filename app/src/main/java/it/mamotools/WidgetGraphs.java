@@ -4,7 +4,6 @@ import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RectF;
 import android.graphics.Typeface;
 
 import java.util.Locale;
@@ -24,16 +23,15 @@ final class WidgetGraphs {
         MonitorSampler s = MonitorSampler.get();
         Bitmap bmp = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas c = new Canvas(bmp);
-        float u = w / 560f;
+        float u = Math.min(w / 560f, h / 250f);
 
         Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
-        p.setColor(0xFF1A1D24);
-        c.drawRoundRect(new RectF(0, 0, w, h), 18 * u, 18 * u, p);
+        c.drawColor(0xFF1A1D24);
 
         Paint t = new Paint(Paint.ANTI_ALIAS_FLAG);
         t.setTypeface(Typeface.DEFAULT_BOLD);
 
-        float gl = 14 * u, gr = w - 14 * u, gt = 46 * u, gb = h - 26 * u;
+        float gl = 6 * u, gr = w - 6 * u, gt = 44 * u, gb = h - 24 * u;
         String title;
         String right;
         float max;

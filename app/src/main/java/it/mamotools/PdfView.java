@@ -17,6 +17,8 @@ import android.view.View;
 import android.widget.OverScroller;
 
 import java.util.HashSet;
+import java.util.List;
+import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -61,6 +63,8 @@ final class PdfView extends View {
     private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
     private final Paint fill = new Paint();
     private final RectF dst = new RectF();
+    private Map<Integer, List<float[]>> highlights = new java.util.HashMap<>();
+    private final Paint hlPaint = new Paint();
 
     private final LruCache<Long, Bitmap> cache;
     private final ExecutorService pool = Executors.newSingleThreadExecutor();
@@ -208,6 +212,24 @@ final class PdfView extends View {
 
     float zoom() {
         return zoom;
+    }
+
+    /** Rettangoli (x, y, larghezza, altezza in punti) da evidenziare in giallo, per pagina. */
+    void setHighlights(Map<Integer, List<float[]>> h) {
+        highlights = h == null ? new java.util.HashMap<Integer, List<float[]>>() : h;
+        invalidate();
+    }
+
+    /** Porta in vista il punto y (in punti) della pagina, circa a un terzo dell'altezza. */
+    void scrollToPoint(int page, float yPt) {
+        if (pageCount == 0) {
+            return;
+        }
+        page = Math.max(0, Math.min(pageCount - 1, page));
+        scroller.forceFinished(true);
+        scrollY = (top[page] + Math.max(0f, yPt)) * scale() - getHeight() / 3f;
+        clamp();
+        invalidate();
     }
 
     void setNight(boolean n) {
@@ -371,7 +393,7 @@ final class PdfView extends View {
                 request(i, 3, -1, -1, rs);
             }
 
-            // riquadri nitidi
+            // riquadri nitidi (e sotto, l'evidenziazione)
             float pagePxW = pw[i] * rs;
             float pagePxH = ph[i] * rs;
             float visL = Math.max(0f, -pl) / ratio;
@@ -407,6 +429,7 @@ final class PdfView extends View {
             }
         }
         wanted = want;
+        drawHighlights(c, s, ox);
         if (centerPage != curPage) {
             curPage = centerPage;
             if (listener != null) {
@@ -414,6 +437,37 @@ final class PdfView extends View {
                 post(() -> listener.onPageChanged(p, pageCount));
             }
         }
+    }
+
+    private void drawHighlights(Canvas c, float s, float ox) {
+        if (highlights.isEmpty()) {
+            return;
+        }
+        if (night) {
+            hlPaint.setXfermode(null);
+            hlPaint.setColor(0x99FFEB3B);
+        } else {
+            hlPaint.setXfermode(new android.graphics.PorterDuffXfermode(
+                    android.graphics.PorterDuff.Mode.MULTIPLY));
+            hlPaint.setColor(0xFFFFEB3B);
+        }
+        for (int i = 0; i < pageCount; i++) {
+            List<float[]> l = highlights.get(i);
+            if (l == null) {
+                continue;
+            }
+            float pt = top[i] * s;
+            if (pt + ph[i] * s < scrollY || pt > scrollY + getHeight()) {
+                continue;
+            }
+            float pl = ox + (maxW - pw[i]) * s / 2f - scrollX;
+            float sy = pt - scrollY;
+            for (float[] r : l) {
+                c.drawRect(pl + r[0] * s, sy + r[1] * s, pl + (r[0] + r[2]) * s,
+                        sy + (r[1] + r[3]) * s, hlPaint);
+            }
+        }
+        hlPaint.setXfermode(null);
     }
 
     private void request(final int page, final int bucket, final int tx, final int ty,

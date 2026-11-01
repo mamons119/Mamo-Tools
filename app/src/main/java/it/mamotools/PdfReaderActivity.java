@@ -43,6 +43,7 @@ import android.widget.Toast;
 import com.tom_roush.pdfbox.android.PDFBoxResourceLoader;
 import com.tom_roush.pdfbox.pdmodel.PDDocument;
 import com.tom_roush.pdfbox.text.PDFTextStripper;
+import com.tom_roush.pdfbox.text.TextPosition;
 
 import java.io.File;
 import java.io.FileInputStream;
@@ -83,8 +84,9 @@ public class PdfReaderActivity extends Activity {
 
     // ricerca
     private String[] pageTexts;
-    private List<Integer> hits = new ArrayList<>();
-    private int hitIdx = -1;
+    private File searchFile;
+    private final List<float[]> matches = new ArrayList<>();     // {pagina, y in punti}
+    private int matchIdx = -1;
     private volatile boolean indexing = false;
 
     @Override
@@ -126,17 +128,22 @@ public class PdfReaderActivity extends Activity {
         emptyBox = new LinearLayout(this);
         emptyBox.setOrientation(LinearLayout.VERTICAL);
         emptyBox.setGravity(Gravity.CENTER);
+        emptyBox.setPadding(dp(24), 0, dp(24), 0);
         TextView ic = text("📕", 54, Color.WHITE, false);
         ic.setGravity(Gravity.CENTER);
-        emptyBox.addView(ic);
+        emptyBox.addView(ic, new LinearLayout.LayoutParams(MATCH, WRAP));
         TextView t = text("PDF Reader", 24, C_TEXT, true);
+        t.setGravity(Gravity.CENTER);
         t.setPadding(0, dp(8), 0, dp(4));
-        emptyBox.addView(t);
-        emptyBox.addView(text("Scegli un PDF dal telefono per leggerlo.", 14, C_DIM, false));
+        emptyBox.addView(t, new LinearLayout.LayoutParams(MATCH, WRAP));
+        TextView st = text("Scegli un PDF dal telefono per leggerlo.", 14, C_DIM, false);
+        st.setGravity(Gravity.CENTER);
+        emptyBox.addView(st, new LinearLayout.LayoutParams(MATCH, WRAP));
         Button b = button("Apri un PDF", C_ACCENT, Color.BLACK, v -> pick());
         b.setPadding(dp(28), 0, dp(28), 0);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(WRAP, dp(48));
         lp.topMargin = dp(20);
+        lp.gravity = Gravity.CENTER_HORIZONTAL;
         emptyBox.addView(b, lp);
         root.addView(emptyBox, new FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER));
     }
@@ -283,8 +290,13 @@ public class PdfReaderActivity extends Activity {
         docName = queryName(uri);
         docBytes = querySize(uri);
         pageTexts = null;
-        hits.clear();
-        hitIdx = -1;
+        matches.clear();
+        matchIdx = -1;
+        if (searchFile != null) {
+            //noinspection ResultOfMethodCallIgnored
+            searchFile.delete();
+            searchFile = null;
+        }
         emptyBox.setVisibility(View.GONE);
         title.setText(docName);
         showBusy("Apertura...");
@@ -593,6 +605,12 @@ public class PdfReaderActivity extends Activity {
             imm.showSoftInput(searchEdit, 0);
         } else {
             imm.hideSoftInputFromWindow(searchEdit.getWindowToken(), 0);
+            matches.clear();
+            matchIdx = -1;
+            searchCount.setText("");
+            if (pdfView != null) {
+                pdfView.setHighlights(null);
+            }
         }
     }
 
@@ -606,7 +624,7 @@ public class PdfReaderActivity extends Activity {
         }
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
         imm.hideSoftInputFromWindow(searchEdit.getWindowToken(), 0);
-        if (pageTexts != null) {
+        if (pageTexts != null && searchFile != null) {
             applySearch(q);
             return;
         }
@@ -622,7 +640,7 @@ public class PdfReaderActivity extends Activity {
                 copy(docUri, f);
                 PDDocument doc = PDDocument.load(f);
                 try {
-                    int n = doc.getNumberOfPages();
+                    final int n = doc.getNumberOfPages();
                     String[] t = new String[n];
                     PDFTextStripper st = new PDFTextStripper();
                     st.setSortByPosition(true);
@@ -635,10 +653,9 @@ public class PdfReaderActivity extends Activity {
                         t[p] = st.getText(doc).toLowerCase(Locale.ROOT);
                     }
                     pageTexts = t;
+                    searchFile = f;
                 } finally {
                     doc.close();
-                    //noinspection ResultOfMethodCallIgnored
-                    f.delete();
                 }
                 runOnUiThread(() -> {
                     showBusy(null);
@@ -656,51 +673,182 @@ public class PdfReaderActivity extends Activity {
         }).start();
     }
 
-    private void applySearch(String q) {
-        hits.clear();
+    /** Trova le pagine con il testo e ne calcola i rettangoli da evidenziare in giallo. */
+    private void applySearch(final String q) {
+        final List<Integer> hitPages = new ArrayList<>();
         boolean anyText = false;
         for (int i = 0; i < pageTexts.length; i++) {
             if (!pageTexts[i].trim().isEmpty()) {
                 anyText = true;
             }
             if (pageTexts[i].contains(q)) {
-                hits.add(i);
+                hitPages.add(i);
             }
         }
+        matches.clear();
+        matchIdx = -1;
+        pdfView.setHighlights(null);
         if (!anyText) {
             searchCount.setText("");
             toast("Questo PDF non ha testo selezionabile (e' una scansione).");
             return;
         }
-        if (hits.isEmpty()) {
-            hitIdx = -1;
+        if (hitPages.isEmpty()) {
             searchCount.setText("0");
             toast("Nessun risultato.");
             return;
         }
-        int cur = pdfView.currentPage();
-        hitIdx = 0;
-        for (int i = 0; i < hits.size(); i++) {
-            if (hits.get(i) >= cur) {
-                hitIdx = i;
-                break;
+        showBusy("Evidenzio i risultati...");
+        final File f = searchFile;
+        new Thread(() -> {
+            final java.util.Map<Integer, List<float[]>> map = new java.util.HashMap<>();
+            final List<float[]> found = new ArrayList<>();
+            try {
+                PDFBoxResourceLoader.init(getApplicationContext());
+                PDDocument doc = PDDocument.load(f);
+                try {
+                    Finder fin = new Finder(q);
+                    fin.setSortByPosition(true);
+                    int done = 0;
+                    for (int p : hitPages) {
+                        if (done++ > 400) {
+                            break;
+                        }
+                        fin.reset();
+                        fin.setStartPage(p + 1);
+                        fin.setEndPage(p + 1);
+                        fin.getText(doc);
+                        fin.flushLine();
+                        if (!fin.rects.isEmpty()) {
+                            map.put(p, new ArrayList<>(fin.rects));
+                            for (float[] r : fin.rects) {
+                                found.add(new float[]{p, r[1]});
+                            }
+                        }
+                    }
+                } finally {
+                    doc.close();
+                }
+            } catch (Throwable ignored) {
             }
-        }
-        showHit();
+            if (found.isEmpty()) {
+                // posizioni non disponibili: almeno si salta alla pagina giusta
+                for (int p : hitPages) {
+                    found.add(new float[]{p, 0f});
+                }
+            }
+            runOnUiThread(() -> {
+                showBusy(null);
+                pdfView.setHighlights(map);
+                matches.addAll(found);
+                int cur = pdfView.currentPage();
+                matchIdx = 0;
+                for (int i = 0; i < matches.size(); i++) {
+                    if ((int) matches.get(i)[0] >= cur) {
+                        matchIdx = i;
+                        break;
+                    }
+                }
+                showMatch();
+            });
+        }).start();
     }
 
     private void stepHit(int d) {
-        if (hits.isEmpty()) {
+        if (matches.isEmpty()) {
             runSearch();
             return;
         }
-        hitIdx = (hitIdx + d + hits.size()) % hits.size();
-        showHit();
+        matchIdx = (matchIdx + d + matches.size()) % matches.size();
+        showMatch();
     }
 
-    private void showHit() {
-        searchCount.setText((hitIdx + 1) + "/" + hits.size() + " pag.");
-        pdfView.goToPage(hits.get(hitIdx));
+    private void showMatch() {
+        float[] m = matches.get(matchIdx);
+        searchCount.setText((matchIdx + 1) + "/" + matches.size());
+        pdfView.scrollToPoint((int) m[0], m[1]);
+    }
+
+    /** Cerca il testo riga per riga e ne ricava la posizione sulla pagina. */
+    private static final class Finder extends PDFTextStripper {
+        final String q;
+        final List<float[]> rects = new ArrayList<>();
+        private final StringBuilder line = new StringBuilder();
+        private final List<TextPosition> pos = new ArrayList<>();
+
+        Finder(String q) throws IOException {
+            super();
+            this.q = q;
+        }
+
+        void reset() {
+            rects.clear();
+            line.setLength(0);
+            pos.clear();
+        }
+
+        @Override
+        protected void writeString(String text, List<TextPosition> tps) throws IOException {
+            for (TextPosition tp : tps) {
+                String u = tp.getUnicode();
+                line.append(u);
+                for (int k = 0; k < u.length(); k++) {
+                    pos.add(tp);
+                }
+            }
+        }
+
+        @Override
+        protected void writeWordSeparator() throws IOException {
+            line.append(' ');
+            pos.add(null);
+        }
+
+        @Override
+        protected void writeLineSeparator() throws IOException {
+            flushLine();
+        }
+
+        @Override
+        protected void writeParagraphStart() throws IOException {
+            flushLine();
+        }
+
+        @Override
+        protected void writeParagraphEnd() throws IOException {
+            flushLine();
+        }
+
+        void flushLine() {
+            String l = line.toString().toLowerCase(Locale.ROOT);
+            if (l.length() == pos.size()) {
+                int from = 0;
+                while ((from = l.indexOf(q, from)) >= 0) {
+                    float x0 = Float.MAX_VALUE, y0 = Float.MAX_VALUE, x1 = 0, y1 = 0;
+                    boolean any = false;
+                    for (int i = from; i < from + q.length(); i++) {
+                        TextPosition tp = pos.get(i);
+                        if (tp == null) {
+                            continue;
+                        }
+                        float h = tp.getHeightDir();
+                        float x = tp.getXDirAdj();
+                        float y = tp.getYDirAdj() - h;
+                        x0 = Math.min(x0, x);
+                        y0 = Math.min(y0, y);
+                        x1 = Math.max(x1, x + tp.getWidthDirAdj());
+                        y1 = Math.max(y1, y + h * 1.2f);
+                        any = true;
+                    }
+                    if (any) {
+                        rects.add(new float[]{x0, y0, x1 - x0, y1 - y0});
+                    }
+                    from += Math.max(1, q.length());
+                }
+            }
+            line.setLength(0);
+            pos.clear();
+        }
     }
 
     // ---------------------------------------------------------------- utilita'
@@ -719,6 +867,10 @@ public class PdfReaderActivity extends Activity {
         super.onDestroy();
         if (pdfView != null) {
             pdfView.close();
+        }
+        if (searchFile != null) {
+            //noinspection ResultOfMethodCallIgnored
+            searchFile.delete();
         }
     }
 

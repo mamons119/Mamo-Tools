@@ -81,7 +81,7 @@ public class BoostWidgetProvider extends AppWidgetProvider {
         rv.setInt(R.id.boost_toggle, "setBackgroundResource",
                 on ? R.drawable.widget_btn_on : R.drawable.widget_btn);
         rv.setTextColor(R.id.boost_toggle, on ? 0xFF000000 : 0xFFECEFF4);
-        rv.setTextViewText(R.id.boost_status, on ? "Amplificazione attiva" : "Spento");
+        rv.setTextViewText(R.id.boost_title, on ? "Volume Boost · attivo" : "Volume Boost");
 
         rv.setOnClickPendingIntent(R.id.boost_toggle, broadcast(ctx, ACTION_TOGGLE, 0, 1));
         rv.setOnClickPendingIntent(R.id.boost_m5, broadcast(ctx, ACTION_GAIN, -5, 2));
@@ -96,7 +96,6 @@ public class BoostWidgetProvider extends AppWidgetProvider {
         rv.setOnClickPendingIntent(R.id.boost_root, openPi);
         rv.setOnClickPendingIntent(R.id.boost_title, openPi);
         rv.setOnClickPendingIntent(R.id.boost_gain, openPi);
-        rv.setOnClickPendingIntent(R.id.boost_status, openPi);
 
         mgr.updateAppWidget(ids, rv);
     }

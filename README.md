@@ -45,15 +45,15 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   e temperature/GPU compaiono solo se il telefono le espone.
 
 - **PDF Reader**: scorrimento continuo, zoom a pizzico e doppio tap, vai a pagina, ricerca di testo
-  (per pagina), modalita' notte, condividi, stampa, salva una copia in Download, informazioni.
+  con evidenziazione in giallo, modalita' notte, condividi, stampa, salva una copia in Download, informazioni.
   Compare anche in "Apri con" per i file PDF come "Mamo Tools (PDF)". Non modifica i PDF.
 
 ## Widget
 
-- **Mamo Tools · System Monitor**: pila di grafici (CPU per core, RAM, rete) da scorrere con
-  uno swipe verticale; aggiornato ogni secondo a schermo acceso da un servizio con notifica
+- **Mamo Tools · System Monitor**: elenco di grafici (CPU per core, RAM, rete) da scorrere con
+  uno swipe verticale (scorrimento libero, senza aggancio alla pagina); aggiornato ogni secondo a schermo acceso da un servizio con notifica
   silenziosa. Il tocco apre il System Monitor.
-- **Mamo Tools · Volume Boost**: tasto ON/OFF e guadagno a passi di 1 e 5 dB; il tocco sul resto
+- **Mamo Tools · Volume Boost**: widget compatto 4x1 con tasto ON/OFF e guadagno a passi di 1 e 5 dB; il tocco sul resto
   del widget apre Volume Boost.
 
 ## Aggiungere un nuovo strumento

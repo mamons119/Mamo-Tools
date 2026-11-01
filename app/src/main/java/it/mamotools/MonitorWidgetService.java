@@ -65,7 +65,7 @@ public class MonitorWidgetService extends Service {
             try {
                 MonitorSampler.get().sample(MonitorWidgetService.this);
                 AppWidgetManager.getInstance(MonitorWidgetService.this)
-                        .notifyAppWidgetViewDataChanged(ids, R.id.mon_stack);
+                        .notifyAppWidgetViewDataChanged(ids, R.id.mon_list);
             } catch (Throwable ignored) {
             }
             handler.postDelayed(this, 1000);
