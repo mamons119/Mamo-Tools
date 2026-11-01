@@ -59,7 +59,7 @@ public class SystemMonitorActivity extends Activity {
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
-    private static final int HIST = 60;
+    private static final int HIST = 300;     // 300 campioni x 200 ms = 60 secondi di storico
 
     private static final int[] PALETTE = {
             0xFFE95420, 0xFF4DD0E1, 0xFFFFD60A, 0xFF8BC34A, 0xFFBA68C8, 0xFFFF6B6B,
@@ -68,6 +68,8 @@ public class SystemMonitorActivity extends Activity {
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private int tickCount = 0;
+    private boolean textTick = true;
+    private final long[] maxFreqCache = new long[256];
     private boolean running = false;
 
     // CPU
@@ -89,7 +91,11 @@ public class SystemMonitorActivity extends Activity {
     private long lastRx = -1, lastTx = -1, lastT = 0;
 
     // altre schede
-    private TextView storageText, batteryText, deviceText, displayText, sensorsText, thermalText,
+    private LinearLayout storageBox;
+    private BatteryView batteryView;
+    private Kv batteryKv;
+    private final java.util.Map<String, StorageRow> storageRows = new java.util.LinkedHashMap<>();
+    private TextView deviceText, displayText, sensorsText, thermalText,
             gpuText, systemText;
 
     private final Runnable loop = new Runnable() {
@@ -102,7 +108,7 @@ public class SystemMonitorActivity extends Activity {
                 tick();
             } catch (Throwable ignored) {
             }
-            handler.postDelayed(this, 1000);
+            handler.postDelayed(this, 200);
         }
     };
 
@@ -169,8 +175,17 @@ public class SystemMonitorActivity extends Activity {
         net.addView(netText);
 
         // ---- altre
-        storageText = info(root, "Archiviazione e microSD");
-        batteryText = info(root, "Batteria");
+        storageBox = card(root, "Archiviazione e microSD");
+        LinearLayout bat = card(root, "Batteria");
+        LinearLayout batRow = new LinearLayout(this);
+        batRow.setGravity(Gravity.CENTER_VERTICAL);
+        batteryView = new BatteryView(this);
+        batRow.addView(batteryView, new LinearLayout.LayoutParams(dp(92), dp(170)));
+        batteryKv = new Kv(this);
+        LinearLayout.LayoutParams bkp = new LinearLayout.LayoutParams(0, WRAP, 1f);
+        bkp.leftMargin = dp(16);
+        batRow.addView(batteryKv, bkp);
+        bat.addView(batRow, new LinearLayout.LayoutParams(MATCH, WRAP));
         thermalText = info(root, "Temperature");
         gpuText = info(root, "Grafica (GPU)");
         displayText = info(root, "Schermo");
@@ -239,15 +254,16 @@ public class SystemMonitorActivity extends Activity {
 
     private void tick() {
         tickCount++;
+        textTick = tickCount % 4 == 1;      // testi aggiornati ogni ~0,8 s, grafici ogni 0,2 s
         updateCpu();
         updateRam();
         updateNet();
-        if (tickCount % 3 == 1) {
+        if (tickCount % 15 == 1) {
             updateBattery();
             updateThermal();
             updateGpu();
         }
-        if (tickCount % 5 == 1) {
+        if (tickCount % 25 == 1) {
             updateStorage();
         }
     }
@@ -301,7 +317,10 @@ public class SystemMonitorActivity extends Activity {
         for (int i = 0; i < cores; i++) {
             String b = "/sys/devices/system/cpu/cpu" + i + "/cpufreq/";
             cur[i] = readLong(b + "scaling_cur_freq");
-            max[i] = readLong(b + "cpuinfo_max_freq");
+            if (maxFreqCache[i] <= 0) {
+                maxFreqCache[i] = readLong(b + "cpuinfo_max_freq");
+            }
+            max[i] = maxFreqCache[i];
             on[i] = cur[i] > 0;
         }
 
@@ -357,6 +376,9 @@ public class SystemMonitorActivity extends Activity {
         }
 
         cpuGraph.push(usage);
+        if (!textTick) {
+            return;
+        }
         float sum = 0;
         int online = 0;
         for (int i = 0; i < cores; i++) {
@@ -418,6 +440,9 @@ public class SystemMonitorActivity extends Activity {
         float pct = total > 0 ? 100f * used / total : 0f;
         float spct = swapT > 0 ? 100f * (swapT - swapF) / swapT : 0f;
         ramGraph.push(new float[]{pct, spct});
+        if (!textTick) {
+            return;
+        }
         StringBuilder sb = new StringBuilder();
         sb.append(String.format(Locale.US, "In uso: %s di %s (%.0f%%)\n", size(used), size(total), pct));
         sb.append("Disponibile: ").append(size(avail)).append('\n');
@@ -454,6 +479,9 @@ public class SystemMonitorActivity extends Activity {
         lastTx = tx;
         lastT = now;
         netGraph.push(new float[]{dl, ul});
+        if (!textTick) {
+            return;
+        }
 
         long mrx = TrafficStats.getMobileRxBytes();
         long mtx = TrafficStats.getMobileTxBytes();
@@ -559,96 +587,126 @@ public class SystemMonitorActivity extends Activity {
 
     // ---- archiviazione
 
-    private void updateStorage() {
-        StringBuilder sb = new StringBuilder();
-        sb.append(vol("Memoria interna (dati)", Environment.getDataDirectory()));
-        sb.append(vol("Sistema (root)", Environment.getRootDirectory()));
-        try {
-            StorageManager sm = (StorageManager) getSystemService(STORAGE_SERVICE);
-            List<StorageVolume> vols = sm.getStorageVolumes();
-            for (StorageVolume v : vols) {
-                File dir = Build.VERSION.SDK_INT >= 30 ? v.getDirectory() : null;
-                if (dir == null && v.isPrimary()) {
-                    dir = Environment.getExternalStorageDirectory();
-                }
-                String name = v.getDescription(this)
-                        + (v.isRemovable() ? " (rimovibile / microSD)" : " (interna)")
-                        + " [" + v.getState() + "]";
-                if (dir != null && "mounted".equals(v.getState())) {
-                    sb.append(vol(name, dir));
-                } else {
-                    sb.append(name).append("\n\n");
-                }
-            }
-        } catch (Throwable t) {
-            sb.append("Volumi non leggibili\n");
-        }
-        File[] ext = getExternalFilesDirs(null);
-        int removable = 0;
-        for (File f : ext) {
-            if (f != null && Environment.isExternalStorageRemovable(f)) {
-                removable++;
-            }
-        }
-        sb.append("MicroSD/memorie rimovibili rilevate: ").append(removable);
-        storageText.setText(sb.toString());
+    private final class StorageRow {
+        Donut donut;
+        TextView name, path;
+        Kv kv;
     }
 
-    private String vol(String name, File dir) {
-        try {
-            StatFs s = new StatFs(dir.getPath());
-            long total = s.getTotalBytes();
-            long free = s.getAvailableBytes();
-            long used = total - s.getFreeBytes();
-            return String.format(Locale.US, "%s\n  %s\n  Usato %s di %s (%.0f%%)  ·  libero %s\n\n",
-                    name, dir.getPath(), size(used), size(total),
-                    total > 0 ? 100.0 * used / total : 0, size(free));
-        } catch (Throwable t) {
-            return name + "\n  non leggibile\n\n";
+    private void showVol(String name, String sub, File dir, String state) {
+        StorageRow r = storageRows.get(name);
+        if (r == null) {
+            r = new StorageRow();
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(0, dp(8), 0, dp(8));
+            r.donut = new Donut(this);
+            row.addView(r.donut, new LinearLayout.LayoutParams(dp(104), dp(104)));
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            r.name = text("", 15, R.color.text, true);
+            r.path = text("", 11, R.color.text_dim, false);
+            r.path.setPadding(0, 0, 0, dp(6));
+            r.kv = new Kv(this);
+            col.addView(r.name);
+            col.addView(r.path);
+            col.addView(r.kv);
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, WRAP, 1f);
+            cp.leftMargin = dp(14);
+            row.addView(col, cp);
+            storageBox.addView(row, new LinearLayout.LayoutParams(MATCH, WRAP));
+            storageRows.put(name, r);
         }
+        r.name.setText(name);
+        r.path.setText(sub + (dir != null ? "  ·  " + dir.getPath() : ""));
+        if (dir == null || (state != null && !"mounted".equals(state))) {
+            r.donut.set(0f, "—");
+            r.kv.set(new String[][]{{"Stato", state == null ? "non disponibile" : state}});
+            return;
+        }
+        try {
+            StatFs sf = new StatFs(dir.getPath());
+            long total = sf.getTotalBytes();
+            long free = sf.getAvailableBytes();
+            long used = total - sf.getFreeBytes();
+            float pct = total > 0 ? 100f * used / total : 0f;
+            r.donut.set(pct, String.format(Locale.US, "%.0f%%", pct));
+            r.kv.set(new String[][]{
+                    {"Capienza", size(total)},
+                    {"Usato", size(used)},
+                    {"Libero", size(free)},
+                    {"Occupazione", String.format(Locale.US, "%.1f%%", pct)}});
+        } catch (Throwable t) {
+            r.donut.set(0f, "—");
+            r.kv.set(new String[][]{{"Stato", "non leggibile"}});
+        }
+    }
+
+    private void updateStorage() {
+        showVol("Memoria interna", "dati e app", Environment.getDataDirectory(), null);
+        try {
+            StorageManager sm = (StorageManager) getSystemService(STORAGE_SERVICE);
+            for (StorageVolume v : sm.getStorageVolumes()) {
+                if (v.isPrimary() && !v.isRemovable()) {
+                    continue;       // e' la stessa partizione della memoria interna
+                }
+                File dir = Build.VERSION.SDK_INT >= 30 ? v.getDirectory() : null;
+                String sub = v.isRemovable() ? "microSD / rimovibile" : "memoria aggiuntiva";
+                showVol(v.getDescription(this), sub, dir, v.getState());
+            }
+        } catch (Throwable ignored) {
+        }
+        showVol("Sistema", "partizione di Android", Environment.getRootDirectory(), null);
     }
 
     // ---- batteria
 
     private void updateBattery() {
         Intent b = registerReceiver(null, new IntentFilter(Intent.ACTION_BATTERY_CHANGED));
-        StringBuilder sb = new StringBuilder();
+        List<String[]> rows = new ArrayList<>();
+        int pct = 0;
+        boolean charging = false;
         if (b != null) {
             int level = b.getIntExtra(BatteryManager.EXTRA_LEVEL, -1);
             int scale = b.getIntExtra(BatteryManager.EXTRA_SCALE, 100);
             int status = b.getIntExtra(BatteryManager.EXTRA_STATUS, -1);
             int health = b.getIntExtra(BatteryManager.EXTRA_HEALTH, -1);
             int plug = b.getIntExtra(BatteryManager.EXTRA_PLUGGED, 0);
-            sb.append(String.format(Locale.US, "Carica: %d%%\n", level * 100 / Math.max(1, scale)));
-            sb.append("Stato: ").append(statusName(status)).append('\n');
-            sb.append("Alimentazione: ").append(plug == 0 ? "a batteria"
+            pct = level * 100 / Math.max(1, scale);
+            charging = status == BatteryManager.BATTERY_STATUS_CHARGING
+                    || status == BatteryManager.BATTERY_STATUS_FULL && plug != 0;
+            rows.add(new String[]{"Carica", pct + "%"});
+            rows.add(new String[]{"Stato", statusName(status)});
+            rows.add(new String[]{"Alimentazione", plug == 0 ? "a batteria"
                     : plug == BatteryManager.BATTERY_PLUGGED_AC ? "caricatore"
                     : plug == BatteryManager.BATTERY_PLUGGED_USB ? "USB"
-                    : plug == BatteryManager.BATTERY_PLUGGED_WIRELESS ? "wireless" : "altro").append('\n');
-            sb.append("Salute: ").append(healthName(health)).append('\n');
-            sb.append(String.format(Locale.US, "Tensione: %.2f V\n",
-                    b.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) / 1000f));
-            sb.append(String.format(Locale.US, "Temperatura: %.1f °C\n",
-                    b.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10f));
+                    : plug == BatteryManager.BATTERY_PLUGGED_WIRELESS ? "wireless" : "altro"});
+            rows.add(new String[]{"Salute", healthName(health)});
+            rows.add(new String[]{"Tensione", String.format(Locale.US, "%.2f V",
+                    b.getIntExtra(BatteryManager.EXTRA_VOLTAGE, 0) / 1000f)});
+            rows.add(new String[]{"Temperatura", String.format(Locale.US, "%.1f °C",
+                    b.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, 0) / 10f)});
             String tech = b.getStringExtra(BatteryManager.EXTRA_TECHNOLOGY);
-            sb.append("Tecnologia: ").append(tech == null ? "n/d" : tech).append('\n');
+            rows.add(new String[]{"Tecnologia", tech == null ? "n/d" : tech});
         }
         BatteryManager bm = (BatteryManager) getSystemService(BATTERY_SERVICE);
         if (bm != null) {
             long cur = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW);
             long cnt = bm.getLongProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER);
             if (cur != Long.MIN_VALUE && cur != 0) {
-                sb.append("Corrente: ").append(cur / 1000).append(" mA\n");
+                rows.add(new String[]{"Corrente", Math.abs(cur) > 20000
+                        ? (cur / 1000) + " mA" : cur + " mA"});
             }
             if (cnt > 0) {
-                sb.append("Carica residua: ").append(cnt / 1000).append(" mAh\n");
+                rows.add(new String[]{"Carica residua", (cnt / 1000) + " mAh"});
             }
         }
         PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
         if (pm != null) {
-            sb.append("Risparmio energetico: ").append(pm.isPowerSaveMode() ? "attivo" : "no").append('\n');
+            rows.add(new String[]{"Risparmio energia", pm.isPowerSaveMode() ? "attivo" : "no"});
         }
-        batteryText.setText(sb.toString().trim());
+        batteryView.set(pct, charging);
+        batteryKv.set(rows.toArray(new String[0][]));
     }
 
     private static String statusName(int s) {
@@ -945,6 +1003,165 @@ public class SystemMonitorActivity extends Activity {
 
     // ---------------------------------------------------------------- grafico
 
+    /** Elenco etichetta / valore su due colonne. */
+    private final class Kv extends LinearLayout {
+        Kv(Context c) {
+            super(c);
+            setOrientation(VERTICAL);
+        }
+
+        void set(String[][] rows) {
+            if (getChildCount() != rows.length) {
+                removeAllViews();
+                for (int i = 0; i < rows.length; i++) {
+                    LinearLayout r = new LinearLayout(getContext());
+                    r.setPadding(0, dp(3), 0, dp(3));
+                    TextView k = text("", 12, R.color.text_dim, false);
+                    TextView v = text("", 12, R.color.text, true);
+                    v.setGravity(Gravity.END);
+                    r.addView(k, new LinearLayout.LayoutParams(0, WRAP, 1f));
+                    r.addView(v, new LinearLayout.LayoutParams(0, WRAP, 1.2f));
+                    addView(r, new LinearLayout.LayoutParams(MATCH, WRAP));
+                }
+            }
+            for (int i = 0; i < rows.length; i++) {
+                LinearLayout r = (LinearLayout) getChildAt(i);
+                ((TextView) r.getChildAt(0)).setText(rows[i][0]);
+                ((TextView) r.getChildAt(1)).setText(rows[i][1]);
+            }
+        }
+    }
+
+    /** Grafico ad anello: percentuale occupata al centro. */
+    private static final class Donut extends View {
+        private float pct = 0f;
+        private String label = "";
+        private final Paint ring = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint txt = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF box = new android.graphics.RectF();
+        private final float d;
+
+        Donut(Context c) {
+            super(c);
+            d = c.getResources().getDisplayMetrics().density;
+            ring.setStyle(Paint.Style.STROKE);
+            ring.setStrokeWidth(11f * d);
+            ring.setStrokeCap(Paint.Cap.ROUND);
+            txt.setColor(0xFFECEFF4);
+            txt.setTextAlign(Paint.Align.CENTER);
+            txt.setTypeface(Typeface.DEFAULT_BOLD);
+            txt.setTextSize(20f * d);
+        }
+
+        void set(float p, String l) {
+            pct = Math.max(0f, Math.min(100f, p));
+            label = l;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float s = Math.min(getWidth(), getHeight());
+            float m = ring.getStrokeWidth() / 2f + 2f * d;
+            float l = (getWidth() - s) / 2f;
+            float t = (getHeight() - s) / 2f;
+            box.set(l + m, t + m, l + s - m, t + s - m);
+            ring.setColor(0xFF262B35);
+            c.drawArc(box, 0, 360, false, ring);
+            ring.setColor(pct < 70 ? 0xFF4DD0E1 : pct < 90 ? 0xFFFFB74D : 0xFFFF6B6B);
+            if (pct > 0.3f) {
+                c.drawArc(box, -90, 360f * pct / 100f, false, ring);
+            }
+            c.drawText(label, getWidth() / 2f, getHeight() / 2f + txt.getTextSize() * 0.35f, txt);
+        }
+    }
+
+    /** Batteria verticale grande: livello e colore come nella barra di stato. */
+    private static final class BatteryView extends View {
+        private int pct = 0;
+        private boolean charging = false;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint txt = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.RectF body = new android.graphics.RectF();
+        private final Path bolt = new Path();
+        private final float d;
+
+        BatteryView(Context c) {
+            super(c);
+            d = c.getResources().getDisplayMetrics().density;
+            txt.setTextAlign(Paint.Align.CENTER);
+            txt.setTypeface(Typeface.DEFAULT_BOLD);
+            txt.setTextSize(22f * d);
+        }
+
+        void set(int p, boolean ch) {
+            pct = Math.max(0, Math.min(100, p));
+            charging = ch;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float w = getWidth();
+            float h = getHeight();
+            float nubH = 8f * d;
+            float bw = Math.min(w, 70f * d);
+            float left = (w - bw) / 2f;
+            float top = nubH;
+            float bottom = h - 2f * d;
+            float r = 12f * d;
+            int color = charging ? 0xFF4DD0E1 : pct <= 15 ? 0xFFFF5252
+                    : pct <= 30 ? 0xFFFFB74D : 0xFF66BB6A;
+
+            // polo
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(0xFF9AA3B2);
+            c.drawRoundRect(left + bw * 0.32f, 0, left + bw * 0.68f, nubH + 3f * d, 3f * d, 3f * d, p);
+            // corpo
+            body.set(left, top, left + bw, bottom);
+            p.setColor(0xFF262B35);
+            c.drawRoundRect(body, r, r, p);
+            // livello
+            float inset = 4f * d;
+            float fh = (bottom - top - 2 * inset) * pct / 100f;
+            if (fh > 0) {
+                c.save();
+                android.graphics.RectF inner = new android.graphics.RectF(left + inset, top + inset,
+                        left + bw - inset, bottom - inset);
+                Path clip = new Path();
+                clip.addRoundRect(inner, r - inset, r - inset, Path.Direction.CW);
+                c.clipPath(clip);
+                p.setColor(color);
+                c.drawRect(inner.left, inner.bottom - fh, inner.right, inner.bottom, p);
+                c.restore();
+            }
+            // contorno
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeWidth(2.5f * d);
+            p.setColor(0xFF9AA3B2);
+            c.drawRoundRect(body, r, r, p);
+            // testo e fulmine
+            txt.setColor(pct > 50 && !charging ? 0xFF0F1115 : 0xFFFFFFFF);
+            float cy = (top + bottom) / 2f;
+            c.drawText(pct + "%", w / 2f, cy + (charging ? 26f * d : 8f * d), txt);
+            if (charging) {
+                float cx = w / 2f;
+                float u = d;
+                bolt.reset();
+                bolt.moveTo(cx + 3 * u, cy - 36 * u);
+                bolt.lineTo(cx - 11 * u, cy - 6 * u);
+                bolt.lineTo(cx - 1 * u, cy - 6 * u);
+                bolt.lineTo(cx - 4 * u, cy + 14 * u);
+                bolt.lineTo(cx + 11 * u, cy - 16 * u);
+                bolt.lineTo(cx + 1 * u, cy - 16 * u);
+                bolt.close();
+                p.setStyle(Paint.Style.FILL);
+                p.setColor(0xFFFFFFFF);
+                c.drawPath(bolt, p);
+            }
+        }
+    }
+
     private interface Fmt {
         String f(float v);
     }
@@ -970,7 +1187,7 @@ public class SystemMonitorActivity extends Activity {
             data = new float[series][HIST];
             float d = c.getResources().getDisplayMetrics().density;
             line.setStyle(Paint.Style.STROKE);
-            line.setStrokeWidth(2f * d);
+            line.setStrokeWidth(1.1f * d);
             line.setStrokeJoin(Paint.Join.ROUND);
             grid.setColor(0x33FFFFFF);
             grid.setStrokeWidth(1f);

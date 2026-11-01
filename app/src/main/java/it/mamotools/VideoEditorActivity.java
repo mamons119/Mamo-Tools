@@ -6,7 +6,11 @@ import android.content.ContentValues;
 import android.content.Context;
 import android.content.Intent;
 import android.database.Cursor;
+import android.content.res.ColorStateList;
 import android.graphics.Bitmap;
+import android.graphics.Outline;
+import android.graphics.drawable.RippleDrawable;
+import android.view.ViewOutlineProvider;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -98,24 +102,50 @@ public class VideoEditorActivity extends Activity {
 
     // ------------------------------------------------------------------------ UI
 
+    private static final int C_BG = 0xFF0F1115, C_CARD = 0xFF1A1D24, C_CARD2 = 0xFF262B35,
+            C_ACCENT = 0xFF4DD0E1, C_DANGER = 0xFFFF6B6B, C_TEXT = 0xFFECEFF4, C_DIM = 0xFF9AA3B2;
+
+    private TextView pickTitle, pickSub;
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
 
         ScrollView scroll = new ScrollView(this);
+        scroll.setFillViewport(true);
         LinearLayout root = new LinearLayout(this);
         root.setOrientation(LinearLayout.VERTICAL);
-        root.setPadding(dp(16), dp(40), dp(16), dp(24));
+        root.setPadding(dp(16), dp(36), dp(16), dp(28));
         scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
 
         root.addView(text("Video Editor", 28, R.color.text, true));
-        TextView sub = text("Scegli un video dalla Galleria, taglia le parti che non vuoi, "
-                + "gestisci l'audio e salva.", 14, R.color.text_dim, false);
-        sub.setPadding(0, dp(6), 0, dp(20));
+        TextView sub = text("Taglia, gestisci l'audio e aggiungi una colonna sonora.",
+                14, R.color.text_dim, false);
+        sub.setPadding(0, dp(4), 0, dp(16));
         root.addView(sub);
 
-        Button pick = button("Scegli un video", v -> pickVideo());
-        root.addView(pick, new LinearLayout.LayoutParams(MATCH, WRAP));
+        // ---- scelta del video
+        LinearLayout pickCard = card();
+        pickCard.setOrientation(LinearLayout.HORIZONTAL);
+        pickCard.setGravity(Gravity.CENTER_VERTICAL);
+        pickCard.setClickable(true);
+        pickCard.setOnClickListener(v -> pickVideo());
+        TextView ic = text("🎬", 26, R.color.text, false);
+        ic.setGravity(Gravity.CENTER);
+        ic.setBackground(round(C_BG, 100));
+        pickCard.addView(ic, new LinearLayout.LayoutParams(dp(52), dp(52)));
+        LinearLayout pt = new LinearLayout(this);
+        pt.setOrientation(LinearLayout.VERTICAL);
+        pt.setPadding(dp(14), 0, dp(8), 0);
+        pickTitle = text("Scegli un video", 17, R.color.text, true);
+        pickTitle.setSingleLine(true);
+        pickTitle.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        pickSub = text("Dalla Galleria o dai file", 13, R.color.text_dim, false);
+        pt.addView(pickTitle);
+        pt.addView(pickSub);
+        pickCard.addView(pt, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        pickCard.addView(text("›", 28, R.color.text_dim, false));
+        root.addView(pickCard, lp(MATCH, WRAP, 0, 0));
 
         editorBox = new LinearLayout(this);
         editorBox.setOrientation(LinearLayout.VERTICAL);
@@ -123,13 +153,15 @@ public class VideoEditorActivity extends Activity {
         root.addView(editorBox, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         // ---- anteprima
+        LinearLayout prev = card();
+        prev.setPadding(dp(12), dp(12), dp(12), dp(12));
         FrameLayout vf = new FrameLayout(this);
         vf.setBackgroundColor(Color.BLACK);
+        vf.setClipToOutline(true);
+        vf.setBackground(round(Color.BLACK, 14));
         videoView = new VideoView(this);
         vf.addView(videoView, new FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER));
-        LinearLayout.LayoutParams vlp = new LinearLayout.LayoutParams(MATCH, dp(240));
-        vlp.topMargin = dp(16);
-        editorBox.addView(vf, vlp);
+        prev.addView(vf, new LinearLayout.LayoutParams(MATCH, dp(220)));
         videoView.setOnPreparedListener(mp -> {
             videoPlayer = mp;
             mp.setVolume(keepAudio ? 1f : 0f, keepAudio ? 1f : 0f);
@@ -144,66 +176,78 @@ public class VideoEditorActivity extends Activity {
             timeline.setPos(durMs);
         });
 
-        // ---- controlli di riproduzione
         LinearLayout ctl = new LinearLayout(this);
         ctl.setGravity(Gravity.CENTER_VERTICAL);
-        playBtn = button("▶", v -> togglePlay());
-        ctl.addView(playBtn, new LinearLayout.LayoutParams(dp(64), WRAP));
-        ctl.addView(button("-1s", v -> seekRel(-1000)), new LinearLayout.LayoutParams(dp(60), WRAP));
-        ctl.addView(button("+1s", v -> seekRel(1000)), new LinearLayout.LayoutParams(dp(60), WRAP));
-        timeText = text("0:00 / 0:00", 14, R.color.text, false);
-        timeText.setGravity(Gravity.END);
+        ctl.setPadding(0, dp(10), 0, 0);
+        playBtn = btn("▶", C_ACCENT, Color.BLACK, v -> togglePlay());
+        playBtn.setTextSize(18);
+        ctl.addView(playBtn, new LinearLayout.LayoutParams(dp(52), dp(44)));
+        ctl.addView(btn("−1s", C_CARD2, C_TEXT, v -> seekRel(-1000)), lp(dp(54), dp(44), 8, 0));
+        ctl.addView(btn("+1s", C_CARD2, C_TEXT, v -> seekRel(1000)), lp(dp(54), dp(44), 6, 0));
+        timeText = text("0:00.0 / 0:00.0", 14, R.color.text, true);
+        timeText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         ctl.addView(timeText, new LinearLayout.LayoutParams(0, WRAP, 1f));
-        editorBox.addView(ctl, new LinearLayout.LayoutParams(MATCH, WRAP));
+        prev.addView(ctl, new LinearLayout.LayoutParams(MATCH, WRAP));
+        editorBox.addView(prev, lp(MATCH, WRAP, 0, 12));
 
-        // ---- timeline
+        // ---- timeline e tagli
+        LinearLayout tl = card();
+        tl.addView(sectionTitle("Timeline"));
         timeline = new Timeline(this);
+        timeline.setClipToOutline(true);
+        timeline.setOutlineProvider(new ViewOutlineProvider() {
+            @Override
+            public void getOutline(View v, Outline o) {
+                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), dp(10));
+            }
+        });
         timeline.setOnSeek(ms -> {
             videoView.seekTo((int) ms);
             updateTexts();
         });
-        LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(MATCH, dp(64));
-        tlp.topMargin = dp(8);
-        editorBox.addView(timeline, tlp);
-
+        tl.addView(timeline, new LinearLayout.LayoutParams(MATCH, dp(68)));
         markText = text("", 13, R.color.text_dim, false);
-        markText.setPadding(0, dp(8), 0, 0);
-        editorBox.addView(markText);
+        markText.setPadding(0, dp(10), 0, dp(8));
+        tl.addView(markText);
 
-        LinearLayout cutRow1 = new LinearLayout(this);
-        cutRow1.addView(button("[ Inizio", v -> {
+        LinearLayout r1 = new LinearLayout(this);
+        r1.addView(btn("[  Inizio", C_CARD2, C_TEXT, v -> {
             markA = timeline.pos;
             if (markB >= 0 && markB <= markA) {
                 markB = -1;
             }
             refreshMarks();
-        }), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        cutRow1.addView(button("Fine ]", v -> {
+        }), lp(0, dp(44), 0, 0, 1f));
+        r1.addView(btn("Fine  ]", C_CARD2, C_TEXT, v -> {
             markB = timeline.pos;
             if (markA >= 0 && markA >= markB) {
                 markA = -1;
             }
             refreshMarks();
-        }), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        editorBox.addView(cutRow1, new LinearLayout.LayoutParams(MATCH, WRAP));
-
-        LinearLayout cutRow2 = new LinearLayout(this);
-        cutRow2.addView(button("✂ Taglia via la selezione", v -> addCut()),
-                new LinearLayout.LayoutParams(0, WRAP, 1.4f));
-        cutRow2.addView(button("Annulla taglio", v -> {
+        }), lp(0, dp(44), 8, 0, 1f));
+        tl.addView(r1, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout r2 = new LinearLayout(this);
+        r2.addView(btn("✂  Taglia la selezione", C_DANGER, Color.BLACK, v -> addCut()),
+                lp(0, dp(44), 0, 8, 1.6f));
+        r2.addView(btn("↶  Annulla", C_CARD2, C_TEXT, v -> {
             if (!cuts.isEmpty()) {
                 cuts.remove(cuts.size() - 1);
                 refreshMarks();
             }
-        }), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        editorBox.addView(cutRow2, new LinearLayout.LayoutParams(MATCH, WRAP));
+        }), lp(0, dp(44), 8, 8, 1f));
+        tl.addView(r2, new LinearLayout.LayoutParams(MATCH, WRAP));
+        editorBox.addView(tl, lp(MATCH, WRAP, 0, 12));
 
         // ---- audio
-        editorBox.addView(sectionTitle("Audio"));
+        LinearLayout au = card();
+        au.addView(sectionTitle("Audio"));
         Switch sw = new Switch(this);
         sw.setText("Mantieni l'audio originale");
-        sw.setTextColor(getColor(R.color.text));
+        sw.setTextColor(C_TEXT);
+        sw.setTextSize(15);
         sw.setChecked(true);
+        sw.setThumbTintList(ColorStateList.valueOf(C_ACCENT));
+        sw.setTrackTintList(ColorStateList.valueOf(0x664DD0E1));
         sw.setOnCheckedChangeListener((CompoundButton b, boolean on) -> {
             keepAudio = on;
             if (videoPlayer != null) {
@@ -211,49 +255,50 @@ public class VideoEditorActivity extends Activity {
             }
             updateModeAvailability();
         });
-        editorBox.addView(sw, new LinearLayout.LayoutParams(MATCH, WRAP));
+        au.addView(sw, new LinearLayout.LayoutParams(MATCH, WRAP));
+        editorBox.addView(au, lp(MATCH, WRAP, 0, 12));
 
-        editorBox.addView(sectionTitle("Colonna sonora"));
+        // ---- colonna sonora
+        LinearLayout so = card();
+        so.addView(sectionTitle("Colonna sonora"));
         LinearLayout soundRow = new LinearLayout(this);
         soundRow.setGravity(Gravity.CENTER_VERTICAL);
-        soundRow.addView(button("Scegli audio", v -> pickSound()),
-                new LinearLayout.LayoutParams(WRAP, WRAP));
-        Button clear = button("Rimuovi", v -> clearSound());
-        soundRow.addView(clear, new LinearLayout.LayoutParams(WRAP, WRAP));
+        soundRow.addView(btn("♪  Scegli audio", C_CARD2, C_TEXT, v -> pickSound()),
+                new LinearLayout.LayoutParams(WRAP, dp(44)));
         soundName = text("Nessuna", 13, R.color.text_dim, false);
-        soundName.setPadding(dp(8), 0, 0, 0);
+        soundName.setPadding(dp(12), 0, dp(8), 0);
+        soundName.setSingleLine(true);
+        soundName.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         soundRow.addView(soundName, new LinearLayout.LayoutParams(0, WRAP, 1f));
-        editorBox.addView(soundRow, new LinearLayout.LayoutParams(MATCH, WRAP));
+        soundRow.addView(btn("✕", C_CARD2, C_DANGER, v -> clearSound()),
+                new LinearLayout.LayoutParams(dp(44), dp(44)));
+        so.addView(soundRow, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         soundBox = new LinearLayout(this);
         soundBox.setOrientation(LinearLayout.VERTICAL);
         soundBox.setVisibility(View.GONE);
-        editorBox.addView(soundBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+        so.addView(soundBox, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         soundStartText = text("", 14, R.color.text, false);
-        soundStartText.setPadding(0, dp(8), 0, 0);
+        soundStartText.setPadding(0, dp(14), 0, 0);
         soundBox.addView(soundStartText);
-        soundStartBar = new SeekBar(this);
-        soundStartBar.setOnSeekBarChangeListener(new SimpleSeek() {
+        soundStartBar = seek(new SimpleSeek() {
             @Override
-            public void onProgressChanged(SeekBar s, int p, boolean user) {
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
                 soundStartMs = p * 100L;
                 updateTexts();
             }
         });
         soundBox.addView(soundStartBar, new LinearLayout.LayoutParams(MATCH, WRAP));
-        soundTestBtn = button("▶ Ascolta da questo punto", v -> toggleSoundTest());
-        soundBox.addView(soundTestBtn, new LinearLayout.LayoutParams(MATCH, WRAP));
+        soundTestBtn = btn("▶  Ascolta da questo punto", C_CARD2, C_ACCENT, v -> toggleSoundTest());
+        soundBox.addView(soundTestBtn, new LinearLayout.LayoutParams(MATCH, dp(44)));
 
+        TextView ml = text("Come usarla", 13, R.color.text_dim, false);
+        ml.setPadding(0, dp(16), 0, dp(2));
+        soundBox.addView(ml);
         modeGroup = new RadioGroup(this);
-        RadioButton replace = new RadioButton(this);
-        replace.setId(2001);
-        replace.setText("Sostituisci l'audio originale");
-        replace.setTextColor(getColor(R.color.text));
-        modeMix = new RadioButton(this);
-        modeMix.setId(2002);
-        modeMix.setText("Aggiungi all'audio originale (abbassato)");
-        modeMix.setTextColor(getColor(R.color.text));
+        RadioButton replace = radio("Sostituisci l'audio originale", 2001);
+        modeMix = radio("Aggiungi all'originale (abbassato)", 2002);
         modeGroup.addView(replace);
         modeGroup.addView(modeMix);
         modeGroup.check(2001);
@@ -261,54 +306,132 @@ public class VideoEditorActivity extends Activity {
             mix = id == 2002;
             updateModeAvailability();
         });
-        LinearLayout.LayoutParams mlp = new LinearLayout.LayoutParams(MATCH, WRAP);
-        mlp.topMargin = dp(8);
-        soundBox.addView(modeGroup, mlp);
+        soundBox.addView(modeGroup, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         dbText = text("", 14, R.color.text, false);
+        dbText.setPadding(0, dp(8), 0, 0);
         soundBox.addView(dbText);
-        dbBar = new SeekBar(this);
-        dbBar.setMax(27);          // 3..30 dB
-        dbBar.setProgress(dbDown - 3);
-        dbBar.setOnSeekBarChangeListener(new SimpleSeek() {
+        dbBar = seek(new SimpleSeek() {
             @Override
-            public void onProgressChanged(SeekBar s, int p, boolean user) {
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
                 dbDown = p + 3;
                 updateTexts();
             }
         });
+        dbBar.setMax(27);          // 3..30 dB
+        dbBar.setProgress(dbDown - 3);
         soundBox.addView(dbBar, new LinearLayout.LayoutParams(MATCH, WRAP));
+        editorBox.addView(so, lp(MATCH, WRAP, 0, 12));
 
         // ---- salvataggio
-        exportBtn = button("Salva il video", v -> export());
-        LinearLayout.LayoutParams elp = new LinearLayout.LayoutParams(MATCH, WRAP);
-        elp.topMargin = dp(20);
-        editorBox.addView(exportBtn, elp);
+        exportBtn = btn("Salva il video", C_ACCENT, Color.BLACK, v -> export());
+        exportBtn.setTextSize(16);
+        editorBox.addView(exportBtn, lp(MATCH, dp(54), 0, 16));
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
+        progress.setProgressTintList(ColorStateList.valueOf(C_ACCENT));
         progress.setVisibility(View.GONE);
-        editorBox.addView(progress, new LinearLayout.LayoutParams(MATCH, WRAP));
+        editorBox.addView(progress, lp(MATCH, WRAP, 0, 8));
 
         status = text("", 14, R.color.text, false);
         status.setPadding(0, dp(12), 0, dp(8));
         root.addView(status);
 
-        openBtn = button("Apri il video salvato", v -> openResult());
+        openBtn = btn("Apri il video salvato", C_CARD2, C_ACCENT, v -> openResult());
         openBtn.setVisibility(View.GONE);
-        root.addView(openBtn, new LinearLayout.LayoutParams(MATCH, WRAP));
+        root.addView(openBtn, new LinearLayout.LayoutParams(MATCH, dp(48)));
 
-        TextView note = text("I tagli non ricodificano il video, quindi la qualita' resta identica "
-                + "e il salvataggio e' veloce; per questo il punto di taglio puo' slittare "
-                + "all'indietro fino al fotogramma chiave precedente (di solito meno di 1 secondo). "
-                + "La colonna sonora piu' corta del video lascia il resto in silenzio (o solo "
-                + "l'audio originale se lo mantieni). Le parti tagliate in anteprima vengono "
-                + "saltate.", 12, R.color.text_dim, false);
-        note.setPadding(0, dp(24), 0, 0);
+        TextView note = text("I tagli non ricodificano il video: qualita' identica e salvataggio "
+                + "veloce, ma il punto di taglio puo' slittare all'indietro fino al fotogramma "
+                + "chiave precedente (di solito meno di 1 secondo). Una colonna sonora piu' corta "
+                + "del video lascia il resto in silenzio (o con il solo audio originale).",
+                12, R.color.text_dim, false);
+        note.setPadding(0, dp(20), 0, 0);
         root.addView(note);
 
         setContentView(scroll);
         updateTexts();
+    }
+
+    // ---- componenti grafici
+
+    /** Bottone arrotondato con ombra di tocco e aspetto spento quando disabilitato. */
+    private final class RoundButton extends Button {
+        RoundButton(Context c) {
+            super(c);
+        }
+
+        @Override
+        public void setEnabled(boolean e) {
+            super.setEnabled(e);
+            setAlpha(e ? 1f : 0.4f);
+        }
+    }
+
+    private Button btn(String label, int bg, int fg, View.OnClickListener l) {
+        Button b = new RoundButton(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextColor(fg);
+        b.setTextSize(14);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(dp(12), 0, dp(12), 0);
+        b.setStateListAnimator(null);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), round(bg, 12), null));
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    private LinearLayout card() {
+        LinearLayout c = new LinearLayout(this);
+        c.setOrientation(LinearLayout.VERTICAL);
+        c.setBackground(round(C_CARD, 16));
+        c.setPadding(dp(16), dp(14), dp(16), dp(16));
+        return c;
+    }
+
+    private GradientDrawable round(int color, int radiusDp) {
+        GradientDrawable g = new GradientDrawable();
+        g.setColor(color);
+        g.setCornerRadius(dp(radiusDp));
+        return g;
+    }
+
+    private LinearLayout.LayoutParams lp(int w, int h, int leftDp, int topDp) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(w, h);
+        p.leftMargin = dp(leftDp);
+        p.topMargin = dp(topDp);
+        return p;
+    }
+
+    private LinearLayout.LayoutParams lp(int w, int h, int leftDp, int topDp, float weight) {
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(w, h, weight);
+        p.leftMargin = dp(leftDp);
+        p.topMargin = dp(topDp);
+        return p;
+    }
+
+    private SeekBar seek(SeekBar.OnSeekBarChangeListener l) {
+        SeekBar sb = new SeekBar(this);
+        sb.setProgressTintList(ColorStateList.valueOf(C_ACCENT));
+        sb.setThumbTintList(ColorStateList.valueOf(C_ACCENT));
+        sb.setOnSeekBarChangeListener(l);
+        return sb;
+    }
+
+    private RadioButton radio(String label, int id) {
+        RadioButton r = new RadioButton(this);
+        r.setId(id);
+        r.setText(label);
+        r.setTextColor(C_TEXT);
+        r.setTextSize(14);
+        r.setButtonTintList(ColorStateList.valueOf(C_ACCENT));
+        return r;
     }
 
     // ------------------------------------------------------------------------ scelta file
@@ -389,7 +512,9 @@ public class VideoEditorActivity extends Activity {
         handler.post(ticker);
         timeline.loadThumbs(this, uri);
         refreshMarks();
-        status.setText(videoName);
+        pickTitle.setText(videoName);
+        pickSub.setText(fmt(durMs) + " · tocca per cambiare video");
+        status.setText("");
     }
 
     private void loadSound(Uri uri) {
@@ -525,7 +650,7 @@ public class VideoEditorActivity extends Activity {
             });
             soundPlayer.setOnCompletionListener(mp -> stopSoundTest());
             soundPlayer.prepareAsync();
-            soundTestBtn.setText("■ Ferma");
+            soundTestBtn.setText("■  Ferma");
         } catch (Exception e) {
             stopSoundTest();
             Toast.makeText(this, "Impossibile riprodurre l'audio.", Toast.LENGTH_SHORT).show();
@@ -541,7 +666,7 @@ public class VideoEditorActivity extends Activity {
             soundPlayer = null;
         }
         if (soundTestBtn != null) {
-            soundTestBtn.setText("▶ Ascolta da questo punto");
+            soundTestBtn.setText("▶  Ascolta da questo punto");
         }
     }
 
@@ -810,8 +935,8 @@ public class VideoEditorActivity extends Activity {
     }
 
     private TextView sectionTitle(String s) {
-        TextView t = text(s, 16, R.color.accent, true);
-        t.setPadding(0, dp(20), 0, dp(4));
+        TextView t = text(s, 15, R.color.accent, true);
+        t.setPadding(0, 0, 0, dp(10));
         return t;
     }
 

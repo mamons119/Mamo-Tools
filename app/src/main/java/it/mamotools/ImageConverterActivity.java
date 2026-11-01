@@ -8,6 +8,7 @@ import android.database.Cursor;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.Paint;
 import android.graphics.ImageDecoder;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
@@ -18,7 +19,9 @@ import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.view.View;
 import android.view.ViewGroup;
+import android.text.InputType;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
@@ -44,7 +47,7 @@ public class ImageConverterActivity extends Activity {
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
 
-    private static final String[] FORMATS = {"JPG", "PNG", "WEBP", "BMP"};
+    private static final String[] FORMATS = {"JPG", "PNG", "WEBP", "BMP", "ICO"};
 
     private Uri pickedUri;
     private String pickedName;
@@ -52,6 +55,9 @@ public class ImageConverterActivity extends Activity {
     private volatile boolean busy = false;
     private int format = 0;
     private int quality = 92;
+    private int icoSize = 64;
+    private EditText icoEdit;
+    private LinearLayout icoBox;
 
     private TextView fileName, fileInfo, status, qualityLabel;
     private ImageView preview;
@@ -154,6 +160,40 @@ public class ImageConverterActivity extends Activity {
         root.addView(qualityBar, new LinearLayout.LayoutParams(MATCH, WRAP));
         updateQualityVisibility();
 
+        icoBox = new LinearLayout(this);
+        icoBox.setOrientation(LinearLayout.VERTICAL);
+        icoBox.setVisibility(View.GONE);
+        TextView il = text("Dimensione dell'icona (pixel, da 1 a 256)", 14, R.color.text, false);
+        il.setPadding(0, dp(16), 0, dp(4));
+        icoBox.addView(il);
+        LinearLayout presets = new LinearLayout(this);
+        for (final int sz : new int[]{16, 32, 48, 64, 128, 256}) {
+            Button pb = new Button(this);
+            pb.setText(String.valueOf(sz));
+            pb.setAllCaps(false);
+            pb.setMinWidth(0);
+            pb.setMinimumWidth(0);
+            pb.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    icoEdit.setText(String.valueOf(sz));
+                }
+            });
+            presets.addView(pb, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        }
+        icoBox.addView(presets, new LinearLayout.LayoutParams(MATCH, WRAP));
+        icoEdit = new EditText(this);
+        icoEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        icoEdit.setText(String.valueOf(icoSize));
+        icoEdit.setTextColor(getColor(R.color.text));
+        icoEdit.setHint("pixel");
+        icoBox.addView(icoEdit, new LinearLayout.LayoutParams(MATCH, WRAP));
+        TextView in = text("L'icona e' quadrata: l'immagine viene rimpicciolita per stare "
+                + "dentro il quadrato, con sfondo trasparente nei lati liberi.",
+                12, R.color.text_dim, false);
+        icoBox.addView(in);
+        root.addView(icoBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+
         convertBtn = new Button(this);
         convertBtn.setAllCaps(false);
         convertBtn.setText("Converti");
@@ -194,7 +234,7 @@ public class ImageConverterActivity extends Activity {
 
         TextView note = text("In ingresso: tutto cio' che il telefono sa aprire (JPG, PNG, WEBP, "
                 + "GIF, BMP, ICO, HEIC/HEIF, RAW DNG...). Le GIF animate usano il primo "
-                + "fotogramma. In uscita: JPG, PNG, WEBP (con qualita' regolabile) e BMP. "
+                + "fotogramma. In uscita: JPG, PNG, WEBP (con qualita' regolabile), BMP e ICO (dimensione a scelta, fino a 256 px). "
                 + "Gli sfondi trasparenti diventano bianchi in JPG e BMP.",
                 12, R.color.text_dim, false);
         note.setPadding(0, dp(24), 0, 0);
@@ -208,6 +248,9 @@ public class ImageConverterActivity extends Activity {
         qualityLabel.setVisibility(lossy ? View.VISIBLE : View.GONE);
         qualityBar.setVisibility(lossy ? View.VISIBLE : View.GONE);
         qualityLabel.setText("Qualita': " + quality + "%");
+        if (icoBox != null) {
+            icoBox.setVisibility(format == 4 ? View.VISIBLE : View.GONE);
+        }
     }
 
     // ------------------------------------------------------------------ scelta
@@ -310,6 +353,15 @@ public class ImageConverterActivity extends Activity {
         final Uri src = pickedUri;
         final int fmt = format;
         final int q = quality;
+        int sz = 64;
+        try {
+            sz = Integer.parseInt(icoEdit.getText().toString().trim());
+        } catch (Exception ignored) {
+        }
+        final int icoPx = Math.max(1, Math.min(256, sz));
+        if (fmt == 4 && sz != icoPx) {
+            icoEdit.setText(String.valueOf(icoPx));
+        }
         final String base = baseName(pickedName);
 
         new Thread(new Runnable() {
@@ -328,9 +380,15 @@ public class ImageConverterActivity extends Activity {
                     } else if (fmt == 2) {
                         ext = "webp";
                         mime = "image/webp";
-                    } else {
+                    } else if (fmt == 3) {
                         ext = "bmp";
                         mime = "image/bmp";
+                    } else {
+                        ext = "ico";
+                        mime = "image/x-icon";
+                    }
+                    if (fmt == 4) {
+                        bmp = squareFit(bmp, icoPx);
                     }
                     if (fmt == 0 || fmt == 3) {
                         bmp = flatten(bmp);
@@ -348,8 +406,11 @@ public class ImageConverterActivity extends Activity {
                                 ok = out.compress(q >= 100
                                         ? Bitmap.CompressFormat.WEBP_LOSSLESS
                                         : Bitmap.CompressFormat.WEBP_LOSSY, q, os);
-                            } else {
+                            } else if (fmt == 3) {
                                 writeBmp(out, os);
+                                ok = true;
+                            } else {
+                                writeIco(out, os);
                                 ok = true;
                             }
                             if (!ok) {
@@ -379,6 +440,53 @@ public class ImageConverterActivity extends Activity {
         c.drawColor(Color.WHITE);
         c.drawBitmap(src, 0, 0, null);
         return out;
+    }
+
+    /** Ridimensiona per stare in un quadrato size x size, centrato su fondo trasparente. */
+    private static Bitmap squareFit(Bitmap src, int size) {
+        float scale = Math.min((float) size / src.getWidth(), (float) size / src.getHeight());
+        int w = Math.max(1, Math.round(src.getWidth() * scale));
+        int h = Math.max(1, Math.round(src.getHeight() * scale));
+        Bitmap cur = src;
+        // riduzione a gradini per non perdere qualita'
+        while (cur.getWidth() / 2 >= w && cur.getHeight() / 2 >= h) {
+            Bitmap n = Bitmap.createScaledBitmap(cur, cur.getWidth() / 2, cur.getHeight() / 2, true);
+            if (cur != src) {
+                cur.recycle();
+            }
+            cur = n;
+        }
+        Bitmap scaled = Bitmap.createScaledBitmap(cur, w, h, true);
+        if (cur != src && cur != scaled) {
+            cur.recycle();
+        }
+        Bitmap out = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888);
+        Canvas c = new Canvas(out);
+        Paint p = new Paint(Paint.FILTER_BITMAP_FLAG);
+        c.drawBitmap(scaled, (size - w) / 2f, (size - h) / 2f, p);
+        return out;
+    }
+
+    /** ICO con una sola immagine, memorizzata come PNG (valido da Windows Vista in poi). */
+    private static void writeIco(Bitmap b, OutputStream os) throws IOException {
+        java.io.ByteArrayOutputStream png = new java.io.ByteArrayOutputStream();
+        if (!b.compress(Bitmap.CompressFormat.PNG, 100, png)) {
+            throw new IOException("codifica PNG non riuscita");
+        }
+        byte[] data = png.toByteArray();
+        int w = b.getWidth();
+        int h = b.getHeight();
+        byte[] head = new byte[22];
+        head[2] = 1;                 // tipo: icona
+        head[4] = 1;                 // numero di immagini
+        head[6] = (byte) (w >= 256 ? 0 : w);
+        head[7] = (byte) (h >= 256 ? 0 : h);
+        head[10] = 1;                // piani
+        head[12] = 32;               // bit per pixel
+        put32(head, 14, data.length);
+        put32(head, 18, 22);
+        os.write(head);
+        os.write(data);
     }
 
     /** BMP a 24 bit non compresso. */

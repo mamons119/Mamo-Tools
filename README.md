@@ -11,7 +11,7 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   (cartella Movies/MamoTools) con nome `MamoRecord_AAAAMMGG_OOMMSS.mp4`.
   - Comandi in basso (in orizzontale: colonna a destra): cambia camera, registra con timer
     sotto/sopra il pulsante, impostazioni. In alto: qualita', stabilizzazione, torcia.
-  - Gesti: pizzica per lo zoom, tocca per mettere a fuoco ed esporre.
+  - Gesti: pizzica per lo zoom (cambia da sola la lente giusta quando non stai registrando), tocca per mettere a fuoco ed esporre.
   - Lenti: sopra i comandi compaiono i pulsanti x0.5, x1, x3... (uno per lente rilevata, con
     il fattore rispetto alla camera principale). Si usano insieme allo zoom digitale. Il tasto
     di rotazione passa tra posteriore e frontale.
@@ -29,8 +29,8 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
     e' supportato.
 
 - **Image Converter**: sceglie un'immagine (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...)
-  e la salva come JPG, PNG, WEBP o BMP in Immagini/MamoTools, con qualita' regolabile per
-  JPG e WEBP. Non e' possibile scrivere GIF, TIFF o HEIC: Android non li sa codificare.
+  e la salva come JPG, PNG, WEBP, BMP o ICO in Immagini/MamoTools, con qualita' regolabile per
+  JPG e WEBP. Supporta anche ICO in uscita, con dimensione in pixel a scelta (1-256). Non e' possibile scrivere GIF, TIFF o HEIC: Android non li sa codificare.
 - **Video Editor**: sceglie un video dalla Galleria, anteprima con timeline a miniature,
   taglio di parti (segna Inizio/Fine e "Taglia via"), audio originale on/off, colonna sonora
   dal telefono con punto di inizio a scelta, in sostituzione oppure in aggiunta all'originale

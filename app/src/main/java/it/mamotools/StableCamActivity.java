@@ -27,6 +27,7 @@ import android.hardware.camera2.CameraDevice;
 import android.hardware.camera2.CameraManager;
 import android.hardware.camera2.CaptureRequest;
 import android.hardware.camera2.params.MeteringRectangle;
+import android.hardware.camera2.params.OutputConfiguration;
 import android.hardware.camera2.params.StreamConfigurationMap;
 import android.media.CamcorderProfile;
 import android.media.MediaRecorder;
@@ -136,6 +137,8 @@ public class StableCamActivity extends Activity {
 
     private static final class CamInfo {
         String id;
+        String openId;      // id da aprire (diverso da id per le lenti fisiche nascoste)
+        String physId;      // lente fisica scelta dentro una camera logica
         String label;
         boolean front;
         int sensorOrientation;
@@ -316,7 +319,7 @@ public class StableCamActivity extends Activity {
                 new ScaleGestureDetector.SimpleOnScaleGestureListener() {
                     @Override
                     public boolean onScale(ScaleGestureDetector d) {
-                        setZoom(zoom * d.getScaleFactor());
+                        setFactor(globalFactor() * d.getScaleFactor());
                         return true;
                     }
                 });
@@ -682,7 +685,7 @@ public class StableCamActivity extends Activity {
             return;
         }
         zoom = Math.max(curCam().minZoom, Math.min(z, curCam().maxZoom));
-        flashLabel(String.format(Locale.US, "%.1f×", zoom));
+        flashLabel(String.format(Locale.US, "%.1f×", globalFactor()));
         refreshRequest();
         updateLensHighlight();
     }
@@ -1158,6 +1161,7 @@ public class StableCamActivity extends Activity {
 
                 CamInfo ci = new CamInfo();
                 ci.id = id;
+                ci.openId = id;
                 ci.ch = ch;
                 ci.map = map;
                 ci.front = facing == CameraCharacteristics.LENS_FACING_FRONT;
@@ -1224,6 +1228,7 @@ public class StableCamActivity extends Activity {
             toast("Impossibile leggere le fotocamere: " + e.getMessage());
         }
         // prima le posteriori, poi le frontali
+        addHiddenPhysical();
         Collections.sort(cams, (a, b) -> Boolean.compare(a.front, b.front));
         camIndex = 0;
         qualityIndex = 0;
@@ -1231,6 +1236,69 @@ public class StableCamActivity extends Activity {
         buildLenses();
         buildLensRow();
         updateLensHighlight();
+    }
+
+    /** Aggiunge le lenti fisiche che il telefono non elenca da sole (nascoste dentro la logica). */
+    private void addHiddenPhysical() {
+        if (Build.VERSION.SDK_INT < 28) {
+            return;
+        }
+        List<CamInfo> extra = new ArrayList<>();
+        for (CamInfo c : cams) {
+            if (c.front || c.physId != null || c.equiv <= 0) {
+                continue;
+            }
+            try {
+                for (String pid : c.ch.getPhysicalCameraIds()) {
+                    boolean known = false;
+                    for (CamInfo o : cams) {
+                        if (o.id.equals(pid)) {
+                            known = true;
+                        }
+                    }
+                    for (CamInfo o : extra) {
+                        if (o.id.equals(pid)) {
+                            known = true;
+                        }
+                    }
+                    if (known) {
+                        continue;
+                    }
+                    CameraCharacteristics pc = manager.getCameraCharacteristics(pid);
+                    float pe = equivFocal(pc);
+                    if (pe <= 0 || Math.abs(pe / c.equiv - 1f) < 0.1f) {
+                        continue;
+                    }
+                    CamInfo p = new CamInfo();
+                    p.id = pid;
+                    p.openId = c.id;
+                    p.physId = pid;
+                    p.ch = c.ch;
+                    p.map = c.map;
+                    p.front = false;
+                    p.sensorOrientation = c.sensorOrientation;
+                    p.eis = c.eis;
+                    p.ois = c.ois;
+                    p.afVideo = c.afVideo;
+                    p.flash = c.flash;
+                    Float mz = pc.get(CameraCharacteristics.SCALER_AVAILABLE_MAX_DIGITAL_ZOOM);
+                    p.maxZoom = mz == null ? 4f : Math.max(1f, Math.min(mz, 6f));
+                    p.active = c.active;
+                    p.evMin = c.evMin;
+                    p.evMax = c.evMax;
+                    p.evStep = c.evStep;
+                    p.maxAfRegions = 0;     // le zone AF/AE della logica non valgono per la fisica
+                    p.maxAeRegions = 0;
+                    p.wbModes.addAll(c.wbModes);
+                    p.qualities.addAll(c.qualities);
+                    p.equiv = pe;
+                    p.label = "Posteriore · lente " + pid;
+                    extra.add(p);
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        cams.addAll(extra);
     }
 
     /** Lunghezza focale equivalente 35 mm, o 0 se il telefono non fornisce i dati. */
@@ -1272,11 +1340,6 @@ public class StableCamActivity extends Activity {
             }
             List<Float> rel = new ArrayList<>();   // zoom relativo a questa camera
             rel.add(1f);
-            if (c.zoomRatio) {
-                for (float pe : c.physEquiv) {
-                    rel.add(pe / c.equiv);
-                }
-            }
             for (float z : rel) {
                 if (z < c.minZoom - 0.02f || z > c.maxZoom + 0.02f) {
                     continue;
@@ -1300,7 +1363,81 @@ public class StableCamActivity extends Activity {
                 lenses.add(l);
             }
         }
+        // seconda passata: lenti raggiungibili solo con lo zoom della camera logica
+        for (int i : order) {
+            CamInfo c = cams.get(i);
+            if (c.equiv <= 0 || !c.zoomRatio) {
+                continue;
+            }
+            for (float pe : c.physEquiv) {
+                float z = pe / c.equiv;
+                if (z < c.minZoom - 0.02f || z > c.maxZoom + 0.02f) {
+                    continue;
+                }
+                float factor = z * c.equiv / ref.equiv;
+                boolean dup = false;
+                for (Lens l : lenses) {
+                    if (Math.abs(l.factor / factor - 1f) < 0.1f) {
+                        dup = true;
+                    }
+                }
+                if (dup) {
+                    continue;
+                }
+                Lens l = new Lens();
+                l.camIdx = i;
+                l.zoom = Math.max(c.minZoom, Math.min(z, c.maxZoom));
+                l.factor = factor;
+                l.label = lensLabel(factor);
+                lenses.add(l);
+            }
+        }
+        refEquiv = ref.equiv;
         Collections.sort(lenses, (a, b) -> Float.compare(a.factor, b.factor));
+    }
+
+    private float refEquiv = 0f;
+
+    /** Zoom mostrato all'utente, rispetto alla lente principale (x1). */
+    private float globalFactor() {
+        CamInfo c = curCam();
+        return (refEquiv > 0 && c.equiv > 0 && !c.front) ? zoom * c.equiv / refEquiv : zoom;
+    }
+
+    /**
+     * Zoom a pizzico: sceglie da solo la lente giusta per il fattore richiesto e, se serve,
+     * cambia camera (non durante la registrazione).
+     */
+    private void setFactor(float f) {
+        if (cams.isEmpty() || opening || cameraDevice == null) {
+            return;
+        }
+        CamInfo cur = curCam();
+        if (cur.front || lenses.size() < 2 || refEquiv <= 0 || cur.equiv <= 0) {
+            setZoom(f);
+            return;
+        }
+        float lo = lenses.get(0).factor;
+        f = Math.max(lo, Math.min(f, lenses.get(lenses.size() - 1).factor * curMaxOn(lenses.size() - 1)));
+        Lens best = lenses.get(0);
+        for (Lens l : lenses) {
+            if (l.factor <= f * 1.03f) {
+                best = l;
+            }
+        }
+        if (best.camIdx != camIndex && !recording && !counting && !starting) {
+            CamInfo t = cams.get(best.camIdx);
+            float zt = Math.max(t.minZoom, Math.min(f * refEquiv / t.equiv, t.maxZoom));
+            goToCamera(best.camIdx, zt);
+            flashLabel(String.format(Locale.US, "%.1f×", f));
+            return;
+        }
+        setZoom(f * refEquiv / cur.equiv);
+    }
+
+    private float curMaxOn(int lensIdx) {
+        CamInfo c = cams.get(lenses.get(lensIdx).camIdx);
+        return Math.max(1f, c.maxZoom / Math.max(0.1f, lenses.get(lensIdx).zoom));
     }
 
     private static String lensLabel(float f) {
@@ -1323,8 +1460,11 @@ public class StableCamActivity extends Activity {
         try {
             camNum = Integer.parseInt(ci.id);
         } catch (NumberFormatException e) {
-            return;
+            camNum = ci.front ? 1 : 0;
         }
+        // le camere ausiliarie (ultra grandangolo, tele) spesso non hanno profili propri:
+        // si usano quelli della camera principale, filtrati sulle risoluzioni supportate
+        final int fallbackNum = ci.front ? 1 : 0;
         Size[] supported = ci.map.getOutputSizes(MediaRecorder.class);
         if (supported == null) {
             return;
@@ -1332,14 +1472,17 @@ public class StableCamActivity extends Activity {
         List<Size> supportedList = Arrays.asList(supported);
 
         for (int i = 0; i < order.length; i++) {
-            CamcorderProfile p;
-            try {
-                if (!CamcorderProfile.hasProfile(camNum, order[i])) {
-                    continue;
+            CamcorderProfile p = null;
+            for (int num : new int[]{camNum, fallbackNum}) {
+                try {
+                    if (CamcorderProfile.hasProfile(num, order[i])) {
+                        p = CamcorderProfile.get(num, order[i]);
+                        if (p != null) {
+                            break;
+                        }
+                    }
+                } catch (RuntimeException ignored) {
                 }
-                p = CamcorderProfile.get(camNum, order[i]);
-            } catch (RuntimeException e) {
-                continue;
             }
             if (p == null) {
                 continue;
@@ -1635,7 +1778,7 @@ public class StableCamActivity extends Activity {
                 return;
             }
             opening = true;
-            manager.openCamera(curCam().id, stateCallback, bg);
+            manager.openCamera(curCam().openId, stateCallback, bg);
         } catch (Exception e) {
             opening = false;
             if (acquired) {
@@ -1848,6 +1991,23 @@ public class StableCamActivity extends Activity {
         });
     }
 
+    /** Crea la sessione; per le lenti fisiche nascoste indica la lente di ogni uscita. */
+    private void createSession(CamInfo ci, List<Surface> surfaces,
+                               CameraCaptureSession.StateCallback cb, Handler h)
+            throws CameraAccessException {
+        if (ci.physId != null && Build.VERSION.SDK_INT >= 28) {
+            List<OutputConfiguration> l = new ArrayList<>();
+            for (Surface sf : surfaces) {
+                OutputConfiguration oc = new OutputConfiguration(sf);
+                oc.setPhysicalCameraId(ci.physId);
+                l.add(oc);
+            }
+            cameraDevice.createCaptureSessionByOutputConfigurations(l, cb, h);
+        } else {
+            cameraDevice.createCaptureSession(surfaces, cb, h);
+        }
+    }
+
     private void startPreview() {
         if (cameraDevice == null || !textureView.isAvailable() || recording || starting
                 || cams.isEmpty()) {
@@ -1872,7 +2032,7 @@ public class StableCamActivity extends Activity {
             currentBuilder = b;
             currentIsRecord = false;
 
-            cameraDevice.createCaptureSession(Collections.singletonList(ps),
+            createSession(ci, Collections.singletonList(ps),
                     new CameraCaptureSession.StateCallback() {
                         @Override
                         public void onConfigured(CameraCaptureSession cs) {
@@ -2012,7 +2172,7 @@ public class StableCamActivity extends Activity {
             currentBuilder = b;
             currentIsRecord = true;
 
-            cameraDevice.createCaptureSession(Arrays.asList(ps, rs),
+            createSession(ci, Arrays.asList(ps, rs),
                     new CameraCaptureSession.StateCallback() {
                         @Override
                         public void onConfigured(CameraCaptureSession cs) {
