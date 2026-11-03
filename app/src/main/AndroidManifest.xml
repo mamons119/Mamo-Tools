@@ -68,6 +68,27 @@
             android:exported="false" />
 
         <activity
+            android:name=".MeasureToolsActivity"
+            android:label="Strumenti di Misura"
+            android:exported="false" />
+
+        <activity
+            android:name=".MixCalcActivity"
+            android:label="Calcolo miscela"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <activity
+            android:name=".RulerActivity"
+            android:label="Righello"
+            android:exported="false" />
+
+        <activity
+            android:name=".LevelActivity"
+            android:label="Livello"
+            android:exported="false" />
+
+        <activity
             android:name=".AudioEditorActivity"
             android:label="Audio Editor"
             android:exported="false" />

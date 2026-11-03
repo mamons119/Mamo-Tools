@@ -180,13 +180,51 @@ final class AudioEngine {
     // ------------------------------------------------------------------ caricamento
 
     /** Decodifica un file audio (o l'audio di un video) e lo aggiunge alle sorgenti. */
-    Src load(Context ctx, Uri uri) throws IOException {
+    Src load(Context ctx, Uri uri, final Progress prog) throws IOException {
         File f = new File(ctx.getCacheDir(), "aud_" + srcs.size() + "_" + System.nanoTime() + ".pcm");
-        VideoProcessor.PcmWriter w = new VideoProcessor.PcmWriter(f);
+        final VideoProcessor.PcmWriter w = new VideoProcessor.PcmWriter(f);
+        long durUs = 0;
+        android.media.MediaMetadataRetriever mr = new android.media.MediaMetadataRetriever();
+        try {
+            mr.setDataSource(ctx, uri);
+            String d = mr.extractMetadata(android.media.MediaMetadataRetriever.METADATA_KEY_DURATION);
+            if (d != null) {
+                durUs = Long.parseLong(d) * 1000L;
+            }
+        } catch (Exception ignored) {
+        } finally {
+            try {
+                mr.release();
+            } catch (Exception ignored) {
+            }
+        }
+        final long expected = durUs * RATE / 1000000L;
+        final boolean[] fin = {false};
+        Thread poll = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                while (!fin[0]) {
+                    if (prog != null) {
+                        prog.onProgress(expected > 0 ? (int) Math.min(99, w.frames * 100 / expected) : -1);
+                    }
+                    try {
+                        Thread.sleep(120);
+                    } catch (InterruptedException e) {
+                        return;
+                    }
+                }
+            }
+        });
+        poll.start();
         try {
             VideoProcessor.decodeRange(ctx, uri, 0, 1L << 40, w);
         } finally {
+            fin[0] = true;
+            poll.interrupt();
             w.close();
+        }
+        if (prog != null) {
+            prog.onProgress(100);
         }
         if (w.frames <= 0) {
             //noinspection ResultOfMethodCallIgnored

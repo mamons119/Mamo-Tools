@@ -52,6 +52,9 @@ public class AudioEditorActivity extends Activity {
     private int mode = AudioEngine.Fx.NONE, order = 1;
     private boolean wavOut = false;
     private ResultCard result;
+    private LinearLayout loadBox;
+    private TextView loadText, loadPct;
+    private android.widget.ProgressBar loadBar;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -85,7 +88,28 @@ public class AudioEditorActivity extends Activity {
         LinearLayout wc = Ui.card(this);
         root.addView(wc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         wave = new AudioWaveView(this, eng);
-        wc.addView(wave, new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 150)));
+        android.widget.FrameLayout waveBox = new android.widget.FrameLayout(this);
+        waveBox.addView(wave, new android.widget.FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+        loadBox = new LinearLayout(this);
+        loadBox.setOrientation(LinearLayout.VERTICAL);
+        loadBox.setGravity(android.view.Gravity.CENTER);
+        loadBox.setPadding(Ui.dp(this, 24), 0, Ui.dp(this, 24), 0);
+        loadBox.setBackground(Ui.round(this, 0xF20F1115, 12));
+        loadBox.setClickable(true);
+        loadBox.setVisibility(View.GONE);
+        loadText = Ui.text(this, "", 14, Ui.TEXT, true);
+        loadText.setGravity(android.view.Gravity.CENTER);
+        loadText.setSingleLine(true);
+        loadText.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        loadBox.addView(loadText, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        loadBar = Ui.bar(this);
+        loadBar.setVisibility(View.VISIBLE);
+        loadBox.addView(loadBar, Ui.lp(this, Ui.MATCH, Ui.dp(this, 8), 0, 14));
+        loadPct = Ui.text(this, "", 12, Ui.DIM, false);
+        loadPct.setGravity(android.view.Gravity.CENTER);
+        loadBox.addView(loadPct, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        waveBox.addView(loadBox, new android.widget.FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+        wc.addView(waveBox, new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 150)));
         tvTime = Ui.text(this, "0:00.0 / 0:00.0", 16, Ui.TEXT, true);
         tvTime.setPadding(0, Ui.dp(this, 10), 0, 0);
         wc.addView(tvTime);
@@ -498,12 +522,33 @@ public class AudioEditorActivity extends Activity {
         }
         busy = true;
         updateAll();
-        result.start("Lettura e decodifica di \"" + name + "\"...");
+        result.hide();
+        loadText.setText("Caricamento di " + name);
+        loadPct.setText("Decodifica in corso...");
+        loadBar.setIndeterminate(true);
+        loadBox.setVisibility(View.VISIBLE);
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    final AudioEngine.Src s = eng.load(AudioEditorActivity.this, uri);
+                    final AudioEngine.Src s = eng.load(AudioEditorActivity.this, uri,
+                            new AudioEngine.Progress() {
+                                @Override
+                                public void onProgress(final int pct) {
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            if (pct < 0) {
+                                                loadBar.setIndeterminate(true);
+                                            } else {
+                                                loadBar.setIndeterminate(false);
+                                                loadBar.setProgress(pct);
+                                                loadPct.setText("Decodifica " + pct + "%");
+                                            }
+                                        }
+                                    });
+                                }
+                            });
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
@@ -517,6 +562,7 @@ public class AudioEditorActivity extends Activity {
                         @Override
                         public void run() {
                             busy = false;
+                            loadBox.setVisibility(View.GONE);
                             result.error("Non riesco a leggere questo file" + (m != null ? ": " + m : "."));
                             updateAll();
                         }
@@ -528,6 +574,7 @@ public class AudioEditorActivity extends Activity {
 
     private void onLoaded(AudioEngine.Src s, boolean add, String name) {
         busy = false;
+        loadBox.setVisibility(View.GONE);
         result.hide();
         int idx = eng.srcs.indexOf(s);
         AudioEngine.Clip c = new AudioEngine.Clip(idx, 0, s.frames);

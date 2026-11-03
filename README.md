@@ -37,7 +37,8 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
 - **Image Converter**: sceglie un'immagine (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...)
   e la salva come JPG, PNG, WEBP, BMP o ICO in Immagini/MamoTools, con qualita' regolabile per
   JPG e WEBP. Supporta anche ICO in uscita, con dimensione in pixel a scelta (1-256). Non e' possibile scrivere GIF, TIFF o HEIC: Android non li sa codificare.
-- **Video Editor**: sceglie un video dalla Galleria, anteprima con timeline a miniature,
+- **Video Editor** (con stabilizzazione opzionale: analisi del movimento, 4 intensita', zoom massimo,
+  correzione dell'inclinazione; ricodifica il video): sceglie un video dalla Galleria, anteprima con timeline a miniature,
   taglio di parti (segna Inizio/Fine e "Taglia via"), audio originale on/off, colonna sonora
   dal telefono con punto di inizio a scelta, in sostituzione oppure in aggiunta all'originale
   abbassato di 3-30 dB. Salva in Movies/MamoTools (`MamoEdit_*.mp4`). I tagli non ricodificano
@@ -50,6 +51,14 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   taglio 20 Hz-20 kHz) e volume da -20 a +20 dB, udibili in ascolto e applicati all'esportazione
   (M4A AAC o WAV) in Musica/MamoTools. Internamente 44,1 kHz stereo.
 
+- **Strumenti di Misura**: menu di piccoli strumenti.
+  - Calcolo miscela: litri di benzina + percentuale (anche 1,5%, 2,5%...) = ml di olio, rapporto 1:N e
+    totale della miscela.
+  - Righello: schermo intero a grandezza reale (cm/mm su un bordo, pollici 1/16 sull'altro), riga di
+    misura mobile; calibrazione con la sagoma di una carta di credito (le dimensioni dello schermo
+    dichiarate dal telefono non sono sempre esatte).
+  - Livello: bolla circolare con il telefono appoggiato, a tubo con il telefono in piedi; usa il
+    sensore di gravita'/accelerometro (il giroscopio non da' l'inclinazione assoluta); "Azzera qui".
 - **System Monitor**: grafici in tempo reale (1 s) di CPU con una linea colorata per core, RAM/swap
   e traffico di rete (download/upload), piu' schede con memoria, archiviazione e microSD,
   batteria (icona grande), termometri CPU/RAM/SoC/batteria, GPU, schermo (con disegno del telefono), dispositivo, funzioni e sensori. Android blocca alcune

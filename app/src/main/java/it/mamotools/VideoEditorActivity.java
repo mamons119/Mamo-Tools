@@ -77,6 +77,12 @@ public class VideoEditorActivity extends Activity {
     private boolean mix = false;
     private int dbDown = 12;
     private volatile boolean busy = false;
+    private boolean stabOn = false, stabRoll = true, stabAccurate = false;
+    private int stabPreset = 1;      // 0 leggera, 1 normale, 2 forte, 3 treppiede
+    private int stabZoom = 8;        // % massimo
+    private LinearLayout stabBox;
+    private TextView[] stabChips;
+    private TextView stabZoomText;
 
     // viste
     private VideoView videoView;
@@ -323,6 +329,85 @@ public class VideoEditorActivity extends Activity {
         soundBox.addView(dbBar, new LinearLayout.LayoutParams(MATCH, WRAP));
         editorBox.addView(so, lp(MATCH, WRAP, 0, 12));
 
+        // ---- stabilizzazione
+        LinearLayout st = card();
+        LinearLayout stHead = new LinearLayout(this);
+        stHead.setGravity(Gravity.CENTER_VERTICAL);
+        stHead.addView(sectionTitle("Stabilizzazione"), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        android.widget.Switch stSw = new android.widget.Switch(this);
+        stSw.setOnCheckedChangeListener((b, on) -> {
+            stabOn = on;
+            stabBox.setVisibility(on ? View.VISIBLE : View.GONE);
+        });
+        stHead.addView(stSw);
+        st.addView(stHead, new LinearLayout.LayoutParams(MATCH, WRAP));
+        stabBox = new LinearLayout(this);
+        stabBox.setOrientation(LinearLayout.VERTICAL);
+        stabBox.setVisibility(View.GONE);
+        st.addView(stabBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        TextView sl = text("Intensita'", 13, R.color.text_dim, false);
+        sl.setPadding(0, dp(8), 0, dp(6));
+        stabBox.addView(sl);
+        LinearLayout chipRow = new LinearLayout(this);
+        String[] pn = {"Leggera", "Normale", "Forte", "Treppiede"};
+        stabChips = new TextView[4];
+        for (int i = 0; i < 4; i++) {
+            final int idx = i;
+            stabChips[i] = Ui.chip(this, pn[i]);
+            stabChips[i].setTextSize(12);
+            stabChips[i].setOnClickListener(v -> {
+                stabPreset = idx;
+                styleStab();
+            });
+            chipRow.addView(stabChips[i], Ui.lp(this, 0, dp(40), i == 0 ? 0 : 6, 0, 1f));
+        }
+        stabBox.addView(chipRow, new LinearLayout.LayoutParams(MATCH, WRAP));
+        TextView sh = text("Leggera segue i movimenti volontari; Treppiede cerca di tenere l'inquadratura "
+                + "quasi ferma.", 11, R.color.text_dim, false);
+        sh.setPadding(0, dp(6), 0, 0);
+        stabBox.addView(sh);
+
+        stabZoomText = text("", 14, R.color.text, false);
+        stabZoomText.setPadding(0, dp(14), 0, 0);
+        stabBox.addView(stabZoomText);
+        SeekBar zb = seek(new SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                stabZoom = p + 2;
+                styleStab();
+            }
+        });
+        zb.setMax(23);
+        zb.setProgress(stabZoom - 2);
+        stabBox.addView(zb, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        LinearLayout opt = new LinearLayout(this);
+        final TextView chRoll = Ui.chip(this, "Correggi inclinazione");
+        final TextView chAcc = Ui.chip(this, "Analisi accurata");
+        chRoll.setTextSize(12);
+        chAcc.setTextSize(12);
+        chRoll.setOnClickListener(v -> {
+            stabRoll = !stabRoll;
+            Ui.styleChip(this, chRoll, stabRoll);
+        });
+        chAcc.setOnClickListener(v -> {
+            stabAccurate = !stabAccurate;
+            Ui.styleChip(this, chAcc, stabAccurate);
+        });
+        Ui.styleChip(this, chRoll, stabRoll);
+        Ui.styleChip(this, chAcc, stabAccurate);
+        opt.addView(chRoll, Ui.lp(this, 0, dp(40), 0, 0, 1f));
+        opt.addView(chAcc, Ui.lp(this, 0, dp(40), 8, 0, 1f));
+        stabBox.addView(opt, lp(MATCH, WRAP, 0, 12));
+        TextView sn = text("Il video viene ricodificato (ci vuole piu' tempo, circa 1-2 volte la durata) e "
+                + "ingrandito leggermente per nascondere i bordi. Lo zoom massimo limita quanto "
+                + "puo' correggere.", 11, R.color.text_dim, false);
+        sn.setPadding(0, dp(8), 0, 0);
+        stabBox.addView(sn);
+        styleStab();
+        editorBox.addView(st, lp(MATCH, WRAP, 0, 12));
+
         // ---- salvataggio
         exportBtn = btn("Salva il video", C_ACCENT, Color.BLACK, v -> export());
         exportBtn.setTextSize(16);
@@ -342,7 +427,7 @@ public class VideoEditorActivity extends Activity {
         openBtn.setVisibility(View.GONE);
         root.addView(openBtn, new LinearLayout.LayoutParams(MATCH, dp(48)));
 
-        TextView note = text("I tagli non ricodificano il video: qualita' identica e salvataggio "
+        TextView note = text("I tagli non ricodificano il video (qualita' identica, tranne con la stabilizzazione) e salvataggio "
                 + "veloce, ma il punto di taglio puo' slittare all'indietro fino al fotogramma "
                 + "chiave precedente (di solito meno di 1 secondo). Una colonna sonora piu' corta "
                 + "del video lascia il resto in silenzio (o con il solo audio originale).",
@@ -780,6 +865,13 @@ public class VideoEditorActivity extends Activity {
 
     // ------------------------------------------------------------------------ salvataggio
 
+    private void styleStab() {
+        for (int i = 0; i < 4; i++) {
+            Ui.styleChip(this, stabChips[i], stabPreset == i);
+        }
+        stabZoomText.setText("Zoom massimo per i bordi: " + stabZoom + "%");
+    }
+
     private void export() {
         if (busy || videoUri == null) {
             return;
@@ -801,6 +893,14 @@ public class VideoEditorActivity extends Activity {
         o.soundStartUs = soundStartMs * 1000;
         o.mix = mix && keepAudio;
         o.originalDb = -dbDown;
+        if (stabOn) {
+            VideoStabilizer.Params sp = new VideoStabilizer.Params();
+            sp.sigmaSec = new float[]{0.25f, 0.6f, 1.2f, 4f}[stabPreset];
+            sp.fixRoll = stabRoll;
+            sp.accurate = stabAccurate;
+            sp.maxZoom = stabZoom / 100f;
+            o.stab = sp;
+        }
 
         new Thread(new Runnable() {
             @Override

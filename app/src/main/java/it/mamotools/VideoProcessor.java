@@ -46,6 +46,7 @@ final class VideoProcessor {
         long soundStartUs = 0;
         boolean mix = false;     // true = aggiunge all'originale, false = sostituisce
         float originalDb = -12f; // abbassamento dell'originale quando mix (negativo)
+        VideoStabilizer.Params stab; // null = nessuna stabilizzazione
     }
 
     private static final int RATE = 44100;
@@ -58,6 +59,36 @@ final class VideoProcessor {
 
     static void export(Context ctx, Options o, FileDescriptor out, File cacheDir, Progress p)
             throws IOException {
+        if (o.stab != null) {
+            File tmp = new File(cacheDir, "stab.mp4");
+            try {
+                final Progress outer = p;
+                VideoStabilizer.run(ctx, o.video, tmp, o.stab, new Progress() {
+                    @Override
+                    public void onProgress(String stage, int pct) {
+                        outer.onProgress(stage, pct * 70 / 100);
+                    }
+                });
+                Options o2 = new Options();
+                o2.video = Uri.fromFile(tmp);
+                o2.keep = o.keep;
+                o2.keepAudio = o.keepAudio;
+                o2.sound = o.sound;
+                o2.soundStartUs = o.soundStartUs;
+                o2.mix = o.mix;
+                o2.originalDb = o.originalDb;
+                export(ctx, o2, out, cacheDir, new Progress() {
+                    @Override
+                    public void onProgress(String stage, int pct) {
+                        outer.onProgress(stage, 70 + pct * 30 / 100);
+                    }
+                });
+            } finally {
+                //noinspection ResultOfMethodCallIgnored
+                tmp.delete();
+            }
+            return;
+        }
         p.onProgress("Analisi del video...", 1);
 
         MediaExtractor ve = new MediaExtractor();

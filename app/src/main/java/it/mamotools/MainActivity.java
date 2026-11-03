@@ -69,6 +69,9 @@ public class MainActivity extends Activity {
                     "CPU per core, RAM e traffico di rete in tempo reale, piu' tutte le "
                             + "informazioni del telefono.",
                     SystemMonitorActivity.class),
+            new Tool("📐", "Strumenti di Misura",
+                    "Calcolo miscela 2 tempi, righello a grandezza reale e livello a bolla.",
+                    MeasureToolsActivity.class),
     };
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
