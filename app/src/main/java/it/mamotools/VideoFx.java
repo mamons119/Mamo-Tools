@@ -229,4 +229,55 @@ final class VideoFx {
     static float luma(int c) {
         return (0.299f * ((c >> 16) & 255) + 0.587f * ((c >> 8) & 255) + 0.114f * (c & 255)) / 255f;
     }
+
+    // ------------------------------------------------------------------ anteprima (ColorMatrix)
+
+    private static float[] lerpM(float[] m, float k) {
+        float[] id = {1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 1, 0};
+        float[] r = new float[20];
+        for (int i = 0; i < 20; i++) {
+            r[i] = id[i] * (1 - k) + m[i] * k;
+        }
+        return r;
+    }
+
+    /** Stessa catena di colore dello shader dell'esportazione, come ColorMatrix per l'anteprima. */
+    static android.graphics.ColorMatrix colorMatrix(float[] u) {
+        android.graphics.ColorMatrix cm = new android.graphics.ColorMatrix();
+        if (u[U_GRAY] > 0) {
+            cm.postConcat(new android.graphics.ColorMatrix(lerpM(new float[]{
+                    .299f, .587f, .114f, 0, 0, .299f, .587f, .114f, 0, 0, .299f, .587f, .114f, 0, 0, 0, 0, 0, 1, 0},
+                    u[U_GRAY])));
+        }
+        if (u[U_SEPIA] > 0) {
+            cm.postConcat(new android.graphics.ColorMatrix(lerpM(new float[]{
+                    .393f, .769f, .189f, 0, 0, .349f, .686f, .168f, 0, 0, .272f, .534f, .131f, 0, 0, 0, 0, 0, 1, 0},
+                    u[U_SEPIA])));
+        }
+        if (u[U_INV] > 0) {
+            cm.postConcat(new android.graphics.ColorMatrix(lerpM(new float[]{
+                    -1, 0, 0, 0, 255, 0, -1, 0, 0, 255, 0, 0, -1, 0, 255, 0, 0, 0, 1, 0}, u[U_INV])));
+        }
+        if (u[U_SAT] != 1) {
+            android.graphics.ColorMatrix sm = new android.graphics.ColorMatrix();
+            sm.setSaturation(u[U_SAT]);
+            cm.postConcat(sm);
+        }
+        float c = u[U_CON];
+        float f = u[U_FADE];
+        float off = 127.5f * (1 - c);
+        cm.postConcat(new android.graphics.ColorMatrix(new float[]{
+                c * f, 0, 0, 0, off * f, 0, c * f, 0, 0, off * f, 0, 0, c * f, 0, off * f, 0, 0, 0, 1, 0}));
+        return cm;
+    }
+
+    static boolean needsGrab(float[] u) {
+        return u[U_PIX] > 0 || u[U_BLUR] > 0 || u[U_SPLIT] > 0;
+    }
+
+    static boolean isNeutral(float[] u) {
+        return u[U_GRAY] == 0 && u[U_SEPIA] == 0 && u[U_INV] == 0 && u[U_VIG] == 0 && u[U_BLUR] == 0
+                && u[U_PIX] == 0 && u[U_SAT] == 1 && u[U_CON] == 1 && u[U_FADE] == 1 && u[U_SPLIT] == 0
+                && u[U_ZOOM] == 1;
+    }
 }

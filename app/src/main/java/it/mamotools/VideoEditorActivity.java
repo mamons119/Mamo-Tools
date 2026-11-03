@@ -80,7 +80,10 @@ public class VideoEditorActivity extends Activity {
     private boolean stabOn = false, stabRoll = true, stabAccurate = false;
     private int stabPreset = 1;      // 0 leggera, 1 normale, 2 forte, 3 treppiede
     private int stabZoom = 8;        // % massimo
-    private LinearLayout stabBox;
+    private LinearLayout stabBox, qualBox;
+    private TextView[] qualChips;
+    private TextView qualDesc;
+    private int quality = 0;   // 0 massima (predefinita), 1 alta, 2 media, 3 bassa
     private final java.util.List<VideoFx.Item> fxItems = new java.util.ArrayList<>();
     private LinearLayout fxList;
     private TextOverlayView overlay;
@@ -89,7 +92,7 @@ public class VideoEditorActivity extends Activity {
     private TextView stabZoomText;
 
     // viste
-    private VideoView videoView;
+    private PreviewVideo videoView;
     private MediaPlayer videoPlayer;
     private Timeline timeline;
     private TextView timeText, markText, soundName, soundStartText, dbText, status;
@@ -169,9 +172,10 @@ public class VideoEditorActivity extends Activity {
         vf.setBackgroundColor(Color.BLACK);
         vf.setClipToOutline(true);
         vf.setBackground(round(Color.BLACK, 14));
-        videoView = new VideoView(this);
+        videoView = new PreviewVideo(this);
         vf.addView(videoView, new FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER));
         overlay = new TextOverlayView(this);
+        overlay.setVideo(videoView);
         overlay.setItems(fxItems);
         vf.addView(overlay, new FrameLayout.LayoutParams(MATCH, MATCH));
         prev.addView(vf, new LinearLayout.LayoutParams(MATCH, dp(220)));
@@ -362,6 +366,7 @@ public class VideoEditorActivity extends Activity {
         android.widget.Switch stSw = new android.widget.Switch(this);
         stSw.setOnCheckedChangeListener((b, on) -> {
             stabOn = on;
+            updateQualityVisibility();
             stabBox.setVisibility(on ? View.VISIBLE : View.GONE);
         });
         stHead.addView(stSw);
@@ -432,6 +437,31 @@ public class VideoEditorActivity extends Activity {
         stabBox.addView(sn);
         styleStab();
         editorBox.addView(st, lp(MATCH, WRAP, 0, 12));
+
+        // ---- qualita' della ricodifica
+        qualBox = new LinearLayout(this);
+        qualBox.setOrientation(LinearLayout.VERTICAL);
+        qualBox.addView(text("Qualita' del video salvato", 13, R.color.text, true));
+        LinearLayout qRow = new LinearLayout(this);
+        qualChips = new TextView[4];
+        String[] qn = {"Massima", "Alta", "Media", "Bassa"};
+        for (int i = 0; i < 4; i++) {
+            final int qi = i;
+            qualChips[i] = Ui.chip(this, qn[i]);
+            qualChips[i].setTextSize(13);
+            qualChips[i].setOnClickListener(v -> {
+                quality = qi;
+                styleQuality();
+            });
+            qRow.addView(qualChips[i], Ui.lp(this, 0, dp(40), i == 0 ? 0 : 6, 0, 1f));
+        }
+        qualBox.addView(qRow, lp(MATCH, WRAP, 0, 6));
+        qualDesc = text("", 11, R.color.text_dim, false);
+        qualDesc.setPadding(0, dp(6), 0, 0);
+        qualBox.addView(qualDesc);
+        editorBox.addView(qualBox, lp(MATCH, WRAP, 0, 12));
+        styleQuality();
+        updateQualityVisibility();
 
         // ---- salvataggio
         exportBtn = btn("Salva il video", C_ACCENT, Color.BLACK, v -> export());
@@ -619,6 +649,22 @@ public class VideoEditorActivity extends Activity {
         });
     }
 
+    private void styleQuality() {
+        for (int i = 0; i < qualChips.length; i++) {
+            Ui.styleChip(this, qualChips[i], i == quality);
+        }
+        String[] d = {"Massima: bitrate molto alto, nessuna perdita visibile. File piu' grande.",
+                "Alta: simile all'originale.", "Media: file piu' leggero, lieve perdita.",
+                "Bassa: file piccolo, qualita' ridotta."};
+        qualDesc.setText(d[quality] + " Vale quando si usano effetti, testo o stabilizzazione.");
+    }
+
+    private void updateQualityVisibility() {
+        if (qualBox != null) {
+            qualBox.setVisibility(stabOn || !fxItems.isEmpty() ? View.VISIBLE : View.GONE);
+        }
+    }
+
     private void sortFx() {
         java.util.Collections.sort(fxItems, (a, b) -> Long.compare(a.startUs, b.startUs));
     }
@@ -628,6 +674,8 @@ public class VideoEditorActivity extends Activity {
             return;
         }
         overlay.refresh();
+        timeline.setFx(fxItems);
+        updateQualityVisibility();
         fxList.removeAllViews();
         for (final VideoFx.Item it : fxItems) {
             LinearLayout row = new LinearLayout(this);
@@ -701,6 +749,7 @@ public class VideoEditorActivity extends Activity {
         editorBox.setVisibility(View.VISIBLE);
         timeline.setDuration(durMs);
         timeline.setPos(0);
+        videoView.setDisplaySize(dispVw, dispVh);
         videoView.setVideoURI(uri);
         videoView.seekTo(1);
         playBtn.setText("▶");
@@ -1010,6 +1059,7 @@ public class VideoEditorActivity extends Activity {
         o.video = videoUri;
         o.keep = keptSegmentsUs();
         o.fx = new java.util.ArrayList<>(fxItems);
+        o.quality = quality;
         o.keepAudio = keepAudio;
         o.sound = soundUri;
         o.soundStartUs = soundStartMs * 1000;
@@ -1137,6 +1187,7 @@ public class VideoEditorActivity extends Activity {
         super.onDestroy();
         handler.removeCallbacks(ticker);
         stopSoundTest();
+        videoView.release();
     }
 
     // ------------------------------------------------------------------------ utilita'
@@ -1233,6 +1284,13 @@ public class VideoEditorActivity extends Activity {
             invalidate();
         }
 
+        List<VideoFx.Item> fxMarks = new ArrayList<>();
+
+        void setFx(List<VideoFx.Item> l) {
+            fxMarks = new ArrayList<>(l);
+            invalidate();
+        }
+
         void setCuts(List<long[]> c) {
             cuts = new ArrayList<>(c);
             invalidate();
@@ -1294,11 +1352,7 @@ public class VideoEditorActivity extends Activity {
             return (float) ms / dur * getWidth();
         }
 
-        @Override
-        protected void onDraw(Canvas c) {
-            int w = getWidth();
-            int h = getHeight();
-            int n = 10;
+        private void drawThumbs(Canvas c, int w, int h, int n, Paint p) {
             synchronized (thumbs) {
                 for (int i = 0; i < thumbs.size() && i < n; i++) {
                     Bitmap b = thumbs.get(i);
@@ -1307,7 +1361,6 @@ public class VideoEditorActivity extends Activity {
                     }
                     int x0 = w * i / n;
                     int x1 = w * (i + 1) / n;
-                    // ritaglio centrale per riempire la cella
                     float cellAspect = (x1 - x0) / (float) h;
                     float bAspect = b.getWidth() / (float) b.getHeight();
                     if (bAspect > cellAspect) {
@@ -1320,8 +1373,45 @@ public class VideoEditorActivity extends Activity {
                         src.set(0, sy, b.getWidth(), sy + sh);
                     }
                     dst.set(x0, 0, x1, h);
-                    c.drawBitmap(b, src, dst, null);
+                    c.drawBitmap(b, src, dst, p);
                 }
+            }
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            int w = getWidth();
+            int h = getHeight();
+            int n = 10;
+            drawThumbs(c, w, h, n, null);
+            float[] u = new float[VideoFx.U_COUNT];
+            for (VideoFx.Item f : fxMarks) {
+                if (f.isText) {
+                    continue;
+                }
+                long mid = (f.startUs + f.endUs) / 2;
+                List<VideoFx.Item> one = new ArrayList<>();
+                one.add(f);
+                VideoFx.uniforms(one, mid, u);
+                c.save();
+                c.clipRect(x(f.startUs / 1000), 0, x(f.endUs / 1000), h);
+                Paint fp = new Paint(Paint.FILTER_BITMAP_FLAG);
+                fp.setColorFilter(new android.graphics.ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
+                drawThumbs(c, w, h, n, fp);
+                if (VideoFx.needsGrab(u) || u[VideoFx.U_VIG] > 0 || u[VideoFx.U_ZOOM] != 1) {
+                    paint.setStyle(Paint.Style.FILL);
+                    paint.setColor(0x334DD0E1);
+                    c.drawRect(x(f.startUs / 1000), 0, x(f.endUs / 1000), h, paint);
+                }
+                c.restore();
+            }
+            // barre degli intervalli: effetti in basso (azzurro), testi sopra (arancio)
+            float bh = h * 0.09f;
+            paint.setStyle(Paint.Style.FILL);
+            for (VideoFx.Item f : fxMarks) {
+                paint.setColor(f.isText ? 0xFFFFB74D : 0xFF4DD0E1);
+                float y1 = f.isText ? h - bh - 2 : h;
+                c.drawRect(x(f.startUs / 1000), y1 - bh, x(f.endUs / 1000), y1, paint);
             }
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(0xAAFF3B30);

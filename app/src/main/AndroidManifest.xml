@@ -31,7 +31,7 @@
         android:theme="@style/AppTheme">
 
         <activity
-            android:name=".MainActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".MainActivity"
             android:exported="true">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
@@ -40,7 +40,7 @@
         </activity>
 
         <activity
-            android:name=".VolumeBoostActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".VolumeBoostActivity"
             android:label="Volume Boost"
             android:exported="false" />
 
@@ -52,87 +52,87 @@
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
 
         <activity
-            android:name=".ConverterActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".ConverterActivity"
             android:label="PDF e Word"
             android:exported="false" />
 
         <activity
-            android:name=".PdfToolsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".PdfToolsActivity"
             android:label="PDF Tools"
             android:exported="false" />
 
         <activity
-            android:name=".PdfOrganizeActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".PdfOrganizeActivity"
             android:label="PDF Tools"
             android:exported="false" />
 
         <activity
-            android:name=".PdfImagesActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".PdfImagesActivity"
             android:label="PDF Tools"
             android:exported="false" />
 
         <activity
-            android:name=".MeasureToolsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".MeasureToolsActivity"
             android:label="Strumenti di Misura"
             android:exported="false" />
 
         <activity
-            android:name=".MixCalcActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".MixCalcActivity"
             android:label="Calcolo miscela"
             android:windowSoftInputMode="adjustResize"
             android:exported="false" />
 
         <activity
-            android:name=".RulerActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".RulerActivity"
             android:label="Righello"
             android:exported="false" />
 
         <activity
-            android:name=".LevelActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".LevelActivity"
             android:label="Livello"
             android:exported="false" />
 
         <activity
-            android:name=".TelemetryActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".TelemetryActivity"
             android:exported="false" />
 
         <activity
-            android:name=".PerfActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".PerfActivity"
             android:exported="false" />
 
         <activity
-            android:name=".LeanActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".LeanActivity"
             android:exported="false" />
 
         <activity
-            android:name=".RecorderActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".RecorderActivity"
             android:exported="false" />
 
         <activity
-            android:name=".SessionsActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".SessionsActivity"
             android:exported="false" />
 
         <activity
-            android:name=".SessionViewActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".SessionViewActivity"
             android:exported="false" />
 
         <activity
-            android:name=".AudioEditorActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".AudioEditorActivity"
             android:label="Audio Editor"
             android:exported="false" />
 
         <activity
-            android:name=".ImageConverterActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".ImageConverterActivity"
             android:label="Image Converter"
             android:exported="false" />
 
         <activity
-            android:name=".SystemMonitorActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".SystemMonitorActivity"
             android:label="System Monitor"
             android:exported="false" />
 
         <activity
-            android:name=".VideoEditorActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".VideoEditorActivity"
             android:label="Video Editor"
             android:exported="false" />
 

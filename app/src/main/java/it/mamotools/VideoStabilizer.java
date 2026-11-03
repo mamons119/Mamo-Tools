@@ -53,7 +53,7 @@ final class VideoStabilizer {
 
     /** prm null = nessuna stabilizzazione (solo effetti e testi). */
     static void run(Context ctx, Uri src, File out, Params prm, java.util.List<VideoFx.Item> items,
-                    VideoProcessor.Progress p) throws IOException {
+                    int quality, VideoProcessor.Progress p) throws IOException {
         MediaExtractor ex = new MediaExtractor();
         ex.setDataSource(ctx, src, null);
         int vt = -1, at = -1;
@@ -117,9 +117,12 @@ final class VideoStabilizer {
         }
 
         // ---- 3) rendering
-        int bitrate = vf.containsKey(MediaFormat.KEY_BIT_RATE) ? vf.getInteger(MediaFormat.KEY_BIT_RATE)
-                : (int) Math.min(40_000_000L, (long) w * h * 5);
-        bitrate = Math.max(bitrate, 2_000_000);
+        long srcRate = vf.containsKey(MediaFormat.KEY_BIT_RATE) ? vf.getInteger(MediaFormat.KEY_BIT_RATE)
+                : (long) w * h * 5;
+        long baseRate = Math.max(srcRate, (long) (0.15 * w * h * fps));
+        double[] qf = {2.0, 1.2, 0.7, 0.4};
+        int bitrate = (int) Math.max(1_000_000L, Math.min(400_000_000L,
+                (long) (baseRate * qf[Math.max(0, Math.min(3, quality))])));
         render(ctx, src, vf, at, out, rotation, w, h, fps, bitrate, corr, est, items, base, durUs, p);
     }
 
@@ -622,6 +625,16 @@ final class VideoStabilizer {
             ef.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
             ef.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
             enc = MediaCodec.createEncoderByType("video/avc");
+            try {
+                android.util.Range<Integer> br = enc.getCodecInfo().getCapabilitiesForType("video/avc")
+                        .getVideoCapabilities().getBitrateRange();
+                ef.setInteger(MediaFormat.KEY_BIT_RATE, br.clamp(bitrate));
+            } catch (Exception ignored) {
+            }
+            try {
+                ef.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
+            } catch (Exception ignored) {
+            }
             enc.configure(ef, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
             encSurface = enc.createInputSurface();
             enc.start();
@@ -759,6 +772,9 @@ final class VideoStabilizer {
                 }
             }
             ex.selectTrack(vt);
+            // la rotazione e' gia' gestita dall'indicazione di orientamento del file di uscita: se il
+            // decoder la applicasse anche alla texture il video risulterebbe ruotato due volte
+            vf.setInteger("rotation-degrees", 0);
             dec = MediaCodec.createDecoderByType(vf.getString(MediaFormat.KEY_MIME));
             dec.configure(vf, decSurface, null, 0);
             dec.start();
