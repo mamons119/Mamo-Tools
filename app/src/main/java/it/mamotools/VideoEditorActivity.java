@@ -81,6 +81,8 @@ public class VideoEditorActivity extends Activity {
     private int stabPreset = 1;      // 0 leggera, 1 normale, 2 forte, 3 treppiede
     private int stabZoom = 8;        // % massimo
     private LinearLayout stabBox, qualBox;
+    private String origInfo = "";
+    private TextView infoText;
     private TextView[] qualChips;
     private TextView qualDesc;
     private int quality = 0;   // 0 massima (predefinita), 1 alta, 2 media, 3 bassa
@@ -438,6 +440,13 @@ public class VideoEditorActivity extends Activity {
         styleStab();
         editorBox.addView(st, lp(MATCH, WRAP, 0, 12));
 
+        // ---- informazioni sul video
+        infoText = text("", 12, R.color.text_dim, false);
+        infoText.setBackground(round(C_CARD, 12));
+        infoText.setPadding(dp(14), dp(10), dp(14), dp(10));
+        infoText.setVisibility(View.GONE);
+        editorBox.addView(infoText, lp(MATCH, WRAP, 0, 12));
+
         // ---- qualita' della ricodifica
         qualBox = new LinearLayout(this);
         qualBox.setOrientation(LinearLayout.VERTICAL);
@@ -759,6 +768,18 @@ public class VideoEditorActivity extends Activity {
         refreshMarks();
         pickTitle.setText(videoName);
         pickSub.setText(fmt(durMs) + " · tocca per cambiare video");
+        origInfo = "";
+        final Uri du = uri;
+        new Thread(() -> {
+            final String d = describe(du);
+            runOnUiThread(() -> {
+                if (du.equals(videoUri)) {
+                    origInfo = d;
+                    infoText.setText("Video originale\n" + d);
+                    infoText.setVisibility(View.VISIBLE);
+                }
+            });
+        }).start();
         status.setText("");
     }
 
@@ -1149,12 +1170,60 @@ public class VideoEditorActivity extends Activity {
                 if (uri != null) {
                     resultUri = uri;
                     openBtn.setVisibility(View.VISIBLE);
-                    status.setText("Fatto! Salvato in Movies/MamoTools (lo trovi in Galleria).");
+                    status.setText("Fatto! Salvato in Movies/MamoTools (lo trovi in Galleria).\n\nVideo salvato\n"
+                            + "Leggo le informazioni...");
+                    new Thread(() -> {
+                        final String d = describe(uri);
+                        runOnUiThread(() -> {
+                            if (uri.equals(resultUri)) {
+                                status.setText("Fatto! Salvato in Movies/MamoTools (lo trovi in Galleria).\n\n"
+                                        + "Video salvato\n" + d + "\n\nVideo originale\n" + origInfo);
+                            }
+                        });
+                    }).start();
                 } else {
                     status.setText(error);
                 }
             }
         });
+    }
+
+    /** Descrizione tecnica di un video: dimensione, risoluzione, fps, bitrate, durata. */
+    private String describe(Uri uri) {
+        MediaMetadataRetriever mr = new MediaMetadataRetriever();
+        try {
+            mr.setDataSource(this, uri);
+            int w = Integer.parseInt(mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+            int h = Integer.parseInt(mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+            String rr = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            int rot = rr == null ? 0 : Integer.parseInt(rr);
+            if (rot == 90 || rot == 270) {
+                int t = w;
+                w = h;
+                h = t;
+            }
+            long dur = Long.parseLong(mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION));
+            String fc = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT);
+            String fpsS = "?";
+            if (fc != null && dur > 0) {
+                fpsS = String.format(java.util.Locale.US, "%.1f", Long.parseLong(fc) * 1000.0 / dur);
+            }
+            long size = FileUtil.querySize(this, uri);
+            String br = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
+            long bitrate = br != null ? Long.parseLong(br) : (size > 0 && dur > 0 ? size * 8000 / dur : 0);
+            return "Dimensione: " + (size > 0 ? FileUtil.humanSize(size) : "?")
+                    + "\nRisoluzione: " + w + " × " + h
+                    + "\nFotogrammi: " + fpsS + " fps"
+                    + "\nBitrate: " + String.format(java.util.Locale.US, "%.1f", bitrate / 1e6) + " Mb/s"
+                    + "\nDurata: " + fmt(dur);
+        } catch (Exception e) {
+            return "Informazioni non disponibili";
+        } finally {
+            try {
+                mr.release();
+            } catch (Exception ignored) {
+            }
+        }
     }
 
     private void openResult() {

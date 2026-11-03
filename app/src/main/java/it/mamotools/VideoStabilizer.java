@@ -619,25 +619,45 @@ final class VideoStabilizer {
         Surface decSurface = null, encSurface = null;
         try {
             // encoder
-            MediaFormat ef = MediaFormat.createVideoFormat("video/avc", w, h);
-            ef.setInteger(MediaFormat.KEY_COLOR_FORMAT, MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
-            ef.setInteger(MediaFormat.KEY_BIT_RATE, bitrate);
-            ef.setInteger(MediaFormat.KEY_FRAME_RATE, fps);
-            ef.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
-            enc = MediaCodec.createEncoderByType("video/avc");
-            try {
-                android.util.Range<Integer> br = enc.getCodecInfo().getCapabilitiesForType("video/avc")
-                        .getVideoCapabilities().getBitrateRange();
-                ef.setInteger(MediaFormat.KEY_BIT_RATE, br.clamp(bitrate));
-            } catch (Exception ignored) {
+            // alcuni telefoni rifiutano certi bitrate/parametri (errore 0x80001001): si riprova con
+            // valori via via piu' prudenti, ricreando ogni volta il codificatore
+            long[] tries = {bitrate, Math.min(bitrate, 20_000_000L), Math.min(bitrate, 10_000_000L), 6_000_000L};
+            Exception lastErr = null;
+            for (int t = 0; t < tries.length && enc == null; t++) {
+                MediaCodec e2 = null;
+                try {
+                    MediaFormat ef = MediaFormat.createVideoFormat("video/avc", w, h);
+                    ef.setInteger(MediaFormat.KEY_COLOR_FORMAT,
+                            MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
+                    e2 = MediaCodec.createEncoderByType("video/avc");
+                    int br = (int) tries[t];
+                    try {
+                        br = e2.getCodecInfo().getCapabilitiesForType("video/avc").getVideoCapabilities()
+                                .getBitrateRange().clamp(br);
+                    } catch (Exception ignored) {
+                    }
+                    ef.setInteger(MediaFormat.KEY_BIT_RATE, br);
+                    ef.setInteger(MediaFormat.KEY_FRAME_RATE, t >= 3 ? 30 : fps);
+                    ef.setInteger(MediaFormat.KEY_I_FRAME_INTERVAL, 1);
+                    e2.configure(ef, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
+                    Surface s2 = e2.createInputSurface();
+                    e2.start();
+                    enc = e2;
+                    encSurface = s2;
+                } catch (Exception ex2) {
+                    lastErr = ex2;
+                    if (e2 != null) {
+                        try {
+                            e2.release();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                }
             }
-            try {
-                ef.setInteger(MediaFormat.KEY_PROFILE, MediaCodecInfo.CodecProfileLevel.AVCProfileHigh);
-            } catch (Exception ignored) {
+            if (enc == null) {
+                throw new IOException("codificatore video non avviabile: "
+                        + (lastErr == null ? "" : lastErr.getMessage()));
             }
-            enc.configure(ef, null, null, MediaCodec.CONFIGURE_FLAG_ENCODE);
-            encSurface = enc.createInputSurface();
-            enc.start();
 
             // EGL
             dpy = EGL14.eglGetDisplay(EGL14.EGL_DEFAULT_DISPLAY);
