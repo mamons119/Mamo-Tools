@@ -51,8 +51,9 @@ final class VideoStabilizer {
 
     // =========================================================================== entrata
 
-    static void run(Context ctx, Uri src, File out, Params prm, VideoProcessor.Progress p)
-            throws IOException {
+    /** prm null = nessuna stabilizzazione (solo effetti e testi). */
+    static void run(Context ctx, Uri src, File out, Params prm, java.util.List<VideoFx.Item> items,
+                    VideoProcessor.Progress p) throws IOException {
         MediaExtractor ex = new MediaExtractor();
         ex.setDataSource(ctx, src, null);
         int vt = -1, at = -1;
@@ -98,24 +99,28 @@ final class VideoStabilizer {
             fps = 30;
         }
 
-        // ---- 1) analisi
-        p.onProgress("Stabilizzazione: analisi del movimento...", 1);
-        Est est = new Est(prm.accurate ? 320 : 192, w, h);
-        float[][] motion = analyze(ctx, src, vf, est, durUs, p);
-        int n = motion.length;
-        if (n < 3) {
-            throw new IOException("video troppo corto per essere stabilizzato");
+        Est est = null;
+        float[][] corr = null;
+        int base = 1;
+        if (prm != null) {
+            // ---- 1) analisi
+            p.onProgress("Stabilizzazione: analisi del movimento...", 1);
+            est = new Est(prm.accurate ? 320 : 192, w, h);
+            float[][] motion = analyze(ctx, src, vf, est, durUs, p);
+            if (motion.length < 3) {
+                throw new IOException("video troppo corto per essere stabilizzato");
+            }
+            // ---- 2) percorso e correzioni
+            p.onProgress("Stabilizzazione: calcolo del percorso...", 40);
+            corr = corrections(motion, est, prm, fps, w, h);
+            base = 41;
         }
-
-        // ---- 2) percorso e correzioni
-        p.onProgress("Stabilizzazione: calcolo del percorso...", 40);
-        float[][] corr = corrections(motion, est, prm, fps, w, h);
 
         // ---- 3) rendering
         int bitrate = vf.containsKey(MediaFormat.KEY_BIT_RATE) ? vf.getInteger(MediaFormat.KEY_BIT_RATE)
                 : (int) Math.min(40_000_000L, (long) w * h * 5);
         bitrate = Math.max(bitrate, 2_000_000);
-        render(ctx, src, vf, at, out, rotation, w, h, fps, bitrate, corr, est, durUs, p);
+        render(ctx, src, vf, at, out, rotation, w, h, fps, bitrate, corr, est, items, base, durUs, p);
     }
 
     // =========================================================================== analisi
@@ -514,8 +519,10 @@ final class VideoStabilizer {
             + "uniform vec2 rot;\n"
             + "uniform mat4 uST;\n"
             + "varying vec2 vTc;\n"
+            + "varying vec2 vPos;\n"
             + "void main(){\n"
             + "  gl_Position = vec4(aPos, 0.0, 1.0);\n"
+            + "  vPos = aTex;\n"
             + "  vec2 p = aTex - 0.5; p.x *= asp;\n"
             + "  vec2 u = p / zoom - d;\n"
             + "  vec2 q = vec2(rot.x*u.x + rot.y*u.y, -rot.y*u.x + rot.x*u.y);\n"
@@ -524,10 +531,61 @@ final class VideoStabilizer {
             + "}\n";
 
     private static final String FS = "#extension GL_OES_EGL_image_external : require\n"
+            + "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+            + "precision highp float;\n"
+            + "#else\n"
             + "precision mediump float;\n"
+            + "#endif\n"
             + "varying vec2 vTc;\n"
+            + "varying vec2 vPos;\n"
             + "uniform samplerExternalOES sTex;\n"
-            + "void main(){ gl_FragColor = texture2D(sTex, vTc); }\n";
+            + "uniform vec2 texel;\n"
+            + "uniform float uGray, uSepia, uInv, uVig, uBlur, uPix, uSat, uCon, uFade, uSplit;\n"
+            + "vec4 s(vec2 uv){ return texture2D(sTex, uv); }\n"
+            + "void main(){\n"
+            + "  vec2 uv = vTc;\n"
+            + "  if (uPix > 0.0) { vec2 b = texel * (4.0 + uPix * 40.0); uv = (floor(uv / b) + 0.5) * b; }\n"
+            + "  vec4 c;\n"
+            + "  if (uBlur > 0.0) {\n"
+            + "    float r = uBlur * 14.0;\n"
+            + "    c = s(uv) * 0.12;\n"
+            + "    for (int i = 0; i < 8; i++) {\n"
+            + "      float a = float(i) * 0.785398;\n"
+            + "      vec2 dir = vec2(cos(a), sin(a)) * texel;\n"
+            + "      c += s(uv + dir * r) * 0.07 + s(uv + dir * r * 0.5) * 0.05;\n"
+            + "    }\n"
+            + "  } else if (uSplit > 0.0) {\n"
+            + "    vec2 o = vec2(texel.x * uSplit * 14.0, 0.0);\n"
+            + "    c = vec4(s(uv + o).r, s(uv).g, s(uv - o).b, 1.0);\n"
+            + "  } else { c = s(uv); }\n"
+            + "  vec3 col = c.rgb;\n"
+            + "  float l = dot(col, vec3(0.299, 0.587, 0.114));\n"
+            + "  col = mix(col, vec3(l), uGray);\n"
+            + "  vec3 sep = vec3(dot(col, vec3(0.393, 0.769, 0.189)), dot(col, vec3(0.349, 0.686, 0.168)),"
+            + " dot(col, vec3(0.272, 0.534, 0.131)));\n"
+            + "  col = mix(col, sep, uSepia);\n"
+            + "  col = mix(col, 1.0 - col, uInv);\n"
+            + "  float l2 = dot(col, vec3(0.299, 0.587, 0.114));\n"
+            + "  col = mix(vec3(l2), col, uSat);\n"
+            + "  col = (col - 0.5) * uCon + 0.5;\n"
+            + "  float dd = distance(vPos, vec2(0.5));\n"
+            + "  col *= 1.0 - uVig * smoothstep(0.3, 0.85, dd) * 1.1;\n"
+            + "  col *= uFade;\n"
+            + "  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n"
+            + "}\n";
+
+    private static final String VS_T = "attribute vec2 aPos;\n"
+            + "attribute vec2 aTex;\n"
+            + "uniform vec2 uC;\n"
+            + "uniform vec2 uH;\n"
+            + "varying vec2 vTex;\n"
+            + "void main(){ gl_Position = vec4(uC + aPos * uH, 0.0, 1.0); vTex = aTex; }\n";
+
+    private static final String FS_T = "precision mediump float;\n"
+            + "varying vec2 vTex;\n"
+            + "uniform sampler2D sT;\n"
+            + "uniform float uA;\n"
+            + "void main(){ gl_FragColor = texture2D(sT, vTex) * uA; }\n";
 
     private static int shader(int type, String src) throws IOException {
         int s = GLES20.glCreateShader(type);
@@ -545,7 +603,8 @@ final class VideoStabilizer {
 
     private static void render(Context ctx, Uri src, MediaFormat vf, int audioTrackIdx, File out,
                                int rotation, int w, int h, int fps, int bitrate, float[][] corr,
-                               Est est, long durUs, VideoProcessor.Progress p) throws IOException {
+                               Est est, java.util.List<VideoFx.Item> items, int base, long durUs,
+                               VideoProcessor.Progress p) throws IOException {
         MediaCodec enc = null, dec = null;
         MediaMuxer mx = null;
         MediaExtractor ex = new MediaExtractor();
@@ -605,6 +664,13 @@ final class VideoStabilizer {
             int uAsp = GLES20.glGetUniformLocation(prog, "asp"), uZoom = GLES20.glGetUniformLocation(prog, "zoom");
             int uD = GLES20.glGetUniformLocation(prog, "d"), uRot = GLES20.glGetUniformLocation(prog, "rot");
             int uST = GLES20.glGetUniformLocation(prog, "uST");
+            int uTexel = GLES20.glGetUniformLocation(prog, "texel");
+            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit"};
+            int[] uFx = new int[un.length];
+            for (int i = 0; i < un.length; i++) {
+                uFx[i] = GLES20.glGetUniformLocation(prog, un[i]);
+            }
+            float[] fxu = new float[VideoFx.U_COUNT];
 
             float[] quad = {-1, -1, 0, 1, 1, -1, 1, 1, -1, 1, 0, 0, 1, 1, 1, 0};
             FloatBuffer fb = ByteBuffer.allocateDirect(quad.length * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
@@ -624,6 +690,49 @@ final class VideoStabilizer {
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+
+            // ---- programma per i testi
+            int prog2 = GLES20.glCreateProgram();
+            GLES20.glAttachShader(prog2, shader(GLES20.GL_VERTEX_SHADER, VS_T));
+            GLES20.glAttachShader(prog2, shader(GLES20.GL_FRAGMENT_SHADER, FS_T));
+            GLES20.glLinkProgram(prog2);
+            int[] lk2 = new int[1];
+            GLES20.glGetProgramiv(prog2, GLES20.GL_LINK_STATUS, lk2, 0);
+            if (lk2[0] == 0) {
+                throw new IOException("programma grafico dei testi non valido");
+            }
+            int tPos = GLES20.glGetAttribLocation(prog2, "aPos"), tTex = GLES20.glGetAttribLocation(prog2, "aTex");
+            int tC = GLES20.glGetUniformLocation(prog2, "uC"), tH = GLES20.glGetUniformLocation(prog2, "uH");
+            int tA = GLES20.glGetUniformLocation(prog2, "uA"), tS = GLES20.glGetUniformLocation(prog2, "sT");
+            boolean swap = rotation == 90 || rotation == 270;
+            int dispW = swap ? h : w, dispH = swap ? w : h;
+            java.util.List<VideoFx.Item> texts = new java.util.ArrayList<>();
+            java.util.List<int[]> textTex = new java.util.ArrayList<>();
+            java.util.List<int[]> textSz = new java.util.ArrayList<>();
+            if (items != null) {
+                for (VideoFx.Item it : items) {
+                    if (!it.isText || it.text == null || it.text.trim().isEmpty()) {
+                        continue;
+                    }
+                    android.graphics.Bitmap bm = VideoFx.render(it, dispW, dispH, rotation);
+                    if (bm == null) {
+                        continue;
+                    }
+                    int[] tt = new int[1];
+                    GLES20.glGenTextures(1, tt, 0);
+                    GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tt[0]);
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+                    GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+                    android.opengl.GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bm, 0);
+                    texts.add(it);
+                    textTex.add(tt);
+                    textSz.add(new int[]{bm.getWidth(), bm.getHeight()});
+                    bm.recycle();
+                }
+            }
+            GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0]);
 
             final Object lock = new Object();
             final boolean[] avail = {false};
@@ -684,7 +793,7 @@ final class VideoStabilizer {
             boolean[] started = {false};
             int lastPct = -1;
             // dimensioni del livello 0 usate nell'analisi: servono per convertire in unita' shader
-            int ah = est.h0;
+            int ah = est != null ? est.h0 : 1;
 
             while (!decDone) {
                 if (!inDone) {
@@ -721,22 +830,91 @@ final class VideoStabilizer {
                         }
                         st.updateTexImage();
                         st.getTransformMatrix(stm);
-                        float[] c = corr[Math.min(idx, corr.length - 1)];
+                        long ptsUs = info.presentationTimeUs;
+                        VideoFx.uniforms(items, ptsUs, fxu);
+                        GLES20.glUseProgram(prog);
+                        GLES20.glDisable(GLES20.GL_BLEND);
+                        GLES20.glEnableVertexAttribArray(aPos);
+                        GLES20.glEnableVertexAttribArray(aTex);
+                        fb.position(0);
+                        GLES20.glVertexAttribPointer(aPos, 2, GLES20.GL_FLOAT, false, 16, fb);
+                        fb.position(2);
+                        GLES20.glVertexAttribPointer(aTex, 2, GLES20.GL_FLOAT, false, 16, fb);
+                        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, tex[0]);
+                        float cz = 1f, cdx = 0f, cdy = 0f, cr = 0f;
+                        if (corr != null) {
+                            float[] c = corr[Math.min(idx, corr.length - 1)];
+                            cz = c[3];
+                            cdx = c[0] / ah;
+                            cdy = c[1] / ah;
+                            cr = c[2];
+                        }
                         GLES20.glUniform1f(uAsp, asp);
-                        GLES20.glUniform1f(uZoom, c[3]);
-                        GLES20.glUniform2f(uD, c[0] / ah, c[1] / ah);
-                        GLES20.glUniform2f(uRot, (float) Math.cos(c[2]), (float) Math.sin(c[2]));
+                        GLES20.glUniform1f(uZoom, cz * fxu[VideoFx.U_ZOOM]);
+                        GLES20.glUniform2f(uD, cdx, cdy);
+                        GLES20.glUniform2f(uRot, (float) Math.cos(cr), (float) Math.sin(cr));
+                        GLES20.glUniform2f(uTexel, 1f / w, 1f / h);
+                        for (int k = 0; k < uFx.length; k++) {
+                            GLES20.glUniform1f(uFx[k], fxu[k]);
+                        }
                         GLES20.glUniformMatrix4fv(uST, 1, false, stm, 0);
                         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                        // testi
+                        if (!texts.isEmpty()) {
+                            GLES20.glUseProgram(prog2);
+                            GLES20.glEnable(GLES20.GL_BLEND);
+                            GLES20.glBlendFunc(GLES20.GL_ONE, GLES20.GL_ONE_MINUS_SRC_ALPHA);
+                            GLES20.glEnableVertexAttribArray(tPos);
+                            GLES20.glEnableVertexAttribArray(tTex);
+                            fb.position(0);
+                            GLES20.glVertexAttribPointer(tPos, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            fb.position(2);
+                            GLES20.glVertexAttribPointer(tTex, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                            GLES20.glUniform1i(tS, 0);
+                            for (int k = 0; k < texts.size(); k++) {
+                                VideoFx.Item it = texts.get(k);
+                                if (!it.activeAt(ptsUs)) {
+                                    continue;
+                                }
+                                float al = 1f;
+                                float fade = 250000f;
+                                al = Math.min(al, (ptsUs - it.startUs) / fade);
+                                al = Math.min(al, (it.endUs - ptsUs) / fade);
+                                al = Math.max(0f, Math.min(1f, al));
+                                float fu = it.x, fv = it.y, fxc, fyc;
+                                if (rotation == 90) {
+                                    fxc = fv;
+                                    fyc = 1 - fu;
+                                } else if (rotation == 270) {
+                                    fxc = 1 - fv;
+                                    fyc = fu;
+                                } else if (rotation == 180) {
+                                    fxc = 1 - fu;
+                                    fyc = 1 - fv;
+                                } else {
+                                    fxc = fu;
+                                    fyc = fv;
+                                }
+                                int[] sz = textSz.get(k);
+                                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textTex.get(k)[0]);
+                                GLES20.glUniform2f(tC, 2 * fxc - 1, 1 - 2 * fyc);
+                                GLES20.glUniform2f(tH, sz[0] / (float) w, sz[1] / (float) h);
+                                GLES20.glUniform1f(tA, al);
+                                GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                            }
+                            GLES20.glDisable(GLES20.GL_BLEND);
+                        }
                         EGLExt.eglPresentationTimeANDROID(dpy, esurf, info.presentationTimeUs * 1000L);
                         EGL14.eglSwapBuffers(dpy, esurf);
                         idx++;
                         if (durUs > 0) {
-                            int pct = (int) (41 + 54L * info.presentationTimeUs / durUs);
-                            pct = Math.max(41, Math.min(95, pct));
+                            int pct = (int) (base + (95 - base) * info.presentationTimeUs / durUs);
+                            pct = Math.max(base, Math.min(95, pct));
                             if (pct != lastPct) {
                                 lastPct = pct;
-                                p.onProgress("Stabilizzazione: creazione del video...", pct);
+                                p.onProgress("Applicazione di stabilizzazione/effetti...", pct);
                             }
                         }
                     }

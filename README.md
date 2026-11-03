@@ -37,7 +37,7 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
 - **Image Converter**: sceglie un'immagine (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...)
   e la salva come JPG, PNG, WEBP, BMP o ICO in Immagini/MamoTools, con qualita' regolabile per
   JPG e WEBP. Supporta anche ICO in uscita, con dimensione in pixel a scelta (1-256). Non e' possibile scrivere GIF, TIFF o HEIC: Android non li sa codificare.
-- **Video Editor** (con stabilizzazione opzionale: analisi del movimento, 4 intensita', zoom massimo,
+- **Video Editor** (con effetti e testi inseribili in qualsiasi intervallo della timeline, font/dimensione/colore a scelta, e stabilizzazione opzionale: analisi del movimento, 4 intensita', zoom massimo,
   correzione dell'inclinazione; ricodifica il video): sceglie un video dalla Galleria, anteprima con timeline a miniature,
   taglio di parti (segna Inizio/Fine e "Taglia via"), audio originale on/off, colonna sonora
   dal telefono con punto di inizio a scelta, in sostituzione oppure in aggiunta all'originale

@@ -81,6 +81,10 @@ public class VideoEditorActivity extends Activity {
     private int stabPreset = 1;      // 0 leggera, 1 normale, 2 forte, 3 treppiede
     private int stabZoom = 8;        // % massimo
     private LinearLayout stabBox;
+    private final java.util.List<VideoFx.Item> fxItems = new java.util.ArrayList<>();
+    private LinearLayout fxList;
+    private TextOverlayView overlay;
+    private int dispVw = 0, dispVh = 0;
     private TextView[] stabChips;
     private TextView stabZoomText;
 
@@ -167,6 +171,9 @@ public class VideoEditorActivity extends Activity {
         vf.setBackground(round(Color.BLACK, 14));
         videoView = new VideoView(this);
         vf.addView(videoView, new FrameLayout.LayoutParams(MATCH, MATCH, Gravity.CENTER));
+        overlay = new TextOverlayView(this);
+        overlay.setItems(fxItems);
+        vf.addView(overlay, new FrameLayout.LayoutParams(MATCH, MATCH));
         prev.addView(vf, new LinearLayout.LayoutParams(MATCH, dp(220)));
         videoView.setOnPreparedListener(mp -> {
             videoPlayer = mp;
@@ -329,6 +336,24 @@ public class VideoEditorActivity extends Activity {
         soundBox.addView(dbBar, new LinearLayout.LayoutParams(MATCH, WRAP));
         editorBox.addView(so, lp(MATCH, WRAP, 0, 12));
 
+        // ---- effetti e testo
+        LinearLayout fx = card();
+        fx.addView(sectionTitle("Effetti e testo"));
+        TextView fxNote = text("Aggiungi un effetto o un testo a partire dal punto in cui si trova il cursore.",
+                12, R.color.text_dim, false);
+        fxNote.setPadding(0, dp(4), 0, dp(10));
+        fx.addView(fxNote);
+        LinearLayout fxRow = new LinearLayout(this);
+        fxRow.addView(btn("✦  Effetto", C_CARD2, C_ACCENT, v -> addFx(false)),
+                new LinearLayout.LayoutParams(0, dp(46), 1f));
+        fxRow.addView(btn("T  Testo", C_CARD2, C_ACCENT, v -> addFx(true)), lp(0, dp(46), 8, 0, 1f));
+        fx.addView(fxRow, new LinearLayout.LayoutParams(MATCH, WRAP));
+        fxList = new LinearLayout(this);
+        fxList.setOrientation(LinearLayout.VERTICAL);
+        fx.addView(fxList, new LinearLayout.LayoutParams(MATCH, WRAP));
+        editorBox.addView(fx, lp(MATCH, WRAP, 0, 12));
+        refreshFx();
+
         // ---- stabilizzazione
         LinearLayout st = card();
         LinearLayout stHead = new LinearLayout(this);
@@ -427,7 +452,7 @@ public class VideoEditorActivity extends Activity {
         openBtn.setVisibility(View.GONE);
         root.addView(openBtn, new LinearLayout.LayoutParams(MATCH, dp(48)));
 
-        TextView note = text("I tagli non ricodificano il video (qualita' identica, tranne con la stabilizzazione) e salvataggio "
+        TextView note = text("I tagli non ricodificano il video (qualita' identica, tranne con stabilizzazione, effetti o testo, che lo ricodificano) e salvataggio "
                 + "veloce, ma il punto di taglio puo' slittare all'indietro fino al fotogramma "
                 + "chiave precedente (di solito meno di 1 secondo). Una colonna sonora piu' corta "
                 + "del video lascia il resto in silenzio (o con il solo audio originale).",
@@ -560,6 +585,78 @@ public class VideoEditorActivity extends Activity {
         }
     }
 
+    private void addFx(boolean isText) {
+        VideoFx.Item n = new VideoFx.Item();
+        n.isText = isText;
+        editFx(n, false);
+    }
+
+    private void editFx(final VideoFx.Item item, final boolean editing) {
+        if (videoUri == null) {
+            return;
+        }
+        long cur = timeline.pos;
+        FxDialog.show(this, item, editing, videoUri, durMs, cur, dispVw, dispVh, new FxDialog.Callback() {
+            @Override
+            public void onSave(VideoFx.Item saved) {
+                if (editing) {
+                    int i = fxItems.indexOf(item);
+                    if (i >= 0) {
+                        fxItems.set(i, saved);
+                    }
+                } else {
+                    fxItems.add(saved);
+                }
+                sortFx();
+                refreshFx();
+            }
+
+            @Override
+            public void onDelete() {
+                fxItems.remove(item);
+                refreshFx();
+            }
+        });
+    }
+
+    private void sortFx() {
+        java.util.Collections.sort(fxItems, (a, b) -> Long.compare(a.startUs, b.startUs));
+    }
+
+    private void refreshFx() {
+        if (fxList == null) {
+            return;
+        }
+        overlay.refresh();
+        fxList.removeAllViews();
+        for (final VideoFx.Item it : fxItems) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackground(round(C_CARD2, 12));
+            row.setPadding(dp(12), dp(8), dp(4), dp(8));
+            TextView ic = text(it.isText ? "T" : VideoFx.EFFECT_ICONS[it.effect], 18, R.color.accent, true);
+            ic.setGravity(Gravity.CENTER);
+            row.addView(ic, new LinearLayout.LayoutParams(dp(30), WRAP));
+            LinearLayout tx = new LinearLayout(this);
+            tx.setOrientation(LinearLayout.VERTICAL);
+            tx.addView(text(it.label(), 14, R.color.text, true));
+            tx.addView(text(FxDialog.fmt(it.startUs / 1000) + " → " + FxDialog.fmt(it.endUs / 1000), 12,
+                    R.color.text_dim, false));
+            row.addView(tx, lp(0, WRAP, 8, 0, 1f));
+            row.addView(btn("✎", C_CARD2, C_ACCENT, v -> editFx(it, true)), new LinearLayout.LayoutParams(dp(44), dp(40)));
+            row.addView(btn("✕", C_CARD2, C_DANGER, v -> {
+                fxItems.remove(it);
+                refreshFx();
+            }), new LinearLayout.LayoutParams(dp(44), dp(40)));
+            row.setOnClickListener(v -> {
+                seekExact(it.startUs / 1000);
+                timeline.setPos(it.startUs / 1000);
+                overlay.setPos(it.startUs / 1000);
+            });
+            fxList.addView(row, lp(MATCH, WRAP, 0, 8));
+        }
+    }
+
     private void loadVideo(Uri uri) {
         videoUri = uri;
         videoName = queryName(uri);
@@ -567,11 +664,25 @@ public class VideoEditorActivity extends Activity {
         openBtn.setVisibility(View.GONE);
         status.setText("");
         cuts.clear();
+        fxItems.clear();
+        refreshFx();
         markA = markB = -1;
         durMs = 0;
+        dispVw = dispVh = 0;
         MediaMetadataRetriever mr = new MediaMetadataRetriever();
         try {
             mr.setDataSource(this, uri);
+            try {
+                int vw0 = Integer.parseInt(mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+                int vh0 = Integer.parseInt(mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+                String rr = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+                int rot = rr == null ? 0 : Integer.parseInt(rr);
+                boolean sw = rot == 90 || rot == 270;
+                dispVw = sw ? vh0 : vw0;
+                dispVh = sw ? vw0 : vh0;
+            } catch (Exception ignored) {
+            }
+            overlay.setVideoSize(dispVw, dispVh);
             String d = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             durMs = d == null ? 0 : Long.parseLong(d);
         } catch (Exception e) {
@@ -674,6 +785,9 @@ public class VideoEditorActivity extends Activity {
     private volatile boolean skipping = false;
 
     private void tick() {
+        if (videoUri != null && overlay != null) {
+            overlay.setPos(timeline.pos);
+        }
         if (videoUri == null || !videoView.isPlaying() || skipping) {
             return;
         }
@@ -693,6 +807,7 @@ public class VideoEditorActivity extends Activity {
             }
         }
         timeline.setPos(p);
+        overlay.setPos(p);
         updateTexts();
     }
 
@@ -894,6 +1009,7 @@ public class VideoEditorActivity extends Activity {
         final VideoProcessor.Options o = new VideoProcessor.Options();
         o.video = videoUri;
         o.keep = keptSegmentsUs();
+        o.fx = new java.util.ArrayList<>(fxItems);
         o.keepAudio = keepAudio;
         o.sound = soundUri;
         o.soundStartUs = soundStartMs * 1000;

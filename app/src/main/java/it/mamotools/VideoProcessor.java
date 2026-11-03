@@ -47,6 +47,7 @@ final class VideoProcessor {
         boolean mix = false;     // true = aggiunge all'originale, false = sostituisce
         float originalDb = -12f; // abbassamento dell'originale quando mix (negativo)
         VideoStabilizer.Params stab; // null = nessuna stabilizzazione
+        java.util.List<VideoFx.Item> fx; // effetti e testi (tempi in microsecondi)
     }
 
     private static final int RATE = 44100;
@@ -59,11 +60,11 @@ final class VideoProcessor {
 
     static void export(Context ctx, Options o, FileDescriptor out, File cacheDir, Progress p)
             throws IOException {
-        if (o.stab != null) {
+        if (o.stab != null || VideoFx.hasAny(o.fx)) {
             File tmp = new File(cacheDir, "stab.mp4");
             try {
                 final Progress outer = p;
-                VideoStabilizer.run(ctx, o.video, tmp, o.stab, new Progress() {
+                VideoStabilizer.run(ctx, o.video, tmp, o.stab, o.fx, new Progress() {
                     @Override
                     public void onProgress(String stage, int pct) {
                         outer.onProgress(stage, pct * 70 / 100);
