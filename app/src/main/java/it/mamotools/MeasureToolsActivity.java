@@ -22,6 +22,8 @@ public class MeasureToolsActivity extends Activity {
                 "Quanto olio mettere nella benzina per i motori a 2 tempi", MixCalcActivity.class));
         root.addView(tile("📏", "Righello",
                 "Righello a grandezza reale in centimetri e pollici", RulerActivity.class));
+        root.addView(tile("🏁", "Telemetria e prestazioni",
+                "GPS e sensori: 0–100, piega, G-meter, registratore con mappa", TelemetryActivity.class));
         root.addView(tile("🎯", "Livello",
                 "Livella a bolla con il sensore di inclinazione del telefono", LevelActivity.class));
     }

@@ -208,7 +208,7 @@ public class VideoEditorActivity extends Activity {
             }
         });
         timeline.setOnSeek(ms -> {
-            videoView.seekTo((int) ms);
+            seekExact(ms);
             updateTexts();
         });
         tl.addView(timeline, new LinearLayout.LayoutParams(MATCH, dp(68)));
@@ -650,7 +650,9 @@ public class VideoEditorActivity extends Activity {
             playBtn.setText("▶");
         } else {
             if (timeline.pos >= durMs - 100) {
-                videoView.seekTo(0);
+                seekExact(0);
+            } else if (!skipping) {
+                seekExact(timeline.pos);
             }
             videoView.start();
             playBtn.setText("❚❚");
@@ -658,8 +660,12 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void seekRel(long delta) {
-        long t = Math.max(0, Math.min(durMs, timeline.pos + delta));
-        videoView.seekTo((int) t);
+        if (videoUri == null) {
+            return;
+        }
+        long base = videoView.isPlaying() && !skipping ? videoView.getCurrentPosition() : timeline.pos;
+        long t = Math.max(0, Math.min(durMs, base + delta));
+        seekExact(t);
         timeline.setPos(t);
         updateTexts();
     }
@@ -678,7 +684,7 @@ public class VideoEditorActivity extends Activity {
                     videoView.pause();
                     playBtn.setText("▶");
                     p = c[0];
-                    videoView.seekTo((int) p);
+                    seekExact(p);
                 } else {
                     p = c[1];
                     seekExact(p);

@@ -59,6 +59,16 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
     dichiarate dal telefono non sono sempre esatte).
   - Livello: bolla circolare con il telefono appoggiato, a tubo con il telefono in piedi; usa il
     sensore di gravita'/accelerometro (il giroscopio non da' l'inclinazione assoluta); "Azzera qui".
+- **Telemetria e prestazioni** (dentro Strumenti di Misura; usa GPS, accelerometro e giroscopio, con
+  scheda di stato dei sensori e pulsanti per permesso/GPS):
+  - Prestazioni: da fermo (0-50/100/150/200, 100-200, 0-60 mph, 1/8, 1/4 di miglio con velocita' di
+    uscita, 1000 m), ripresa da-a, frenata da-0 con spazio; migliori salvati. Tempi interpolati tra i fix GPS.
+  - Piega e G-meter: piega = atan(v * imbardata / g) con GPS + giroscopio (indipendente dal montaggio),
+    senza GPS inclinazione apparente; diagramma G-G, massimi.
+  - Registratore: sessioni a 10 righe/s (CSV in memoria dell'app), traguardo con conteggio giri e tempi.
+  - Sessioni: mappa a tessere OpenStreetMap / OpenTopoMap (fuoristrada) / Esri satellite con percorso
+    colorato per velocita' (serve internet per le tessere, poi restano in cache), grafici con cursore
+    collegato alla mappa, G-G, statistiche, GPX e CSV, link Google Maps approssimato.
 - **System Monitor**: grafici in tempo reale (1 s) di CPU con una linea colorata per core, RAM/swap
   e traffico di rete (download/upload), piu' schede con memoria, archiviazione e microSD,
   batteria (icona grande), termometri CPU/RAM/SoC/batteria, GPU, schermo (con disegno del telefono), dispositivo, funzioni e sensori. Android blocca alcune

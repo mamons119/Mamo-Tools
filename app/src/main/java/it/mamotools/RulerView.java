@@ -47,12 +47,23 @@ final class RulerView extends View {
         cv.drawColor(0xFF0F1115);
         boolean vert = h >= w;
         float pm = pxPerMm(vert);
-        float len = vert ? h : w;
+        // margini ai due estremi (angoli arrotondati): lo 0 parte dopo il bordo, la fine arriva prima
+        float margin = 24 * dm1;
+        float len = (vert ? h : w) - margin;
+        cv.save();
+        if (vert) {
+            cv.translate(0, margin);
+        } else {
+            cv.translate(margin, 0);
+        }
 
         // centimetri / millimetri sul primo bordo
         int maxMm = (int) (len / pm) + 1;
         for (int mm = 0; mm <= maxMm; mm++) {
             float p = mm * pm;
+            if (p > len) {
+                break;
+            }
             float size = (mm % 10 == 0) ? 30 : (mm % 5 == 0) ? 20 : 12;
             size *= dm1;
             if (vert) {
@@ -74,6 +85,9 @@ final class RulerView extends View {
         int maxK = (int) (len / pi) + 1;
         for (int k = 0; k <= maxK; k++) {
             float p = k * pi;
+            if (p > len) {
+                break;
+            }
             float size = (k % 16 == 0) ? 30 : (k % 8 == 0) ? 24 : (k % 4 == 0) ? 18 : (k % 2 == 0) ? 13 : 8;
             size *= dm1;
             if (vert) {
@@ -90,6 +104,7 @@ final class RulerView extends View {
                 }
             }
         }
+        cv.restore();
         // etichette unita'
         Paint u = new Paint(txt);
         u.setColor(0xFF4DD0E1);
@@ -123,7 +138,7 @@ final class RulerView extends View {
 
         // riga di misura
         if (marker >= 0) {
-            float mm = marker / pm;
+            float mm = (marker - margin) / pm;
             if (vert) {
                 cv.drawLine(0, marker, w, marker, line);
             } else {
@@ -153,7 +168,9 @@ final class RulerView extends View {
     public boolean onTouchEvent(MotionEvent e) {
         int a = e.getActionMasked();
         if (a == MotionEvent.ACTION_DOWN || a == MotionEvent.ACTION_MOVE) {
-            marker = getHeight() >= getWidth() ? e.getY() : e.getX();
+            boolean v = getHeight() >= getWidth();
+            float m = 24 * dm1;
+            marker = Math.max(m, Math.min((v ? getHeight() : getWidth()) - m, v ? e.getY() : e.getX()));
             invalidate();
         }
         return true;
