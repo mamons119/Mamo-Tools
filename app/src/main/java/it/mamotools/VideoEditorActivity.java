@@ -32,6 +32,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
@@ -81,8 +82,11 @@ public class VideoEditorActivity extends Activity {
     private int stabPreset = 1;      // 0 leggera, 1 normale, 2 forte, 3 treppiede
     private int stabZoom = 8;        // % massimo
     private LinearLayout stabBox, qualBox;
-    private String origInfo = "";
-    private TextView infoText;
+    private EditText nameEdit;
+    private boolean nameEdited = false;
+    private String autoName = "";
+    private LinearLayout infoBox;
+    private TextView[][] infoCells;
     private TextView[] qualChips;
     private TextView qualDesc;
     private int quality = 0;   // 0 massima (predefinita), 1 alta, 2 media, 3 bassa
@@ -440,17 +444,46 @@ public class VideoEditorActivity extends Activity {
         styleStab();
         editorBox.addView(st, lp(MATCH, WRAP, 0, 12));
 
-        // ---- informazioni sul video
-        infoText = text("", 12, R.color.text_dim, false);
-        infoText.setBackground(round(C_CARD, 12));
-        infoText.setPadding(dp(14), dp(10), dp(14), dp(10));
-        infoText.setVisibility(View.GONE);
-        editorBox.addView(infoText, lp(MATCH, WRAP, 0, 12));
+        // ---- esportazione
+        LinearLayout ex = card();
+        ex.addView(sectionTitle("Esporta"));
+        TextView nl = text("Nome del file", 13, R.color.text, true);
+        nl.setPadding(0, dp(8), 0, dp(6));
+        ex.addView(nl);
+        nameEdit = new EditText(this);
+        nameEdit.setSingleLine(true);
+        nameEdit.setTextColor(C_TEXT);
+        nameEdit.setHintTextColor(0xFF8A93A3);
+        nameEdit.setTextSize(14);
+        nameEdit.setBackground(round(C_CARD2, 12));
+        nameEdit.setPadding(dp(14), dp(10), dp(14), dp(10));
+        nameEdit.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        nameEdit.setText(defaultName());
+        nameEdit.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence c, int a1, int b1, int c1) {
+            }
 
-        // ---- qualita' della ricodifica
+            @Override
+            public void onTextChanged(CharSequence c, int a1, int b1, int c1) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable e) {
+                nameEdited = !e.toString().equals(autoName);
+            }
+        });
+        LinearLayout nameRow = new LinearLayout(this);
+        nameRow.setGravity(Gravity.CENTER_VERTICAL);
+        nameRow.addView(nameEdit, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        nameRow.addView(text(".mp4", 14, R.color.text_dim, false), lp(WRAP, WRAP, 8, 0));
+        ex.addView(nameRow, new LinearLayout.LayoutParams(MATCH, WRAP));
+
         qualBox = new LinearLayout(this);
         qualBox.setOrientation(LinearLayout.VERTICAL);
-        qualBox.addView(text("Qualita' del video salvato", 13, R.color.text, true));
+        TextView ql = text("Qualita' del video", 13, R.color.text, true);
+        ql.setPadding(0, dp(14), 0, 0);
+        qualBox.addView(ql);
         LinearLayout qRow = new LinearLayout(this);
         qualChips = new TextView[4];
         String[] qn = {"Massima", "Alta", "Media", "Bassa"};
@@ -468,28 +501,51 @@ public class VideoEditorActivity extends Activity {
         qualDesc = text("", 11, R.color.text_dim, false);
         qualDesc.setPadding(0, dp(6), 0, 0);
         qualBox.addView(qualDesc);
-        editorBox.addView(qualBox, lp(MATCH, WRAP, 0, 12));
+        ex.addView(qualBox, new LinearLayout.LayoutParams(MATCH, WRAP));
         styleQuality();
         updateQualityVisibility();
 
-        // ---- salvataggio
-        exportBtn = btn("Salva il video", C_ACCENT, Color.BLACK, v -> export());
+        exportBtn = btn("Esporta video", C_ACCENT, Color.BLACK, v -> export());
         exportBtn.setTextSize(16);
-        editorBox.addView(exportBtn, lp(MATCH, dp(54), 0, 16));
+        ex.addView(exportBtn, lp(MATCH, dp(54), 0, 16));
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
         progress.setProgressTintList(ColorStateList.valueOf(C_ACCENT));
         progress.setVisibility(View.GONE);
-        editorBox.addView(progress, lp(MATCH, WRAP, 0, 8));
+        ex.addView(progress, lp(MATCH, WRAP, 0, 8));
 
         status = text("", 14, R.color.text, false);
-        status.setPadding(0, dp(12), 0, dp(8));
-        root.addView(status);
+        status.setPadding(0, dp(10), 0, 0);
+        ex.addView(status);
 
         openBtn = btn("Apri il video salvato", C_CARD2, C_ACCENT, v -> openResult());
         openBtn.setVisibility(View.GONE);
-        root.addView(openBtn, new LinearLayout.LayoutParams(MATCH, dp(48)));
+        ex.addView(openBtn, lp(MATCH, dp(46), 0, 10));
+
+        // tabella informazioni: originale / esportato
+        infoBox = new LinearLayout(this);
+        infoBox.setOrientation(LinearLayout.VERTICAL);
+        infoBox.setBackground(round(C_CARD2, 12));
+        infoBox.setPadding(dp(14), dp(10), dp(14), dp(10));
+        infoBox.setVisibility(View.GONE);
+        String[] labels = {"", "Dimensione", "Risoluzione", "Fotogrammi", "Bitrate", "Durata"};
+        infoCells = new TextView[labels.length][3];
+        for (int r = 0; r < labels.length; r++) {
+            LinearLayout row = new LinearLayout(this);
+            for (int c2 = 0; c2 < 3; c2++) {
+                String t = c2 == 0 ? labels[r] : (r == 0 ? (c2 == 1 ? "Originale" : "Esportato") : "—");
+                TextView tv = text(t, 12, r == 0 || c2 == 0 ? R.color.text_dim : R.color.text, r == 0);
+                if (c2 > 0) {
+                    tv.setGravity(Gravity.END);
+                }
+                infoCells[r][c2] = tv;
+                row.addView(tv, new LinearLayout.LayoutParams(0, WRAP, c2 == 0 ? 1.0f : 1.1f));
+            }
+            infoBox.addView(row, lp(MATCH, WRAP, 0, r == 0 ? 0 : 6));
+        }
+        ex.addView(infoBox, lp(MATCH, WRAP, 0, 14));
+        editorBox.addView(ex, lp(MATCH, WRAP, 0, 12));
 
         TextView note = text("I tagli non ricodificano il video (qualita' identica, tranne con stabilizzazione, effetti o testo, che lo ricodificano) e salvataggio "
                 + "veloce, ma il punto di taglio puo' slittare all'indietro fino al fotogramma "
@@ -751,7 +807,7 @@ public class VideoEditorActivity extends Activity {
             }
         }
         if (durMs <= 0) {
-            status.setText("Questo video non sembra leggibile dal telefono.");
+            pickSub.setText("Questo video non sembra leggibile dal telefono.");
             editorBox.setVisibility(View.GONE);
             return;
         }
@@ -768,15 +824,16 @@ public class VideoEditorActivity extends Activity {
         refreshMarks();
         pickTitle.setText(videoName);
         pickSub.setText(fmt(durMs) + " · tocca per cambiare video");
-        origInfo = "";
         final Uri du = uri;
+        showInfo(1, null);
+        showInfo(2, null);
+        infoBox.setVisibility(View.VISIBLE);
+        resetName();
         new Thread(() -> {
-            final String d = describe(du);
+            final String[] d = describe(du);
             runOnUiThread(() -> {
                 if (du.equals(videoUri)) {
-                    origInfo = d;
-                    infoText.setText("Video originale\n" + d);
-                    infoText.setVisibility(View.VISIBLE);
+                    showInfo(1, d);
                 }
             });
         }).start();
@@ -1073,6 +1130,8 @@ public class VideoEditorActivity extends Activity {
         playBtn.setText("▶");
         exportBtn.setEnabled(false);
         openBtn.setVisibility(View.GONE);
+        showInfo(2, null);
+        final String fileName = chosenName() + ".mp4";
         progress.setProgress(0);
         progress.setVisibility(View.VISIBLE);
 
@@ -1103,8 +1162,7 @@ public class VideoEditorActivity extends Activity {
                 ParcelFileDescriptor pfd = null;
                 boolean ok = false;
                 try {
-                    String name = "MamoEdit_" + new SimpleDateFormat("yyyyMMdd_HHmmss",
-                            Locale.US).format(new Date()) + ".mp4";
+                    String name = fileName;
                     ContentValues v = new ContentValues();
                     v.put(MediaStore.Video.Media.DISPLAY_NAME, name);
                     v.put(MediaStore.Video.Media.MIME_TYPE, "video/mp4");
@@ -1170,17 +1228,17 @@ public class VideoEditorActivity extends Activity {
                 if (uri != null) {
                     resultUri = uri;
                     openBtn.setVisibility(View.VISIBLE);
-                    status.setText("Fatto! Salvato in Movies/MamoTools (lo trovi in Galleria).\n\nVideo salvato\n"
-                            + "Leggo le informazioni...");
+                    status.setText("Fatto! Salvato in Movies/MamoTools come “" + FileUtil.displayName(
+                            VideoEditorActivity.this, uri) + "” (lo trovi in Galleria).");
                     new Thread(() -> {
-                        final String d = describe(uri);
+                        final String[] d = describe(uri);
                         runOnUiThread(() -> {
                             if (uri.equals(resultUri)) {
-                                status.setText("Fatto! Salvato in Movies/MamoTools (lo trovi in Galleria).\n\n"
-                                        + "Video salvato\n" + d + "\n\nVideo originale\n" + origInfo);
+                                showInfo(2, d);
                             }
                         });
                     }).start();
+                    resetName();
                 } else {
                     status.setText(error);
                 }
@@ -1188,8 +1246,31 @@ public class VideoEditorActivity extends Activity {
         });
     }
 
-    /** Descrizione tecnica di un video: dimensione, risoluzione, fps, bitrate, durata. */
-    private String describe(Uri uri) {
+    private String defaultName() {
+        autoName = "MamoEdit_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        return autoName;
+    }
+
+    private void resetName() {
+        nameEdited = false;
+        nameEdit.setText(defaultName());
+    }
+
+    private String chosenName() {
+        String n = nameEdit.getText().toString().trim();
+        if (!nameEdited || n.isEmpty()) {
+            return "MamoEdit_" + new SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(new Date());
+        }
+        n = n.replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (n.toLowerCase(Locale.US).endsWith(".mp4")) {
+            n = n.substring(0, n.length() - 4);
+        }
+        n = n.trim();
+        return n.isEmpty() ? "MamoEdit" : n;
+    }
+
+    /** Dimensione, risoluzione, fps, bitrate, durata di un video (testi gia' formattati). */
+    private String[] describe(Uri uri) {
         MediaMetadataRetriever mr = new MediaMetadataRetriever();
         try {
             mr.setDataSource(this, uri);
@@ -1206,23 +1287,26 @@ public class VideoEditorActivity extends Activity {
             String fc = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_FRAME_COUNT);
             String fpsS = "?";
             if (fc != null && dur > 0) {
-                fpsS = String.format(java.util.Locale.US, "%.1f", Long.parseLong(fc) * 1000.0 / dur);
+                fpsS = String.format(Locale.US, "%.1f fps", Long.parseLong(fc) * 1000.0 / dur);
             }
             long size = FileUtil.querySize(this, uri);
             String br = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
             long bitrate = br != null ? Long.parseLong(br) : (size > 0 && dur > 0 ? size * 8000 / dur : 0);
-            return "Dimensione: " + (size > 0 ? FileUtil.humanSize(size) : "?")
-                    + "\nRisoluzione: " + w + " × " + h
-                    + "\nFotogrammi: " + fpsS + " fps"
-                    + "\nBitrate: " + String.format(java.util.Locale.US, "%.1f", bitrate / 1e6) + " Mb/s"
-                    + "\nDurata: " + fmt(dur);
+            return new String[]{size > 0 ? FileUtil.humanSize(size) : "?", w + " × " + h, fpsS,
+                    String.format(Locale.US, "%.1f Mb/s", bitrate / 1e6), fmt(dur)};
         } catch (Exception e) {
-            return "Informazioni non disponibili";
+            return new String[]{"?", "?", "?", "?", "?"};
         } finally {
             try {
                 mr.release();
             } catch (Exception ignored) {
             }
+        }
+    }
+
+    private void showInfo(int col, String[] d) {
+        for (int r = 0; r < 5; r++) {
+            infoCells[r + 1][col].setText(d == null ? "—" : d[r]);
         }
     }
 
