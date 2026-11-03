@@ -9,6 +9,7 @@ import android.os.Looper;
 import android.provider.MediaStore;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.SeekBar;
 import android.widget.TextView;
@@ -25,6 +26,12 @@ import java.util.Locale;
 public class AudioEditorActivity extends Activity {
 
     private static final int REQ_OPEN = 61, REQ_ADD = 62;
+    private EditText nameEdit;
+    private TextView extText;
+    private boolean nameEdited = false;
+    private String autoName = "";
+    private Uri origUri;
+    private InfoTable infoTable;
 
     private final AudioEngine eng = new AudioEngine();
     private final Handler h = new Handler(Looper.getMainLooper());
@@ -72,8 +79,7 @@ public class AudioEditorActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        LinearLayout root = Ui.screen(this, "Audio Editor",
-                "Taglia, incolla, filtra e regola il volume di una traccia audio.");
+        LinearLayout root = Ui.screen(this, "Audio Editor", "");
 
         pick = new Ui.PickCard(this, "🎧", "Apri un audio", "MP3, M4A, WAV, OGG… oppure l'audio di un video",
                 new View.OnClickListener() {
@@ -397,13 +403,47 @@ public class AudioEditorActivity extends Activity {
                 @Override
                 public void onClick(View v) {
                     wavOut = w;
+                    if (extText != null) {
+                        extText.setText(w ? ".wav" : ".m4a");
+                    }
                     updateFilterUi();
                 }
             });
             x1.addView(fmtChips[i], Ui.lp(this, 0, Ui.dp(this, 42), i == 0 ? 0 : 8, 0, 1f));
         }
         xc.addView(x1);
-        Button export = Ui.btn(this, "Esporta in Musica/MamoTools", Ui.ACCENT, 0xFF000000,
+        TextView nl = Ui.text(this, "Nome del file", 13, Ui.TEXT, true);
+        nl.setPadding(0, Ui.dp(this, 14), 0, Ui.dp(this, 6));
+        xc.addView(nl);
+        nameEdit = new EditText(this);
+        nameEdit.setSingleLine(true);
+        nameEdit.setTextColor(Ui.TEXT);
+        nameEdit.setTextSize(14);
+        nameEdit.setBackground(Ui.round(this, Ui.CARD2, 12));
+        nameEdit.setPadding(Ui.dp(this, 14), Ui.dp(this, 10), Ui.dp(this, 14), Ui.dp(this, 10));
+        nameEdit.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        nameEdit.setText(defaultName());
+        nameEdit.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence c, int s1, int s2, int s3) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence c, int s1, int s2, int s3) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable e) {
+                nameEdited = !e.toString().equals(autoName);
+            }
+        });
+        LinearLayout nameRow = new LinearLayout(this);
+        nameRow.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        nameRow.addView(nameEdit, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        extText = Ui.text(this, ".m4a", 14, Ui.DIM, false);
+        nameRow.addView(extText, Ui.lp(this, Ui.WRAP, Ui.WRAP, 8, 0));
+        xc.addView(nameRow);
+        Button export = Ui.btn(this, "Esporta audio", Ui.ACCENT, 0xFF000000,
                 new View.OnClickListener() {
                     @Override
                     public void onClick(View v) {
@@ -411,15 +451,45 @@ public class AudioEditorActivity extends Activity {
                     }
                 });
         export.setTextSize(16);
-        xc.addView(export, Ui.lp(this, Ui.MATCH, Ui.dp(this, 52), 0, 12));
+        xc.addView(export, Ui.lp(this, Ui.MATCH, Ui.dp(this, 52), 0, 16));
         needsAudio.add(export);
 
-        result = new ResultCard(this);
-        root.addView(result.view, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+        result = new ResultCard(this, true);
+        xc.addView(result.view, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+
+        infoTable = new InfoTable(this, AudioInfo.ROWS);
+        infoTable.setVisibility(View.GONE);
+        xc.addView(infoTable, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 14));
 
         updateFilterUi();
         updateFilterTexts();
         updateAll();
+    }
+
+    private String defaultName() {
+        autoName = "MamoAudio_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+                .format(new java.util.Date());
+        return autoName;
+    }
+
+    private void resetName() {
+        nameEdited = false;
+        nameEdit.setText(defaultName());
+    }
+
+    private String chosenName() {
+        String n = nameEdit.getText().toString().trim();
+        if (!nameEdited || n.isEmpty()) {
+            return "MamoAudio_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
+                    .format(new java.util.Date());
+        }
+        n = n.replaceAll("[\\\\/:*?\"<>|]", "_");
+        String l = n.toLowerCase(Locale.US);
+        if (l.endsWith(".m4a") || l.endsWith(".wav")) {
+            n = n.substring(0, n.length() - 4);
+        }
+        n = n.trim();
+        return n.isEmpty() ? "MamoAudio" : n;
     }
 
     private Button small(String label, View.OnClickListener l, boolean always) {
@@ -515,6 +585,7 @@ public class AudioEditorActivity extends Activity {
         final boolean add = req == REQ_ADD && eng.total() > 0;
         final String name = FileUtil.queryName(this, uri);
         if (!add) {
+            origUri = uri;
             eng.clearAll();
             wave.setSelection(-1, -1);
             wave.setCursor(0);
@@ -589,6 +660,24 @@ public class AudioEditorActivity extends Activity {
             wave.refreshModel();
         } else {
             projectName = FileUtil.baseName(name);
+            infoTable.set(1, null);
+            infoTable.set(2, null);
+            infoTable.setVisibility(View.VISIBLE);
+            final Uri ou = origUri;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    final String[] d = AudioInfo.describe(AudioEditorActivity.this, ou);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            if (ou == origUri) {
+                                infoTable.set(1, d);
+                            }
+                        }
+                    });
+                }
+            }).start();
             List<AudioEngine.Clip> l = new ArrayList<>();
             l.add(c);
             eng.tl = l;
@@ -837,8 +926,8 @@ public class AudioEditorActivity extends Activity {
         updateAll();
         final boolean wav = wavOut;
         final AudioEngine.Fx f = fx;
-        final String name = "MamoAudio_" + new java.text.SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US)
-                .format(new java.util.Date()) + (wav ? ".wav" : ".m4a");
+        final String name = chosenName() + (wav ? ".wav" : ".m4a");
+        infoTable.set(2, null);
         result.start("Esportazione in corso...");
         new Thread(new Runnable() {
             @Override
@@ -872,6 +961,14 @@ public class AudioEditorActivity extends Activity {
                                 });
                     }
                     result.ok("Fatto! Salvato in Musica/MamoTools/" + name, u, mime, "Ascolta il file");
+                    final String[] info = AudioInfo.describe(AudioEditorActivity.this, u);
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            infoTable.set(2, info);
+                            resetName();
+                        }
+                    });
                 } catch (Throwable t) {
                     String m = t.getMessage();
                     result.error("Esportazione non riuscita" + (m != null && !m.isEmpty() ? ": " + m : "."));

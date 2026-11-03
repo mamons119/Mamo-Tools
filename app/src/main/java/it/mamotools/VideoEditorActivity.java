@@ -138,10 +138,7 @@ public class VideoEditorActivity extends Activity {
         scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
 
         root.addView(text("Video Editor", 28, R.color.text, true));
-        TextView sub = text("Taglia, gestisci l'audio e aggiungi una colonna sonora.",
-                14, R.color.text_dim, false);
-        sub.setPadding(0, dp(4), 0, dp(16));
-        root.addView(sub);
+        root.addView(new View(this), new LinearLayout.LayoutParams(MATCH, dp(16)));
 
         // ---- scelta del video
         LinearLayout pickCard = card();
@@ -446,7 +443,21 @@ public class VideoEditorActivity extends Activity {
 
         // ---- esportazione
         LinearLayout ex = card();
-        ex.addView(sectionTitle("Esporta"));
+        LinearLayout exHead = new LinearLayout(this);
+        exHead.setGravity(Gravity.CENTER_VERTICAL);
+        exHead.addView(sectionTitle("Esporta"), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        Button infoBtn = btn("i", C_CARD2, C_ACCENT, vv -> Ui.infoDialog(this, "Come funziona l'esportazione",
+                "I tagli non ricodificano il video: la qualita' resta identica e il salvataggio e' veloce. "
+                + "Con stabilizzazione, effetti o testo invece il video viene ricodificato, ed e' per questo "
+                + "che puoi scegliere la qualita'.\n\n"
+                + "Senza ricodifica il punto di taglio puo' slittare all'indietro fino al fotogramma chiave "
+                + "precedente (di solito meno di 1 secondo).\n\n"
+                + "Una colonna sonora piu' corta del video lascia il resto in silenzio (o con il solo audio "
+                + "originale)."));
+        infoBtn.setTypeface(Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC));
+        infoBtn.setTextSize(16);
+        exHead.addView(infoBtn, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        ex.addView(exHead, new LinearLayout.LayoutParams(MATCH, WRAP));
         TextView nl = text("Nome del file", 13, R.color.text, true);
         nl.setPadding(0, dp(8), 0, dp(6));
         ex.addView(nl);
@@ -547,13 +558,7 @@ public class VideoEditorActivity extends Activity {
         ex.addView(infoBox, lp(MATCH, WRAP, 0, 14));
         editorBox.addView(ex, lp(MATCH, WRAP, 0, 12));
 
-        TextView note = text("I tagli non ricodificano il video (qualita' identica, tranne con stabilizzazione, effetti o testo, che lo ricodificano) e salvataggio "
-                + "veloce, ma il punto di taglio puo' slittare all'indietro fino al fotogramma "
-                + "chiave precedente (di solito meno di 1 secondo). Una colonna sonora piu' corta "
-                + "del video lascia il resto in silenzio (o con il solo audio originale).",
-                12, R.color.text_dim, false);
-        note.setPadding(0, dp(20), 0, 0);
-        root.addView(note);
+
 
         setContentView(scroll);
         updateTexts();

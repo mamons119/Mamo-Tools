@@ -129,10 +129,7 @@ public class SystemMonitorActivity extends Activity {
         scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
 
         root.addView(text("System Monitor", 28, R.color.text, true));
-        TextView sub = text("Grafici in tempo reale e tutte le informazioni del telefono.",
-                14, R.color.text_dim, false);
-        sub.setPadding(0, dp(6), 0, dp(8));
-        root.addView(sub);
+        root.addView(new View(this), new LinearLayout.LayoutParams(MATCH, dp(14)));
 
         // ---- CPU
         LinearLayout cpu = card(root, "CPU");

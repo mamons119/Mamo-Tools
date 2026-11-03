@@ -73,9 +73,13 @@ final class Ui {
         root.setPadding(dp(a, 16), dp(a, 36), dp(a, 16), dp(a, 28));
         scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
         root.addView(text(a, title, 28, TEXT, true));
-        TextView sub = text(a, subtitle, 14, DIM, false);
-        sub.setPadding(0, dp(a, 4), 0, dp(a, 16));
-        root.addView(sub);
+        if (subtitle != null && !subtitle.isEmpty()) {
+            TextView sub = text(a, subtitle, 14, DIM, false);
+            sub.setPadding(0, dp(a, 4), 0, dp(a, 16));
+            root.addView(sub);
+        } else {
+            root.addView(new View(a), new LinearLayout.LayoutParams(MATCH, dp(a, 16)));
+        }
         a.setContentView(scroll);
         return root;
     }
@@ -200,5 +204,31 @@ final class Ui {
             view.addView(col, new LinearLayout.LayoutParams(0, WRAP, 1f));
             view.addView(text(c, "›", 28, DIM, false));
         }
+    }
+
+    /** Finestra informativa nello stile dell'app (al posto dell'AlertDialog standard). */
+    static void infoDialog(Context c, String title, String message) {
+        final android.app.Dialog d = new android.app.Dialog(c);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(c);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(round(c, CARD, 20));
+        box.setPadding(dp(c, 20), dp(c, 20), dp(c, 20), dp(c, 16));
+        box.addView(text(c, title, 18, TEXT, true));
+        ScrollView sv = new ScrollView(c);
+        TextView m = text(c, message, 14, DIM, false);
+        m.setLineSpacing(0, 1.15f);
+        sv.addView(m);
+        box.addView(sv, lp(c, MATCH, WRAP, 0, 12));
+        Button ok = btn(c, "Ho capito", ACCENT, 0xFF000000, v -> d.dismiss());
+        box.addView(ok, lp(c, MATCH, dp(c, 46), 0, 16));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            w.setLayout((int) (c.getResources().getDisplayMetrics().widthPixels * 0.9f), WRAP);
+        }
+        d.show();
     }
 }

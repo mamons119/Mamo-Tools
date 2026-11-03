@@ -22,8 +22,18 @@ final class ResultCard {
     private String mime;
 
     ResultCard(final Activity a) {
+        this(a, false);
+    }
+
+    /** flat = senza sfondo e margini propri, per inserirla dentro un'altra scheda. */
+    ResultCard(final Activity a, boolean flat) {
         act = a;
-        view = Ui.card(a);
+        if (flat) {
+            view = new LinearLayout(a);
+            view.setOrientation(LinearLayout.VERTICAL);
+        } else {
+            view = Ui.card(a);
+        }
         view.setVisibility(View.GONE);
         status = Ui.text(a, "", 14, Ui.TEXT, false);
         bar = Ui.bar(a);
