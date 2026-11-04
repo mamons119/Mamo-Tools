@@ -428,7 +428,7 @@ public class AudioEditorActivity extends Activity {
             });
             x1.addView(fmtChips[i], Ui.lp(this, 0, Ui.dp(this, 42), i == 0 ? 0 : 8, 0, 1f));
         }
-        xc.addView(x1);
+        xc.addView(x1, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         TextView nl = Ui.text(this, "Nome del file", 13, Ui.TEXT, true);
         nl.setPadding(0, Ui.dp(this, 14), 0, Ui.dp(this, 6));
         xc.addView(nl);

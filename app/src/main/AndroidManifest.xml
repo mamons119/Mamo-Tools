@@ -156,38 +156,6 @@
             android:exported="false"
             android:grantUriPermissions="true" />
 
-        <receiver
-            android:name=".MonitorWidgetProvider"
-            android:label="Mamo Tools · System Monitor"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_monitor_info" />
-        </receiver>
-
-        <receiver
-            android:name=".BoostWidgetProvider"
-            android:label="Mamo Tools · Volume Boost"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_boost_info" />
-        </receiver>
-
-        <service
-            android:name=".MonitorWidgetViewsService"
-            android:exported="false"
-            android:permission="android.permission.BIND_REMOTEVIEWS" />
-
-        <service
-            android:name=".MonitorWidgetService"
-            android:exported="false" />
 
         <service
             android:name=".BoostService"
