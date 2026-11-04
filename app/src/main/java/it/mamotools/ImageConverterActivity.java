@@ -292,12 +292,14 @@ public class ImageConverterActivity extends Activity {
     private void selectFormat(int idx) {
         format = idx;
         boolean pdf = idx == 5;
-        pickCard.setVisibility(pdf ? View.GONE : View.VISIBLE);
-        inCard.setVisibility(!pdf && pickedUri != null ? View.VISIBLE : View.GONE);
+        inCard.setVisibility(pickedUri != null ? View.VISIBLE : View.GONE);
         convertBtn.setVisibility(pdf ? View.GONE : View.VISIBLE);
         outCard.setVisibility(!pdf && resultUri != null ? View.VISIBLE : View.GONE);
         status.setVisibility(pdf ? View.GONE : View.VISIBLE);
         pdfPanel.view.setVisibility(pdf ? View.VISIBLE : View.GONE);
+        if (pdf) {
+            pdfPanel.setPrimary(pickedUri);
+        }
         qualityBox.setVisibility(idx == 0 || idx == 2 ? View.VISIBLE : View.GONE);
         icoBox.setVisibility(idx == 4 ? View.VISIBLE : View.GONE);
         refreshQualityLabel();
@@ -363,6 +365,9 @@ public class ImageConverterActivity extends Activity {
             return;
         }
         pickedUri = data.getData();
+        if (format == 5) {
+            pdfPanel.setPrimary(pickedUri);
+        }
         pickedName = queryName(pickedUri);
         pickedBytes = querySize(pickedUri);
         resultUri = null;

@@ -61,6 +61,47 @@ final class ImagesToPdfPanel {
         refresh();
     }
 
+    private Img primary;
+    private Uri primaryUri;
+
+    /** L'immagine scelta in alto nell'Image Converter diventa la prima pagina del PDF. */
+    void setPrimary(final Uri u) {
+        if (u == null || u.equals(primaryUri) || busy) {
+            return;
+        }
+        busy = true;
+        result.start("Lettura dell'immagine...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final Img im = new Img();
+                im.uri = u;
+                im.name = FileUtil.queryName(act, u);
+                im.size = FileUtil.querySize(act, u);
+                im.thumb = decode(u, 160, false);
+                act.runOnUiThread(new Runnable() {
+                    @Override
+                    public void run() {
+                        busy = false;
+                        if (im.thumb == null) {
+                            result.error("Questo file non e' un'immagine leggibile.");
+                            refresh();
+                            return;
+                        }
+                        if (primary != null) {
+                            imgs.remove(primary);
+                        }
+                        primary = im;
+                        primaryUri = u;
+                        imgs.add(0, im);
+                        refresh();
+                        result.hide();
+                    }
+                });
+            }
+        }).start();
+    }
+
     private void pickFiles() {
         if (busy) {
             return;
@@ -125,7 +166,7 @@ final class ImagesToPdfPanel {
         listBox = new LinearLayout(act);
         listBox.setOrientation(LinearLayout.VERTICAL);
         root.addView(listBox);
-        root.addView(Ui.btn(act, "＋  Aggiungi immagini", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
+        root.addView(Ui.btn(act, "＋  Aggiungi altre immagini", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickFiles();
