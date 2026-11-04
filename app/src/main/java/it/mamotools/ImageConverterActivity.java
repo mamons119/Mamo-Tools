@@ -88,7 +88,17 @@ public class ImageConverterActivity extends Activity {
         root.setPadding(dp(16), dp(36), dp(16), dp(28));
         scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
 
-        root.addView(text("Image Converter", 28, C_TEXT, true));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(text("Image Converter", 28, C_TEXT, true), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        Button infoBtn = btn("i", C_CARD2, C_ACCENT, v -> Ui.infoDialog(this, "Formati e trasparenza",
+                "In ingresso: tutto cio' che il telefono sa aprire (JPG, PNG, WEBP, GIF, BMP, ICO, "
+                + "HEIC/HEIF, RAW DNG...).\n\nLe GIF animate usano il primo fotogramma.\n\n"
+                + "Gli sfondi trasparenti diventano bianchi in JPG e BMP."));
+        infoBtn.setTypeface(Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC));
+        infoBtn.setTextSize(16);
+        titleRow.addView(infoBtn, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        root.addView(titleRow, new LinearLayout.LayoutParams(MATCH, WRAP));
         TextView sub = text("Converti un'immagine in JPG, PNG, WEBP, BMP o ICO.", 14, C_DIM, false);
         sub.setPadding(0, dp(4), 0, dp(16));
         root.addView(sub);
@@ -264,12 +274,7 @@ public class ImageConverterActivity extends Activity {
         outCard.addView(openBtn, new LinearLayout.LayoutParams(MATCH, dp(48)));
         root.addView(outCard, lp(MATCH, WRAP, 0, 14));
 
-        TextView note = text("In ingresso: tutto cio' che il telefono sa aprire (JPG, PNG, WEBP, "
-                + "GIF, BMP, ICO, HEIC/HEIF, RAW DNG...). Le GIF animate usano il primo "
-                + "fotogramma. Gli sfondi trasparenti diventano bianchi in JPG e BMP.",
-                12, C_DIM, false);
-        note.setPadding(0, dp(20), 0, 0);
-        root.addView(note);
+
 
         setContentView(scroll);
         setIcoSize(icoSize, true);

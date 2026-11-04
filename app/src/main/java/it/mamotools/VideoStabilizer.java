@@ -53,7 +53,7 @@ final class VideoStabilizer {
 
     /** prm null = nessuna stabilizzazione (solo effetti e testi). */
     static void run(Context ctx, Uri src, File out, Params prm, java.util.List<VideoFx.Item> items,
-                    int quality, VideoProcessor.Progress p) throws IOException {
+                    int quality, int extraRot, VideoProcessor.Progress p) throws IOException {
         MediaExtractor ex = new MediaExtractor();
         ex.setDataSource(ctx, src, null);
         int vt = -1, at = -1;
@@ -91,6 +91,7 @@ final class VideoStabilizer {
             }
         }
 
+        rotation = (rotation + extraRot) % 360;
         int w = vf.getInteger(MediaFormat.KEY_WIDTH) & ~1;
         int h = vf.getInteger(MediaFormat.KEY_HEIGHT) & ~1;
         long durUs = vf.containsKey(MediaFormat.KEY_DURATION) ? vf.getLong(MediaFormat.KEY_DURATION) : 0;

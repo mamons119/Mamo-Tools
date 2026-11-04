@@ -47,6 +47,7 @@ final class VideoProcessor {
         boolean mix = false;     // true = aggiunge all'originale, false = sostituisce
         float originalDb = -12f; // abbassamento dell'originale quando mix (negativo)
         VideoStabilizer.Params stab; // null = nessuna stabilizzazione
+        int extraRot = 0; // rotazione aggiuntiva scelta dall'utente (0/90/180/270, in senso orario)
         int quality = 0; // 0 massima, 1 alta, 2 media, 3 bassa (ricodifica)
         java.util.List<VideoFx.Item> fx; // effetti e testi (tempi in microsecondi)
     }
@@ -65,7 +66,7 @@ final class VideoProcessor {
             File tmp = new File(cacheDir, "stab.mp4");
             try {
                 final Progress outer = p;
-                VideoStabilizer.run(ctx, o.video, tmp, o.stab, o.fx, o.quality, new Progress() {
+                VideoStabilizer.run(ctx, o.video, tmp, o.stab, o.fx, o.quality, o.extraRot, new Progress() {
                     @Override
                     public void onProgress(String stage, int pct) {
                         outer.onProgress(stage, pct * 70 / 100);
@@ -79,6 +80,7 @@ final class VideoProcessor {
                 o2.soundStartUs = o.soundStartUs;
                 o2.mix = o.mix;
                 o2.originalDb = o.originalDb;
+                o2.extraRot = 0; // gia' applicata nel file intermedio
                 export(ctx, o2, out, cacheDir, new Progress() {
                     @Override
                     public void onProgress(String stage, int pct) {
@@ -119,6 +121,7 @@ final class VideoProcessor {
             } catch (Exception ignored) {
             }
         }
+        rotation = (rotation + o.extraRot) % 360;
 
         // inizio reale dei tratti (fotogramma chiave precedente) e loro durata
         int n = o.keep.length;

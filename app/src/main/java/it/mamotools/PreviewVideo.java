@@ -23,6 +23,7 @@ final class PreviewVideo extends FrameLayout {
     private Surface surface;
     private boolean prepared = false;
     private int dispW = 0, dispH = 0;
+    private int extraRot = 0;
     private int pendingSeek = -1;
     private boolean pendingStart = false;
     private MediaPlayer.OnPreparedListener onPrepared;
@@ -91,6 +92,13 @@ final class PreviewVideo extends FrameLayout {
         requestLayout();
     }
 
+    /** Rotazione aggiuntiva (0/90/180/270): dispW/dispH vanno passati gia' ruotati. */
+    void setExtraRotation(int deg) {
+        extraRot = deg;
+        tv.setRotation(deg);
+        requestLayout();
+    }
+
     void setVideoURI(Uri uri) {
         release();
         prepared = false;
@@ -101,8 +109,9 @@ final class PreviewVideo extends FrameLayout {
             mp.setOnPreparedListener(m -> {
                 prepared = true;
                 if (dispW <= 0 || dispH <= 0) {
-                    dispW = m.getVideoWidth();
-                    dispH = m.getVideoHeight();
+                    boolean sw = extraRot == 90 || extraRot == 270;
+                    dispW = sw ? m.getVideoHeight() : m.getVideoWidth();
+                    dispH = sw ? m.getVideoWidth() : m.getVideoHeight();
                 }
                 requestLayout();
                 if (onPrepared != null) {
@@ -225,7 +234,16 @@ final class PreviewVideo extends FrameLayout {
             return null;
         }
         try {
-            return tv.getBitmap(w, h);
+            boolean sw = extraRot == 90 || extraRot == 270;
+            Bitmap b = sw ? tv.getBitmap(h, w) : tv.getBitmap(w, h);
+            if (b != null && extraRot != 0) {
+                android.graphics.Matrix m = new android.graphics.Matrix();
+                m.postRotate(extraRot);
+                Bitmap r = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
+                b.recycle();
+                return r;
+            }
+            return b;
         } catch (Exception e) {
             return null;
         }
@@ -244,13 +262,18 @@ final class PreviewVideo extends FrameLayout {
             t = (h - rh) / 2f;
         }
         rect.set(l, t, l + rw, t + rh);
-        tv.measure(MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(rw)), MeasureSpec.EXACTLY),
-                MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(rh)), MeasureSpec.EXACTLY));
+        boolean sw = extraRot == 90 || extraRot == 270;
+        float tw = sw ? rh : rw, th = sw ? rw : rh;
+        tv.measure(MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(tw)), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(th)), MeasureSpec.EXACTLY));
     }
 
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        tv.layout(Math.round(rect.left), Math.round(rect.top), Math.round(rect.right), Math.round(rect.bottom));
+        boolean sw = extraRot == 90 || extraRot == 270;
+        float cx = rect.centerX(), cy = rect.centerY();
+        float tw = sw ? rect.height() : rect.width(), th = sw ? rect.width() : rect.height();
+        tv.layout(Math.round(cx - tw / 2), Math.round(cy - th / 2), Math.round(cx + tw / 2), Math.round(cy + th / 2));
         setClipBounds(new android.graphics.Rect(Math.round(rect.left), Math.round(rect.top),
                 Math.round(rect.right), Math.round(rect.bottom)));
     }

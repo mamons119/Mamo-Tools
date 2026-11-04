@@ -48,12 +48,9 @@ public class MainActivity extends Activity {
                             + "e li salva in Galleria.",
                     StableCamActivity.class),
             new Tool("📄", "PDF Tools",
-                    "PDF ↔ Word, unisci, dividi, estrai, elimina e ruota pagine, "
+                    "Leggi i PDF, PDF ↔ Word, unisci, dividi, estrai, elimina e ruota pagine, "
                             + "immagini ↔ PDF.",
                     PdfToolsActivity.class),
-            new Tool("📕", "PDF Reader",
-                    "Leggi i PDF con zoom, ricerca, vai a pagina, notte, condividi e stampa.",
-                    PdfReaderActivity.class),
             new Tool("🖼", "Image Converter",
                     "Converte un'immagine in JPG, PNG, WEBP o BMP partendo dai formati "
                             + "piu' diffusi.",

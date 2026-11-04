@@ -19,6 +19,11 @@ public class PdfToolsActivity extends Activity {
         LinearLayout root = Ui.screen(this, "PDF Tools",
                 "Tutto quello che serve per i tuoi PDF. I file nuovi vanno in Download/MamoTools.");
 
+        root.addView(Ui.section(this, "Reader"));
+        root.addView(tile("📕", "Leggi PDF", "Zoom, ricerca, vai a pagina, notte, condividi e stampa",
+                new Intent(this, PdfReaderActivity.class)));
+
+        root.addView(space());
         root.addView(Ui.section(this, "Converti"));
         root.addView(tile("📄", "PDF ↔ Word", "Da PDF a .docx e da .docx a PDF",
                 new Intent(this, ConverterActivity.class)));

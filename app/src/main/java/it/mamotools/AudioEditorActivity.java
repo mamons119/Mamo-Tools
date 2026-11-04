@@ -391,7 +391,24 @@ public class AudioEditorActivity extends Activity {
         // ---- esporta
         LinearLayout xc = Ui.card(this);
         root.addView(xc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
-        xc.addView(Ui.section(this, "Esporta"));
+        LinearLayout xh = new LinearLayout(this);
+        xh.setGravity(android.view.Gravity.CENTER_VERTICAL);
+        xh.addView(Ui.section(this, "Esporta"), new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        Button infoBtn = Ui.btn(this, "i", Ui.CARD2, Ui.ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                Ui.infoDialog(AudioEditorActivity.this, "Come funziona l'esportazione",
+                        "M4A (AAC) e' leggero e adatto a tutti i lettori; WAV e' senza perdita ma i file sono "
+                        + "molto piu' grandi.\n\nL'audio viene esportato in stereo a 44,1 kHz con tagli, "
+                        + "incolla, filtri e volume gia' applicati.\n\nIl file va in Musica/MamoTools. "
+                        + "Se non scrivi un nome, viene usato MamoAudio con data e ora.");
+            }
+        });
+        infoBtn.setTypeface(android.graphics.Typeface.create(android.graphics.Typeface.SERIF,
+                android.graphics.Typeface.BOLD_ITALIC));
+        infoBtn.setTextSize(16);
+        xh.addView(infoBtn, new LinearLayout.LayoutParams(Ui.dp(this, 38), Ui.dp(this, 38)));
+        xc.addView(xh);
         LinearLayout x1 = new LinearLayout(this);
         fmtChips = new TextView[2];
         String[] fn = {"M4A (AAC, leggero)", "WAV (senza perdita)"};

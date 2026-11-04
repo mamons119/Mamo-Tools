@@ -40,6 +40,7 @@ final class FxDialog {
     private final long durMs;
     private final int vw, vh;
     private final Callback cb;
+    private final int extraRot;
     private final Dialog dlg;
     private TextView timeText;
     private SeekBar sbStart, sbEnd;
@@ -48,8 +49,8 @@ final class FxDialog {
     private final Handler h = new Handler(Looper.getMainLooper());
 
     static void show(Context ctx, VideoFx.Item initial, boolean editing, Uri video, long durMs, long cursorMs,
-                     int vw, int vh, Callback cb) {
-        new FxDialog(ctx, initial, editing, video, durMs, cursorMs, vw, vh, cb);
+                     int vw, int vh, int extraRot, Callback cb) {
+        new FxDialog(ctx, initial, editing, video, durMs, cursorMs, vw, vh, extraRot, cb);
     }
 
     private int dp(int v) {
@@ -57,8 +58,9 @@ final class FxDialog {
     }
 
     private FxDialog(Context ctx, VideoFx.Item initial, boolean editing, Uri video, long durMs, long cursorMs,
-                     int vw, int vh, Callback cb) {
+                     int vw, int vh, int extraRot, Callback cb) {
         this.ctx = ctx;
+        this.extraRot = extraRot;
         this.it = initial.copy();
         this.durMs = durMs;
         this.vw = vw;
@@ -418,6 +420,11 @@ final class FxDialog {
                     mr.release();
                 } catch (Exception ignored) {
                 }
+            }
+            if (b != null && extraRot != 0) {
+                android.graphics.Matrix m = new android.graphics.Matrix();
+                m.postRotate(extraRot);
+                b = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
             }
             final Bitmap fb = b;
             h.post(() -> {

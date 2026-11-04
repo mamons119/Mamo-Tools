@@ -93,7 +93,10 @@ public class VideoEditorActivity extends Activity {
     private final java.util.List<VideoFx.Item> fxItems = new java.util.ArrayList<>();
     private LinearLayout fxList;
     private TextOverlayView overlay;
-    private int dispVw = 0, dispVh = 0;
+    private int dispVw = 0, dispVh = 0;      // dimensioni mostrate (con rotazione utente)
+    private int baseVw = 0, baseVh = 0;      // dimensioni mostrate dal file originale
+    private int extraRot = 0;                // rotazione scelta dall'utente (0/90/180/270)
+    private TextView rotText;
     private TextView[] stabChips;
     private TextView stabZoomText;
 
@@ -342,6 +345,21 @@ public class VideoEditorActivity extends Activity {
         dbBar.setProgress(dbDown - 3);
         soundBox.addView(dbBar, new LinearLayout.LayoutParams(MATCH, WRAP));
         editorBox.addView(so, lp(MATCH, WRAP, 0, 12));
+
+        // ---- rotazione
+        LinearLayout rc = card();
+        LinearLayout rh = new LinearLayout(this);
+        rh.setGravity(Gravity.CENTER_VERTICAL);
+        rh.addView(sectionTitle("Rotazione"), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        rotText = text("0°", 14, R.color.text_dim, true);
+        rh.addView(rotText);
+        rc.addView(rh, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout rr = new LinearLayout(this);
+        rr.addView(btn("↺  90° a sinistra", C_CARD2, C_ACCENT, v -> rotate(-90)),
+                new LinearLayout.LayoutParams(0, dp(46), 1f));
+        rr.addView(btn("↻  90° a destra", C_CARD2, C_ACCENT, v -> rotate(90)), lp(0, dp(46), 8, 0, 1f));
+        rc.addView(rr, lp(MATCH, WRAP, 0, 10));
+        editorBox.addView(rc, lp(MATCH, WRAP, 0, 12));
 
         // ---- effetti e testo
         LinearLayout fx = card();
@@ -685,6 +703,27 @@ public class VideoEditorActivity extends Activity {
         }
     }
 
+    private void rotate(int delta) {
+        if (videoUri == null) {
+            return;
+        }
+        extraRot = ((extraRot + delta) % 360 + 360) % 360;
+        applyRotation();
+    }
+
+    private void applyRotation() {
+        boolean sw = extraRot == 90 || extraRot == 270;
+        dispVw = sw ? baseVh : baseVw;
+        dispVh = sw ? baseVw : baseVh;
+        overlay.setVideoSize(dispVw, dispVh);
+        videoView.setDisplaySize(dispVw, dispVh);
+        videoView.setExtraRotation(extraRot);
+        timeline.setExtraRot(extraRot);
+        if (rotText != null) {
+            rotText.setText(extraRot + "°");
+        }
+    }
+
     private void addFx(boolean isText) {
         VideoFx.Item n = new VideoFx.Item();
         n.isText = isText;
@@ -696,7 +735,7 @@ public class VideoEditorActivity extends Activity {
             return;
         }
         long cur = timeline.pos;
-        FxDialog.show(this, item, editing, videoUri, durMs, cur, dispVw, dispVh, new FxDialog.Callback() {
+        FxDialog.show(this, item, editing, videoUri, durMs, cur, dispVw, dispVh, extraRot, new FxDialog.Callback() {
             @Override
             public void onSave(VideoFx.Item saved) {
                 if (editing) {
@@ -786,7 +825,8 @@ public class VideoEditorActivity extends Activity {
         refreshFx();
         markA = markB = -1;
         durMs = 0;
-        dispVw = dispVh = 0;
+        dispVw = dispVh = baseVw = baseVh = 0;
+        extraRot = 0;
         MediaMetadataRetriever mr = new MediaMetadataRetriever();
         try {
             mr.setDataSource(this, uri);
@@ -796,11 +836,11 @@ public class VideoEditorActivity extends Activity {
                 String rr = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
                 int rot = rr == null ? 0 : Integer.parseInt(rr);
                 boolean sw = rot == 90 || rot == 270;
-                dispVw = sw ? vh0 : vw0;
-                dispVh = sw ? vw0 : vh0;
+                baseVw = sw ? vh0 : vw0;
+                baseVh = sw ? vw0 : vh0;
             } catch (Exception ignored) {
             }
-            overlay.setVideoSize(dispVw, dispVh);
+            applyRotation();
             String d = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             durMs = d == null ? 0 : Long.parseLong(d);
         } catch (Exception e) {
@@ -1145,6 +1185,7 @@ public class VideoEditorActivity extends Activity {
         o.keep = keptSegmentsUs();
         o.fx = new java.util.ArrayList<>(fxItems);
         o.quality = quality;
+        o.extraRot = extraRot;
         o.keepAudio = keepAudio;
         o.sound = soundUri;
         o.soundStartUs = soundStartMs * 1000;
@@ -1443,6 +1484,28 @@ public class VideoEditorActivity extends Activity {
         }
 
         List<VideoFx.Item> fxMarks = new ArrayList<>();
+        int extraRot = 0;
+        final java.util.Map<Bitmap, Bitmap> rotCache = new java.util.IdentityHashMap<>();
+
+        void setExtraRot(int deg) {
+            extraRot = deg;
+            rotCache.clear();
+            invalidate();
+        }
+
+        private Bitmap rotated(Bitmap b) {
+            if (extraRot == 0) {
+                return b;
+            }
+            Bitmap r = rotCache.get(b);
+            if (r == null) {
+                android.graphics.Matrix m = new android.graphics.Matrix();
+                m.postRotate(extraRot);
+                r = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
+                rotCache.put(b, r);
+            }
+            return r;
+        }
 
         void setFx(List<VideoFx.Item> l) {
             fxMarks = new ArrayList<>(l);
@@ -1517,6 +1580,7 @@ public class VideoEditorActivity extends Activity {
                     if (b == null) {
                         continue;
                     }
+                    b = rotated(b);
                     int x0 = w * i / n;
                     int x1 = w * (i + 1) / n;
                     float cellAspect = (x1 - x0) / (float) h;
