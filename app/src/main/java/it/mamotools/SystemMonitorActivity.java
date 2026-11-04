@@ -83,11 +83,11 @@ public class SystemMonitorActivity extends Activity {
 
     // RAM
     private Graph ramGraph;
-    private TextView ramText;
+    private Kv ramKv;
 
     // rete
     private Graph netGraph;
-    private TextView netText;
+    private Kv netKv;
     private long lastRx = -1, lastTx = -1, lastT = 0;
 
     // altre schede
@@ -98,8 +98,8 @@ public class SystemMonitorActivity extends Activity {
     private BatteryView batteryView;
     private Kv batteryKv;
     private final java.util.Map<String, StorageRow> storageRows = new java.util.LinkedHashMap<>();
-    private TextView deviceText, sensorsText, thermalText,
-            gpuText, systemText;
+    private Kv deviceKv, sensorsKv, systemKv;
+    private TextView thermalText, gpuText, systemNote;
 
     private final Runnable loop = new Runnable() {
         @Override
@@ -160,9 +160,9 @@ public class SystemMonitorActivity extends Activity {
         ramGraph.setColors(new int[]{0xFF4DD0E1, 0xFFFF6B6B});
         ram.addView(ramGraph, new LinearLayout.LayoutParams(MATCH, dp(130)));
         ram.addView(legend("● RAM usata", 0xFF4DD0E1, "● Swap usato", 0xFFFF6B6B));
-        ramText = text("", 12, R.color.text, false);
-        ramText.setPadding(0, dp(8), 0, 0);
-        ram.addView(ramText);
+        ramKv = new Kv(this);
+        ramKv.setPadding(0, dp(6), 0, 0);
+        ram.addView(ramKv);
 
         // ---- rete
         LinearLayout net = card(root, "Rete e traffico internet");
@@ -170,9 +170,9 @@ public class SystemMonitorActivity extends Activity {
         netGraph.setColors(new int[]{0xFF8BC34A, 0xFFFFB74D});
         net.addView(netGraph, new LinearLayout.LayoutParams(MATCH, dp(130)));
         net.addView(legend("● Download", 0xFF8BC34A, "● Upload", 0xFFFFB74D));
-        netText = text("", 12, R.color.text, false);
-        netText.setPadding(0, dp(8), 0, 0);
-        net.addView(netText);
+        netKv = new Kv(this);
+        netKv.setPadding(0, dp(6), 0, 0);
+        net.addView(netKv);
 
         // ---- altre
         storageBox = card(root, "Archiviazione e microSD");
@@ -210,9 +210,16 @@ public class SystemMonitorActivity extends Activity {
         dkp.leftMargin = dp(14);
         dRow.addView(displayKv, dkp);
         dc.addView(dRow, new LinearLayout.LayoutParams(MATCH, WRAP));
-        deviceText = info(root, "Dispositivo");
-        systemText = info(root, "Sistema e funzioni");
-        sensorsText = info(root, "Sensori");
+        deviceKv = new Kv(this);
+        card(root, "Dispositivo").addView(deviceKv);
+        LinearLayout sysCard = card(root, "Sistema e funzioni");
+        systemKv = new Kv(this);
+        sysCard.addView(systemKv);
+        systemNote = text("", 11, R.color.text_dim, false);
+        systemNote.setPadding(0, dp(10), 0, 0);
+        sysCard.addView(systemNote);
+        sensorsKv = new Kv(this);
+        card(root, "Sensori").addView(sensorsKv);
 
         setContentView(scroll);
         fillStatic();
@@ -464,24 +471,26 @@ public class SystemMonitorActivity extends Activity {
         if (!textTick) {
             return;
         }
-        StringBuilder sb = new StringBuilder();
-        sb.append(String.format(Locale.US, "In uso: %s di %s (%.0f%%)\n", size(used), size(total), pct));
-        sb.append("Disponibile: ").append(size(avail)).append('\n');
-        sb.append("Cache: ").append(size(cached)).append("  ·  Buffer: ").append(size(buffers)).append('\n');
-        sb.append("Attiva: ").append(size(active)).append("  ·  Inattiva: ").append(size(inactive)).append('\n');
-        sb.append("Condivisa: ").append(size(shmem)).append("  ·  Mappata: ").append(size(mapped)).append('\n');
-        sb.append("Slab kernel: ").append(size(slab)).append("  ·  Dirty: ").append(size(dirty)).append('\n');
-        sb.append("Committed: ").append(size(commit)).append('\n');
-        sb.append(swapT > 0 ? "Swap/zRAM: " + size(swapT - swapF) + " di " + size(swapT)
-                : "Swap/zRAM: non presente").append('\n');
-        sb.append("Soglia memoria bassa: ").append(size(mi.threshold))
-                .append(mi.lowMemory ? "  (MEMORIA BASSA!)" : "").append('\n');
-        sb.append("Heap per app: ").append(am.getMemoryClass()).append(" MB (")
-                .append(am.getLargeMemoryClass()).append(" MB con largeHeap)\n");
         Runtime rt = Runtime.getRuntime();
-        sb.append("Heap di Mamo Tools: ").append(size(rt.totalMemory() - rt.freeMemory()))
-                .append(" / ").append(size(rt.maxMemory()));
-        ramText.setText(sb.toString());
+        ramKv.set(new String[][]{
+                {"Utilizzo"},
+                {"In uso", String.format(Locale.US, "%s di %s (%.0f%%)", size(used), size(total), pct)},
+                {"Disponibile", size(avail)},
+                {"Soglia memoria bassa", size(mi.threshold) + (mi.lowMemory ? "  (BASSA!)" : "")},
+                {"Dettaglio"},
+                {"Cache", size(cached)},
+                {"Buffer", size(buffers)},
+                {"Attiva / Inattiva", size(active) + " / " + size(inactive)},
+                {"Condivisa", size(shmem)},
+                {"Mappata", size(mapped)},
+                {"Slab kernel", size(slab)},
+                {"Dirty", size(dirty)},
+                {"Committed", size(commit)},
+                {"Swap / zRAM"},
+                {"Usato", swapT > 0 ? size(swapT - swapF) + " di " + size(swapT) : "non presente"},
+                {"Memoria per le app"},
+                {"Heap per app", am.getMemoryClass() + " MB (" + am.getLargeMemoryClass() + " MB con largeHeap)"},
+                {"Heap di Mamo Tools", size(rt.totalMemory() - rt.freeMemory()) + " / " + size(rt.maxMemory())}});
     }
 
     // ---- rete
@@ -506,27 +515,30 @@ public class SystemMonitorActivity extends Activity {
 
         long mrx = TrafficStats.getMobileRxBytes();
         long mtx = TrafficStats.getMobileTxBytes();
-        StringBuilder sb = new StringBuilder();
-        sb.append("Download: ").append(rate(dl)).append("   ·   Upload: ").append(rate(ul)).append('\n');
-        sb.append("Totale dall'avvio: ↓ ").append(size(rx)).append("  ↑ ").append(size(tx)).append('\n');
+        List<String[]> rows = new ArrayList<>();
+        rows.add(new String[]{"Velocita' attuale"});
+        rows.add(new String[]{"Download", rate(dl)});
+        rows.add(new String[]{"Upload", rate(ul)});
+        rows.add(new String[]{"Traffico dall'avvio"});
+        rows.add(new String[]{"Totale", "↓ " + size(rx) + "   ↑ " + size(tx)});
         if (mrx >= 0) {
-            sb.append("Dati mobili: ↓ ").append(size(mrx)).append("  ↑ ").append(size(mtx)).append('\n');
-            sb.append("Wi-Fi/altro: ↓ ").append(size(Math.max(0, rx - mrx)))
-                    .append("  ↑ ").append(size(Math.max(0, tx - mtx))).append('\n');
+            rows.add(new String[]{"Dati mobili", "↓ " + size(mrx) + "   ↑ " + size(mtx)});
+            rows.add(new String[]{"Wi-Fi / altro", "↓ " + size(Math.max(0, rx - mrx))
+                    + "   ↑ " + size(Math.max(0, tx - mtx))});
         }
-        sb.append("Pacchetti: ↓ ").append(TrafficStats.getTotalRxPackets())
-                .append("  ↑ ").append(TrafficStats.getTotalTxPackets()).append('\n');
-        sb.append(networkDetails());
-        netText.setText(sb.toString().trim());
+        rows.add(new String[]{"Pacchetti", "↓ " + TrafficStats.getTotalRxPackets()
+                + "   ↑ " + TrafficStats.getTotalTxPackets()});
+        rows.add(new String[]{"Connessione"});
+        networkDetails(rows);
+        netKv.set(rows.toArray(new String[0][]));
     }
 
-    private String networkDetails() {
-        StringBuilder sb = new StringBuilder();
+    private void networkDetails(List<String[]> rows) {
         try {
             ConnectivityManager cm = (ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
             Network n = cm.getActiveNetwork();
             if (n == null) {
-                sb.append("Connessione: nessuna\n");
+                rows.add(new String[]{"Tipo", "nessuna"});
             } else {
                 NetworkCapabilities nc = cm.getNetworkCapabilities(n);
                 if (nc != null) {
@@ -536,47 +548,43 @@ public class SystemMonitorActivity extends Activity {
                     if (nc.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET)) tr.add("Ethernet");
                     if (nc.hasTransport(NetworkCapabilities.TRANSPORT_BLUETOOTH)) tr.add("Bluetooth");
                     if (nc.hasTransport(NetworkCapabilities.TRANSPORT_VPN)) tr.add("VPN");
-                    sb.append("Connessione: ").append(tr.isEmpty() ? "altra" : join(tr, " + "));
-                    sb.append(nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
-                            ? "  (internet ok)\n" : "  (internet non verificato)\n");
-                    sb.append("Banda stimata: ↓ ").append(nc.getLinkDownstreamBandwidthKbps() / 1000)
-                            .append(" Mbit/s  ↑ ").append(nc.getLinkUpstreamBandwidthKbps() / 1000)
-                            .append(" Mbit/s\n");
-                    sb.append(cm.isActiveNetworkMetered() ? "Rete a consumo (metered)\n"
-                            : "Rete non a consumo\n");
+                    rows.add(new String[]{"Tipo", tr.isEmpty() ? "altra" : join(tr, " + ")});
+                    rows.add(new String[]{"Internet", nc.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+                            ? "✓ verificato" : "✕ non verificato"});
+                    rows.add(new String[]{"Banda stimata", "↓ " + nc.getLinkDownstreamBandwidthKbps() / 1000
+                            + "   ↑ " + nc.getLinkUpstreamBandwidthKbps() / 1000 + " Mbit/s"});
+                    rows.add(new String[]{"Tariffa", cm.isActiveNetworkMetered() ? "a consumo" : "non a consumo"});
                     if (nc.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
                         WifiManager wm = (WifiManager) getApplicationContext()
                                 .getSystemService(WIFI_SERVICE);
                         WifiInfo wi = wm == null ? null : wm.getConnectionInfo();
                         if (wi != null) {
-                            sb.append("Wi-Fi: ").append(wi.getLinkSpeed()).append(" Mbit/s, ")
-                                    .append(wi.getFrequency()).append(" MHz, segnale ")
-                                    .append(wi.getRssi()).append(" dBm\n");
+                            rows.add(new String[]{"Wi-Fi", wi.getLinkSpeed() + " Mbit/s · "
+                                    + wi.getFrequency() + " MHz · " + wi.getRssi() + " dBm"});
                         }
                     }
                 }
                 LinkProperties lp = cm.getLinkProperties(n);
                 if (lp != null) {
-                    sb.append("Interfaccia: ").append(lp.getInterfaceName()).append("  MTU ")
-                            .append(Build.VERSION.SDK_INT >= 29 ? lp.getMtu() : 0).append('\n');
+                    rows.add(new String[]{"Interfaccia", lp.getInterfaceName() + "  (MTU "
+                            + (Build.VERSION.SDK_INT >= 29 ? lp.getMtu() : 0) + ")"});
                     List<String> dns = new ArrayList<>();
                     for (InetAddress a : lp.getDnsServers()) {
                         dns.add(a.getHostAddress());
                     }
-                    sb.append("DNS: ").append(join(dns, ", ")).append('\n');
+                    rows.add(new String[]{"DNS", join(dns, "\n")});
                 }
             }
-            sb.append("IP: ").append(ipList()).append('\n');
+            rows.add(new String[]{"IP", ipList().replace(", ", "\n")});
             TelephonyManager tm = (TelephonyManager) getSystemService(TELEPHONY_SERVICE);
             if (tm != null && tm.getPhoneType() != TelephonyManager.PHONE_TYPE_NONE) {
-                sb.append("Operatore: ").append(tm.getNetworkOperatorName())
-                        .append("  ·  SIM: ").append(tm.getSimOperatorName())
-                        .append(tm.isNetworkRoaming() ? "  ·  ROAMING" : "").append('\n');
+                rows.add(new String[]{"Operatore", tm.getNetworkOperatorName()
+                        + (tm.isNetworkRoaming() ? "  (ROAMING)" : "")});
+                rows.add(new String[]{"SIM", tm.getSimOperatorName()});
             }
         } catch (Throwable t) {
-            sb.append("Dettagli di rete non disponibili\n");
+            rows.add(new String[]{"Dettagli di rete", "non disponibili"});
         }
-        return sb.toString();
     }
 
     private String ipList() {
@@ -945,40 +953,42 @@ public class SystemMonitorActivity extends Activity {
                 {"Colore ampio", disp.isWideColorGamut() ? "si" : "no"}});
 
         // dispositivo
-        StringBuilder v = new StringBuilder();
-        v.append("Produttore: ").append(Build.MANUFACTURER).append('\n');
-        v.append("Marca: ").append(Build.BRAND).append('\n');
-        v.append("Modello: ").append(Build.MODEL).append('\n');
-        v.append("Dispositivo: ").append(Build.DEVICE).append("  ·  Prodotto: ").append(Build.PRODUCT).append('\n');
-        v.append("Scheda: ").append(Build.BOARD).append('\n');
-        v.append("Bootloader: ").append(Build.BOOTLOADER).append('\n');
-        v.append("Radio/modem: ").append(Build.getRadioVersion()).append('\n');
-        v.append("Android: ").append(Build.VERSION.RELEASE).append(" (API ")
-                .append(Build.VERSION.SDK_INT).append(")\n");
-        v.append("Patch di sicurezza: ").append(Build.VERSION.SECURITY_PATCH).append('\n');
-        v.append("Build: ").append(Build.DISPLAY).append('\n');
-        v.append("Fingerprint: ").append(Build.FINGERPRINT).append('\n');
-        v.append("Tipo build: ").append(Build.TYPE).append("  ·  Tag: ").append(Build.TAGS).append('\n');
-        v.append("Kernel: ").append(System.getProperty("os.version")).append('\n');
-        v.append("Architettura: ").append(System.getProperty("os.arch")).append('\n');
-        v.append("Lingua: ").append(Locale.getDefault().toString());
-        deviceText.setText(v.toString());
+        deviceKv.set(new String[][]{
+                {"Hardware"},
+                {"Produttore", Build.MANUFACTURER},
+                {"Marca", Build.BRAND},
+                {"Modello", Build.MODEL},
+                {"Dispositivo", Build.DEVICE},
+                {"Prodotto", Build.PRODUCT},
+                {"Scheda", Build.BOARD},
+                {"Bootloader", Build.BOOTLOADER},
+                {"Radio / modem", String.valueOf(Build.getRadioVersion())},
+                {"Software"},
+                {"Android", Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")"},
+                {"Patch di sicurezza", Build.VERSION.SECURITY_PATCH},
+                {"Build", Build.DISPLAY},
+                {"Tipo build", Build.TYPE + " · " + Build.TAGS},
+                {"Kernel", String.valueOf(System.getProperty("os.version"))},
+                {"Architettura", String.valueOf(System.getProperty("os.arch"))},
+                {"Lingua", Locale.getDefault().toString()},
+                {"Identificativo"},
+                {"Fingerprint", Build.FINGERPRINT}});
 
         // sensori
-        StringBuilder s = new StringBuilder();
         SensorManager sm = (SensorManager) getSystemService(SENSOR_SERVICE);
-        List<Sensor> all = sm.getSensorList(Sensor.TYPE_ALL);
-        s.append(all.size()).append(" sensori\n");
+        List<Sensor> all = new ArrayList<>(sm.getSensorList(Sensor.TYPE_ALL));
+        java.util.Collections.sort(all, (x, y) -> x.getName().compareToIgnoreCase(y.getName()));
+        List<String[]> sr = new ArrayList<>();
+        sr.add(new String[]{all.size() + " sensori"});
         for (Sensor x : all) {
-            s.append("• ").append(x.getName()).append(" (").append(x.getVendor()).append(")\n");
+            sr.add(new String[]{x.getName(), x.getVendor()});
         }
-        sensorsText.setText(s.toString().trim());
+        sensorsKv.set(sr.toArray(new String[0][]));
 
         updateSystemText();
     }
 
     private void updateSystemText() {
-        StringBuilder s = new StringBuilder();
         PackageManager pm = getPackageManager();
         String[][] feats = {
                 {PackageManager.FEATURE_BLUETOOTH, "Bluetooth"},
@@ -1003,21 +1013,36 @@ public class SystemMonitorActivity extends Activity {
                 {PackageManager.FEATURE_MICROPHONE, "Microfono"},
                 {PackageManager.FEATURE_TELEPHONY_EUICC, "eSIM"},
                 {PackageManager.FEATURE_FACE, "Riconoscimento del volto"}};
-        List<String> yes = new ArrayList<>();
-        List<String> no = new ArrayList<>();
-        for (String[] f : feats) {
-            (pm.hasSystemFeature(f[0]) ? yes : no).add(f[1]);
+        List<String[]> rows = new ArrayList<>();
+        rows.add(new String[]{"Connettivita' e sicurezza"});
+        String[] conn = {"Bluetooth", "Bluetooth LE", "Wi-Fi", "Wi-Fi Direct", "NFC", "Telefonia", "eSIM", "GPS",
+                "Infrarossi", "Impronta digitale", "Riconoscimento del volto", "USB host (OTG)", "USB accessory"};
+        String[] other = {"Flash", "Autofocus", "Barometro", "Giroscopio", "Bussola", "Vulkan",
+                "Audio a bassa latenza", "Audio professionale", "Microfono"};
+        for (String name : conn) {
+            addFeature(rows, pm, feats, name);
         }
-        s.append("Presenti: ").append(join(yes, ", ")).append('\n');
-        s.append("Assenti: ").append(join(no, ", ")).append('\n');
+        rows.add(new String[]{"Fotocamera, sensori e audio"});
         try {
             CameraManager cm = (CameraManager) getSystemService(CAMERA_SERVICE);
-            s.append("Fotocamere: ").append(cm.getCameraIdList().length).append('\n');
+            rows.add(new String[]{"Fotocamere", String.valueOf(cm.getCameraIdList().length)});
         } catch (Throwable ignored) {
         }
-        s.append("Impostazioni di sistema > Info per i dettagli IMEI/numeri di serie "
-                + "(Android non li fornisce alle app).");
-        systemText.setText(s.toString());
+        for (String name : other) {
+            addFeature(rows, pm, feats, name);
+        }
+        systemKv.set(rows.toArray(new String[0][]));
+        systemNote.setText("Per IMEI e numeri di serie: Impostazioni di sistema > Info (Android non li "
+                + "fornisce alle app).");
+    }
+
+    private static void addFeature(List<String[]> rows, PackageManager pm, String[][] feats, String name) {
+        for (String[] f : feats) {
+            if (f[1].equals(name)) {
+                rows.add(new String[]{name, pm.hasSystemFeature(f[0]) ? "✓ presente" : "✕ assente"});
+                return;
+            }
+        }
     }
 
     private static String socName() {
@@ -1088,30 +1113,60 @@ public class SystemMonitorActivity extends Activity {
     // ---------------------------------------------------------------- grafico
 
     /** Elenco etichetta / valore su due colonne. */
+    /** Tabella a due colonne (voce / valore) con righe di intestazione di gruppo (riga con un solo elemento). */
     private final class Kv extends LinearLayout {
+        private String sig = "";
+
         Kv(Context c) {
             super(c);
             setOrientation(VERTICAL);
         }
 
         void set(String[][] rows) {
-            if (getChildCount() != rows.length) {
+            StringBuilder sg = new StringBuilder();
+            for (String[] r : rows) {
+                sg.append(r.length > 1 ? 'r' : 'h');
+            }
+            if (!sg.toString().equals(sig) || getChildCount() != rows.length) {
+                sig = sg.toString();
                 removeAllViews();
                 for (int i = 0; i < rows.length; i++) {
                     LinearLayout r = new LinearLayout(getContext());
-                    r.setPadding(0, dp(3), 0, dp(3));
+                    if (rows[i].length < 2) {
+                        TextView h = text("", 11, R.color.accent, true);
+                        h.setAllCaps(true);
+                        h.setLetterSpacing(0.06f);
+                        r.setPadding(0, i == 0 ? 0 : dp(12), 0, dp(4));
+                        r.addView(h, new LinearLayout.LayoutParams(0, WRAP, 1f));
+                        addView(r, new LinearLayout.LayoutParams(MATCH, WRAP));
+                        continue;
+                    }
+                    r.setPadding(0, dp(4), 0, dp(4));
                     TextView k = text("", 12, R.color.text_dim, false);
                     TextView v = text("", 12, R.color.text, true);
                     v.setGravity(Gravity.END);
                     r.addView(k, new LinearLayout.LayoutParams(0, WRAP, 1f));
-                    r.addView(v, new LinearLayout.LayoutParams(0, WRAP, 1.2f));
+                    LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(0, WRAP, 1.3f);
+                    vp.leftMargin = dp(10);
+                    r.addView(v, vp);
                     addView(r, new LinearLayout.LayoutParams(MATCH, WRAP));
                 }
             }
             for (int i = 0; i < rows.length; i++) {
                 LinearLayout r = (LinearLayout) getChildAt(i);
                 ((TextView) r.getChildAt(0)).setText(rows[i][0]);
-                ((TextView) r.getChildAt(1)).setText(rows[i][1]);
+                if (rows[i].length > 1) {
+                    TextView v = (TextView) r.getChildAt(1);
+                    String val = rows[i][1] == null ? "" : rows[i][1];
+                    v.setText(val);
+                    if (val.startsWith("✓")) {
+                        v.setTextColor(0xFF8BC34A);
+                    } else if (val.startsWith("✕")) {
+                        v.setTextColor(0xFF8A93A3);
+                    } else {
+                        v.setTextColor(getColor(R.color.text));
+                    }
+                }
             }
         }
     }

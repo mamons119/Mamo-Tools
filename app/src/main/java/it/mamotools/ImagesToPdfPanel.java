@@ -198,6 +198,37 @@ final class ImagesToPdfPanel {
         chM2.setOnClickListener(setMargin(2));
         styleToPdf();
 
+        TextView nl = Ui.text(act, "Nome del file", 13, Ui.TEXT, true);
+        nl.setPadding(0, Ui.dp(act, 16), 0, Ui.dp(act, 6));
+        root.addView(nl);
+        nameEdit = new android.widget.EditText(act);
+        nameEdit.setSingleLine(true);
+        nameEdit.setTextColor(Ui.TEXT);
+        nameEdit.setTextSize(14);
+        nameEdit.setBackground(Ui.round(act, Ui.CARD2, 12));
+        nameEdit.setPadding(Ui.dp(act, 14), Ui.dp(act, 10), Ui.dp(act, 14), Ui.dp(act, 10));
+        nameEdit.setInputType(android.text.InputType.TYPE_CLASS_TEXT);
+        nameEdit.setText(defaultName());
+        nameEdit.addTextChangedListener(new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence c, int a1, int b1, int c1) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence c, int a1, int b1, int c1) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable e) {
+                nameEdited = !e.toString().equals(autoName);
+            }
+        });
+        LinearLayout nameRow = new LinearLayout(act);
+        nameRow.setGravity(Gravity.CENTER_VERTICAL);
+        nameRow.addView(nameEdit, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        nameRow.addView(Ui.text(act, ".pdf", 14, Ui.DIM, false), Ui.lp(act, Ui.WRAP, Ui.WRAP, 8, 0));
+        root.addView(nameRow);
+
         run = Ui.btn(act, "Crea PDF", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -206,6 +237,34 @@ final class ImagesToPdfPanel {
         });
         run.setTextSize(16);
         root.addView(run, Ui.lp(act, Ui.MATCH, Ui.dp(act, 54), 0, 16));
+    }
+
+    private android.widget.EditText nameEdit;
+    private boolean nameEdited = false;
+    private String autoName = "";
+    private volatile String outName = "";
+
+    private String stamp() {
+        return "Immagini_" + new java.text.SimpleDateFormat("yyMMdd_HHmmss", Locale.US)
+                .format(new java.util.Date());
+    }
+
+    private String defaultName() {
+        autoName = stamp();
+        return autoName;
+    }
+
+    private String chosenName() {
+        String n = nameEdit.getText().toString().trim();
+        if (!nameEdited || n.isEmpty()) {
+            return stamp();
+        }
+        n = n.replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (n.toLowerCase(Locale.US).endsWith(".pdf")) {
+            n = n.substring(0, n.length() - 4);
+        }
+        n = n.trim();
+        return n.isEmpty() ? "Immagini" : n;
     }
 
     private View.OnClickListener setPage(final boolean a4) {
@@ -417,6 +476,7 @@ final class ImagesToPdfPanel {
         }
         busy = true;
         run.setEnabled(false);
+        outName = chosenName() + ".pdf";
         result.start("Creazione del PDF...");
         final List<Img> work = new ArrayList<>(imgs);
         final boolean a4 = pageA4;
@@ -435,6 +495,8 @@ final class ImagesToPdfPanel {
                         @Override
                         public void run() {
                             busy = false;
+                            nameEdited = false;
+                            nameEdit.setText(defaultName());
                             refresh();
                         }
                     });
@@ -477,8 +539,7 @@ final class ImagesToPdfPanel {
                 doc.finishPage(page);
             }
             result.progress("Salvataggio...", -1);
-            String name = "Immagini_" + new java.text.SimpleDateFormat("yyMMdd_HHmmss", Locale.US)
-                    .format(new java.util.Date()) + ".pdf";
+            String name = outName;
             Uri u = FileUtil.save(act, MediaStore.Downloads.EXTERNAL_CONTENT_URI, "Download/MamoTools",
                     name, "application/pdf", new FileUtil.Writer() {
                         @Override

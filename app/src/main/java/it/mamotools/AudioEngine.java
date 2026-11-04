@@ -360,12 +360,30 @@ final class AudioEngine {
     // ------------------------------------------------------------------ filtri
 
     /** Catena di biquad (formule RBJ, Butterworth) piu' guadagno. */
+    /** Risposta in ampiezza (dB, senza il volume) del filtro alla frequenza f, calcolata dagli stessi biquad. */
+    static double responseDb(Fx fx, double f) {
+        if (fx.mode == Fx.NONE) {
+            return 0;
+        }
+        double w = 2 * Math.PI * f / RATE;
+        double c1 = Math.cos(w), s1 = Math.sin(w), c2 = Math.cos(2 * w), s2 = Math.sin(2 * w);
+        double db = 0;
+        for (double[] k : Chain.design(fx)) {
+            double nr = k[0] + k[1] * c1 + k[2] * c2, ni = -(k[1] * s1 + k[2] * s2);
+            double dr = 1 + k[3] * c1 + k[4] * c2, di = -(k[3] * s1 + k[4] * s2);
+            double num = nr * nr + ni * ni, den = dr * dr + di * di;
+            db += 10 * Math.log10(Math.max(1e-12, num) / Math.max(1e-12, den));
+        }
+        return db;
+    }
+
     static final class Chain {
         private final double[][] co;
         private final double[][] sl, sr;
         private final double gain;
 
-        Chain(Fx fx) {
+        /** Coefficienti dei biquad (uno per sezione) del filtro richiesto. */
+        static double[][] design(Fx fx) {
             List<double[]> list = new ArrayList<>();
             double[] qs = fx.order >= 2 ? new double[]{0.5412, 1.3066} : new double[]{0.7071};
             if (fx.mode == Fx.HP || fx.mode == Fx.BP) {
@@ -378,7 +396,11 @@ final class AudioEngine {
                     list.add(coeffs(false, fx.hi, q));
                 }
             }
-            co = list.toArray(new double[0][]);
+            return list.toArray(new double[0][]);
+        }
+
+        Chain(Fx fx) {
+            co = design(fx);
             sl = new double[co.length][4];
             sr = new double[co.length][4];
             gain = Math.pow(10.0, fx.gainDb / 20.0);
@@ -450,6 +472,7 @@ final class AudioEngine {
         private final FxSource fxs;
         private final Callback cb;
         private volatile boolean stop = false;
+        private volatile boolean loop = false;
         private volatile AudioTrack track;
         private volatile long played = 0;
         private Thread th;
@@ -463,13 +486,19 @@ final class AudioEngine {
             this.cb = cb;
         }
 
+        void setLoop(boolean l) {
+            loop = l;
+        }
+
         long position() {
             AudioTrack t = track;
             if (t == null) {
                 return from;
             }
             try {
-                long p = from + (t.getPlaybackHeadPosition() & 0xFFFFFFFFL);
+                long head = t.getPlaybackHeadPosition() & 0xFFFFFFFFL;
+                long len = Math.max(1, to - from);
+                long p = loop ? from + head % len : from + head;
                 return Math.min(p, to);
             } catch (Exception e) {
                 return from;
@@ -533,6 +562,13 @@ final class AudioEngine {
                 while (!stop) {
                     int n = rd.read(buf, 2048);
                     if (n <= 0) {
+                        if (loop && to > from) {
+                            // ricomincia dall'inizio senza interrompere l'audio; la testina continua a contare
+                            // e position() la riporta nel tratto con il modulo
+                            rd.close();
+                            rd = new Reader(clips, srcs, from, to);
+                            continue;
+                        }
                         natural = true;
                         break;
                     }

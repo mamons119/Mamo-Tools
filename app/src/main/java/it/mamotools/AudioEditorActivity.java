@@ -52,6 +52,9 @@ public class AudioEditorActivity extends Activity {
     private TextView tvTime, tvSel, tvLo, tvHi, tvGain;
     private SeekBar scroll, seekLo, seekHi, seekGain;
     private Button btnPlay, btnSelPlay;
+    private TextView loopChip;
+    private boolean loop = false;
+    private FilterGraphView graph;
     private final List<View> needsAudio = new ArrayList<>();
     private Button bCut, bCopy, bPaste, bDel, bKeep, bUndo;
     private TextView[] modeChips, slopeChips, fmtChips;
@@ -134,27 +137,72 @@ public class AudioEditorActivity extends Activity {
         scroll.setVisibility(View.GONE);
         wc.addView(scroll, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
 
+        // trasporto: sotto la forma d'onda, insieme allo zoom
+        LinearLayout tr = new LinearLayout(this);
+        Button toStart = small("⏮", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                stopPlay();
+                wave.setCursor(0);
+                wave.ensureVisible(0);
+                updateTexts();
+            }
+        }, false);
+        tr.addView(toStart, Ui.lp(this, Ui.dp(this, 52), Ui.dp(this, 48), 0, 0));
+        btnPlay = Ui.btn(this, "▶  Ascolta", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                togglePlay();
+            }
+        });
+        tr.addView(btnPlay, Ui.lp(this, 0, Ui.dp(this, 48), 8, 0, 1f));
+        btnSelPlay = Ui.btn(this, "▶  Selezione", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                playSelection();
+            }
+        });
+        tr.addView(btnSelPlay, Ui.lp(this, 0, Ui.dp(this, 48), 8, 0, 1f));
+        needsAudio.add(toStart);
+        needsAudio.add(btnPlay);
+        wc.addView(tr, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+
         LinearLayout zr = new LinearLayout(this);
-        zr.addView(small("−  Zoom", new View.OnClickListener() {
+        loopChip = Ui.chip(this, "🔁  Loop");
+        loopChip.setTextSize(13);
+        Ui.styleChip(this, loopChip, false);
+        loopChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                loop = !loop;
+                Ui.styleChip(AudioEditorActivity.this, loopChip, loop);
+                if (player != null) {
+                    player.setLoop(loop);
+                }
+            }
+        });
+        zr.addView(loopChip, Ui.lp(this, 0, Ui.dp(this, 40), 0, 0, 1.5f));
+        zr.addView(small("−", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 wave.zoom(0.5f);
             }
-        }, true), Ui.lp(this, 0, Ui.dp(this, 40), 0, 0, 1f));
-        zr.addView(small("＋  Zoom", new View.OnClickListener() {
+        }, true), Ui.lp(this, 0, Ui.dp(this, 40), 8, 0, 0.8f));
+        zr.addView(small("＋", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 wave.zoom(2f);
             }
-        }, true), Ui.lp(this, 0, Ui.dp(this, 40), 8, 0, 1f));
+        }, true), Ui.lp(this, 0, Ui.dp(this, 40), 8, 0, 0.8f));
         zr.addView(small("Tutto", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 wave.zoomAll();
             }
-        }, true), Ui.lp(this, 0, Ui.dp(this, 40), 8, 0, 1f));
+        }, true), Ui.lp(this, 0, Ui.dp(this, 40), 8, 0, 1.1f));
         wc.addView(zr, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-        TextView tip = Ui.text(this, "Tocca la forma d'onda per spostare il cursore; pizzica per ingrandire.",
+        TextView tip = Ui.text(this, "Tocca la forma d'onda per spostare il cursore; pizzica o usa − ＋ per lo zoom. "
+                + "Loop ripete tutto l'audio o la selezione.",
                 11, Ui.DIM, false);
         tip.setPadding(0, Ui.dp(this, 6), 0, 0);
         wc.addView(tip);
@@ -173,36 +221,6 @@ public class AudioEditorActivity extends Activity {
                 updateScroll();
             }
         });
-
-        // ---- trasporto
-        LinearLayout tr = new LinearLayout(this);
-        root.addView(tr, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
-        Button toStart = small("⏮", new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                stopPlay();
-                wave.setCursor(0);
-                wave.ensureVisible(0);
-                updateTexts();
-            }
-        }, false);
-        tr.addView(toStart, Ui.lp(this, Ui.dp(this, 56), Ui.dp(this, 52), 0, 0));
-        btnPlay = Ui.btn(this, "▶  Ascolta", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                togglePlay();
-            }
-        });
-        tr.addView(btnPlay, Ui.lp(this, 0, Ui.dp(this, 52), 8, 0, 1f));
-        btnSelPlay = Ui.btn(this, "▶  Selezione", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                playSelection();
-            }
-        });
-        tr.addView(btnSelPlay, Ui.lp(this, 0, Ui.dp(this, 52), 8, 0, 1f));
-        needsAudio.add(toStart);
-        needsAudio.add(btnPlay);
 
         // ---- modifica
         LinearLayout ec = Ui.card(this);
@@ -309,6 +327,8 @@ public class AudioEditorActivity extends Activity {
             f1.addView(modeChips[i], Ui.lp(this, 0, Ui.dp(this, 42), i == 0 ? 0 : 6, 0, 1f));
         }
         fc.addView(f1);
+        graph = new FilterGraphView(this);
+        fc.addView(graph, Ui.lp(this, Ui.MATCH, Ui.dp(this, 150), 0, 12));
 
         rowLo = new LinearLayout(this);
         rowLo.setOrientation(LinearLayout.VERTICAL);
@@ -539,6 +559,9 @@ public class AudioEditorActivity extends Activity {
         }
         float lo = freqOf(seekLo.getProgress()), hi = freqOf(seekHi.getProgress());
         fx = new AudioEngine.Fx(mode, lo, hi, order, gainDb());
+        if (graph != null) {
+            graph.setFx(fx);
+        }
     }
 
     private void updateFilterTexts() {
@@ -750,6 +773,7 @@ public class AudioEditorActivity extends Activity {
             }
         });
         player = ref[0];
+        player.setLoop(loop);
         player.start();
         btnPlay.setText("⏸  Pausa");
         h.post(tick);
