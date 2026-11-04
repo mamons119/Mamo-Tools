@@ -208,6 +208,10 @@ final class Ui {
 
     /** Finestra informativa nello stile dell'app (al posto dell'AlertDialog standard). */
     static void infoDialog(Context c, String title, String message) {
+        infoDialog(c, title, message, null);
+    }
+
+    static void infoDialog(Context c, String title, String message, final Runnable onClose) {
         final android.app.Dialog d = new android.app.Dialog(c);
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         LinearLayout box = new LinearLayout(c);
@@ -222,6 +226,9 @@ final class Ui {
         box.addView(sv, lp(c, MATCH, WRAP, 0, 12));
         Button ok = btn(c, "Ho capito", ACCENT, 0xFF000000, v -> d.dismiss());
         box.addView(ok, lp(c, MATCH, dp(c, 46), 0, 16));
+        if (onClose != null) {
+            d.setOnDismissListener(x -> onClose.run());
+        }
         d.setContentView(box);
         android.view.Window w = d.getWindow();
         if (w != null) {

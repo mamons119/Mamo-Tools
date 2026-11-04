@@ -57,8 +57,8 @@
             android:exported="false" />
 
         <activity
-            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".PdfToolsActivity"
-            android:label="PDF Tools"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".FileToolsActivity"
+            android:label="File Tools"
             android:exported="false" />
 
         <activity
@@ -147,6 +147,18 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:mimeType="application/pdf" />
                 <data android:mimeType="application/x-pdf" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".WordReaderActivity"
+            android:label="Mamo Tools (Word)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/vnd.openxmlformats-officedocument.wordprocessingml.document" />
             </intent-filter>
         </activity>
 

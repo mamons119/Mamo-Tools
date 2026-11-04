@@ -34,31 +34,16 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
-/** Immagini → PDF (mode "img2pdf") e PDF → immagini (mode "pdf2img"). */
+/** PDF → immagini (JPG o PNG). */
 public class PdfImagesActivity extends Activity {
 
     private static final int REQ_PICK = 51;
     private static final int MAX_SIDE_PDF = 1600;
     private static final int MAX_SIDE_IMG = 4500;
 
-    private static final class Img {
-        Uri uri;
-        String name;
-        long size;
-        Bitmap thumb;
-    }
-
-    private boolean toPdf;
     private volatile boolean busy = false;
-    private final List<Img> imgs = new ArrayList<>();
-    private LinearLayout listBox;
     private Button run;
     private ResultCard result;
-
-    // img2pdf
-    private boolean pageA4 = true;
-    private int margin = 1; // 0 nessuno, 1 piccolo, 2 medio
-    private TextView chA4, chFit, chM0, chM1, chM2;
 
     // pdf2img
     private File pdfFile;
@@ -73,15 +58,9 @@ public class PdfImagesActivity extends Activity {
     @Override
     protected void onCreate(Bundle b) {
         super.onCreate(b);
-        toPdf = !"pdf2img".equals(getIntent().getStringExtra("mode"));
-        LinearLayout root = Ui.screen(this, toPdf ? "Immagini → PDF" : "PDF → Immagini",
-                toPdf ? "Aggiungi le foto e ordinale: ogni immagine diventa una pagina."
-                        : "Trasforma le pagine di un PDF in immagini JPG o PNG.");
-        if (toPdf) {
-            buildToPdf(root);
-        } else {
-            buildToImg(root);
-        }
+        LinearLayout root = Ui.screen(this, "PDF → Immagini",
+                "Trasforma le pagine di un PDF in immagini JPG o PNG.");
+        buildToImg(root);
         result = new ResultCard(this);
         root.addView(result.view, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 14));
         refresh();
@@ -89,83 +68,9 @@ public class PdfImagesActivity extends Activity {
 
     // ------------------------------------------------------------------ interfaccia
 
-    private void buildToPdf(LinearLayout root) {
-        listBox = new LinearLayout(this);
-        listBox.setOrientation(LinearLayout.VERTICAL);
-        root.addView(listBox);
-        root.addView(Ui.btn(this, "＋  Aggiungi immagini", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pickFiles();
-            }
-        }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 50), 0, 8));
 
-        LinearLayout opts = Ui.card(this);
-        root.addView(opts, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 14));
-        opts.addView(Ui.section(this, "Dimensione pagina"));
-        LinearLayout r1 = new LinearLayout(this);
-        chA4 = Ui.chip(this, "A4");
-        chFit = Ui.chip(this, "Come l'immagine");
-        r1.addView(chA4, Ui.lp(this, 0, Ui.dp(this, 44), 0, 0, 1f));
-        r1.addView(chFit, Ui.lp(this, 0, Ui.dp(this, 44), 8, 0, 1f));
-        opts.addView(r1);
-        opts.addView(Ui.text(this, "Margine (solo A4)", 14, Ui.DIM, false), Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 14));
-        LinearLayout r2 = new LinearLayout(this);
-        chM0 = Ui.chip(this, "Nessuno");
-        chM1 = Ui.chip(this, "Piccolo");
-        chM2 = Ui.chip(this, "Medio");
-        r2.addView(chM0, Ui.lp(this, 0, Ui.dp(this, 44), 0, 0, 1f));
-        r2.addView(chM1, Ui.lp(this, 0, Ui.dp(this, 44), 8, 0, 1f));
-        r2.addView(chM2, Ui.lp(this, 0, Ui.dp(this, 44), 8, 0, 1f));
-        opts.addView(r2, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-        chA4.setOnClickListener(setPage(true));
-        chFit.setOnClickListener(setPage(false));
-        chM0.setOnClickListener(setMargin(0));
-        chM1.setOnClickListener(setMargin(1));
-        chM2.setOnClickListener(setMargin(2));
-        styleToPdf();
 
-        run = Ui.btn(this, "Crea PDF", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                startToPdf();
-            }
-        });
-        run.setTextSize(16);
-        root.addView(run, Ui.lp(this, Ui.MATCH, Ui.dp(this, 54), 0, 16));
-    }
 
-    private View.OnClickListener setPage(final boolean a4) {
-        return new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                pageA4 = a4;
-                styleToPdf();
-            }
-        };
-    }
-
-    private View.OnClickListener setMargin(final int m) {
-        return new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                margin = m;
-                styleToPdf();
-            }
-        };
-    }
-
-    private void styleToPdf() {
-        Ui.styleChip(this, chA4, pageA4);
-        Ui.styleChip(this, chFit, !pageA4);
-        Ui.styleChip(this, chM0, margin == 0);
-        Ui.styleChip(this, chM1, margin == 1);
-        Ui.styleChip(this, chM2, margin == 2);
-        float a = pageA4 ? 1f : 0.35f;
-        chM0.setAlpha(a);
-        chM1.setAlpha(a);
-        chM2.setAlpha(a);
-    }
 
     private void buildToImg(LinearLayout root) {
         pick = new Ui.PickCard(this, "📕", "Scegli un PDF", "Tocca per selezionare il file",
@@ -259,10 +164,7 @@ public class PdfImagesActivity extends Activity {
         }
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
         i.addCategory(Intent.CATEGORY_OPENABLE);
-        i.setType(toPdf ? "image/*" : "application/pdf");
-        if (toPdf) {
-            i.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true);
-        }
+        i.setType("application/pdf");
         try {
             startActivityForResult(i, REQ_PICK);
         } catch (Exception e) {
@@ -277,12 +179,7 @@ public class PdfImagesActivity extends Activity {
             return;
         }
         final List<Uri> uris = new ArrayList<>();
-        ClipData cd = data.getClipData();
-        if (cd != null) {
-            for (int i = 0; i < cd.getItemCount(); i++) {
-                uris.add(cd.getItemAt(i).getUri());
-            }
-        } else if (data.getData() != null) {
+        if (data.getData() != null) {
             uris.add(data.getData());
         }
         if (uris.isEmpty()) {
@@ -293,46 +190,11 @@ public class PdfImagesActivity extends Activity {
         new Thread(new Runnable() {
             @Override
             public void run() {
-                if (toPdf) {
-                    loadImages(uris);
-                } else {
-                    loadPdf(uris.get(0));
-                }
+                loadPdf(uris.get(0));
             }
         }).start();
     }
 
-    private void loadImages(List<Uri> uris) {
-        final List<Img> added = new ArrayList<>();
-        int bad = 0;
-        for (Uri u : uris) {
-            Img im = new Img();
-            im.uri = u;
-            im.name = FileUtil.queryName(this, u);
-            im.size = FileUtil.querySize(this, u);
-            im.thumb = decode(u, 160, false);
-            if (im.thumb == null) {
-                bad++;
-                continue;
-            }
-            added.add(im);
-        }
-        final int fBad = bad;
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                busy = false;
-                imgs.addAll(added);
-                refresh();
-                if (fBad > 0) {
-                    result.error(fBad + (fBad == 1 ? " file non e' un'immagine leggibile e non e' stato aggiunto."
-                            : " file non sono immagini leggibili e non sono stati aggiunti."));
-                } else {
-                    result.hide();
-                }
-            }
-        });
-    }
 
     private void loadPdf(Uri u) {
         String err = null;
@@ -375,86 +237,10 @@ public class PdfImagesActivity extends Activity {
     }
 
     /** Decodifica con lato massimo maxSide e orientamento EXIF; null se non e' un'immagine. */
-    private Bitmap decode(Uri u, int maxSide, boolean white) {
-        try {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inJustDecodeBounds = true;
-            try (InputStream in = getContentResolver().openInputStream(u)) {
-                BitmapFactory.decodeStream(in, null, o);
-            }
-            if (o.outWidth <= 0 || o.outHeight <= 0) {
-                return null;
-            }
-            int s = 1;
-            while (Math.max(o.outWidth, o.outHeight) / (s * 2) >= maxSide) {
-                s *= 2;
-            }
-            BitmapFactory.Options o2 = new BitmapFactory.Options();
-            o2.inSampleSize = s;
-            Bitmap bm;
-            try (InputStream in = getContentResolver().openInputStream(u)) {
-                bm = BitmapFactory.decodeStream(in, null, o2);
-            }
-            if (bm == null) {
-                return null;
-            }
-            int orient = ExifInterface.ORIENTATION_NORMAL;
-            try (InputStream in = getContentResolver().openInputStream(u)) {
-                orient = new ExifInterface(in).getAttributeInt(ExifInterface.TAG_ORIENTATION,
-                        ExifInterface.ORIENTATION_NORMAL);
-            } catch (Exception ignored) {
-            }
-            Matrix m = new Matrix();
-            switch (orient) {
-                case ExifInterface.ORIENTATION_ROTATE_90:
-                    m.postRotate(90);
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_180:
-                    m.postRotate(180);
-                    break;
-                case ExifInterface.ORIENTATION_ROTATE_270:
-                    m.postRotate(270);
-                    break;
-                case ExifInterface.ORIENTATION_FLIP_HORIZONTAL:
-                    m.postScale(-1, 1);
-                    break;
-                case ExifInterface.ORIENTATION_FLIP_VERTICAL:
-                    m.postScale(1, -1);
-                    break;
-                default:
-                    break;
-            }
-            if (!m.isIdentity()) {
-                Bitmap t = Bitmap.createBitmap(bm, 0, 0, bm.getWidth(), bm.getHeight(), m, true);
-                if (t != bm) {
-                    bm.recycle();
-                }
-                bm = t;
-            }
-            return bm;
-        } catch (Exception e) {
-            return null;
-        } catch (OutOfMemoryError e) {
-            return null;
-        }
-    }
 
     // ------------------------------------------------------------------ elenco immagini
 
     private void refresh() {
-        if (toPdf) {
-            listBox.removeAllViews();
-            for (int i = 0; i < imgs.size(); i++) {
-                listBox.addView(row(i));
-            }
-            if (imgs.isEmpty()) {
-                TextView e = Ui.text(this, "Nessuna immagine aggiunta", 14, Ui.DIM, false);
-                e.setGravity(Gravity.CENTER);
-                e.setPadding(0, Ui.dp(this, 22), 0, Ui.dp(this, 14));
-                listBox.addView(e, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
-            }
-            run.setEnabled(!imgs.isEmpty() && !busy);
-        } else {
             if (pdfFile == null) {
                 pick.title.setText("Scegli un PDF");
                 pick.sub.setText("Tocca per selezionare il file");
@@ -463,167 +249,14 @@ public class PdfImagesActivity extends Activity {
                 pick.sub.setText(pdfPages + (pdfPages == 1 ? " pagina" : " pagine"));
             }
             run.setEnabled(pdfFile != null && !busy);
-        }
     }
 
-    private View row(final int idx) {
-        Img im = imgs.get(idx);
-        LinearLayout r = new LinearLayout(this);
-        r.setGravity(Gravity.CENTER_VERTICAL);
-        r.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8));
-        r.setBackground(Ui.round(this, Ui.CARD, 14));
-        ImageView iv = new ImageView(this);
-        iv.setImageBitmap(im.thumb);
-        iv.setScaleType(ImageView.ScaleType.CENTER_CROP);
-        iv.setClipToOutline(true);
-        iv.setBackground(Ui.round(this, Ui.BG, 8));
-        iv.setOutlineProvider(new android.view.ViewOutlineProvider() {
-            @Override
-            public void getOutline(View v, android.graphics.Outline o) {
-                o.setRoundRect(0, 0, v.getWidth(), v.getHeight(), Ui.dp(PdfImagesActivity.this, 8));
-            }
-        });
-        r.addView(iv, new LinearLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 52)));
-        LinearLayout col = new LinearLayout(this);
-        col.setOrientation(LinearLayout.VERTICAL);
-        col.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 4), 0);
-        TextView n = Ui.text(this, (idx + 1) + ".  " + im.name, 14, Ui.TEXT, true);
-        n.setSingleLine(true);
-        n.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        col.addView(n);
-        col.addView(Ui.text(this, FileUtil.humanSize(im.size), 12, Ui.DIM, false));
-        r.addView(col, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
-        r.addView(small("▲", idx > 0, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                swap(idx, idx - 1);
-            }
-        }));
-        r.addView(small("▼", idx < imgs.size() - 1, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                swap(idx, idx + 1);
-            }
-        }));
-        r.addView(small("✕", true, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (busy) {
-                    return;
-                }
-                imgs.remove(idx);
-                refresh();
-            }
-        }));
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP);
-        lp.bottomMargin = Ui.dp(this, 8);
-        r.setLayoutParams(lp);
-        return r;
-    }
 
-    private TextView small(String s, boolean enabled, View.OnClickListener l) {
-        TextView t = Ui.text(this, s, 16, enabled ? Ui.TEXT : Ui.CARD2, false);
-        t.setGravity(Gravity.CENTER);
-        if (enabled) {
-            t.setOnClickListener(l);
-        }
-        t.setLayoutParams(new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)));
-        return t;
-    }
 
-    private void swap(int a, int b) {
-        if (busy) {
-            return;
-        }
-        Img t = imgs.get(a);
-        imgs.set(a, imgs.get(b));
-        imgs.set(b, t);
-        refresh();
-    }
 
     // ------------------------------------------------------------------ immagini -> PDF
 
-    private void startToPdf() {
-        if (busy || imgs.isEmpty()) {
-            return;
-        }
-        busy = true;
-        run.setEnabled(false);
-        result.start("Creazione del PDF...");
-        final List<Img> work = new ArrayList<>(imgs);
-        final boolean a4 = pageA4;
-        final int mg = margin;
-        new Thread(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    buildPdf(work, a4, mg);
-                } catch (OutOfMemoryError oom) {
-                    result.error("Memoria insufficiente: prova con meno immagini alla volta.");
-                } catch (Throwable t) {
-                    result.error("Creazione non riuscita: " + t.getMessage());
-                } finally {
-                    runOnUiThread(new Runnable() {
-                        @Override
-                        public void run() {
-                            busy = false;
-                            refresh();
-                        }
-                    });
-                }
-            }
-        }).start();
-    }
 
-    private void buildPdf(List<Img> work, boolean a4, int mg) throws IOException {
-        final PdfDocument doc = new PdfDocument();
-        try {
-            int margPt = mg == 0 ? 0 : mg == 1 ? 24 : 48;
-            int n = 0;
-            for (Img im : work) {
-                n++;
-                result.progress("Pagina " + n + " di " + work.size(), n * 100 / work.size());
-                Bitmap bm = decode(im.uri, MAX_SIDE_PDF, true);
-                if (bm == null) {
-                    throw new IOException("impossibile leggere \"" + im.name + "\"");
-                }
-                int pw, ph;
-                if (a4) {
-                    boolean land = bm.getWidth() > bm.getHeight();
-                    pw = land ? 842 : 595;
-                    ph = land ? 595 : 842;
-                } else {
-                    float sc = 842f / Math.max(bm.getWidth(), bm.getHeight());
-                    pw = Math.max(50, Math.round(bm.getWidth() * sc));
-                    ph = Math.max(50, Math.round(bm.getHeight() * sc));
-                }
-                PdfDocument.Page page = doc.startPage(new PdfDocument.PageInfo.Builder(pw, ph, n).create());
-                Canvas c = page.getCanvas();
-                c.drawColor(Color.WHITE);
-                int m = a4 ? margPt : 0;
-                float bw = pw - 2f * m, bh = ph - 2f * m;
-                float s = Math.min(bw / bm.getWidth(), bh / bm.getHeight());
-                float dw = bm.getWidth() * s, dh = bm.getHeight() * s;
-                float l = (pw - dw) / 2f, t = (ph - dh) / 2f;
-                c.drawBitmap(bm, null, new RectF(l, t, l + dw, t + dh), null);
-                doc.finishPage(page);
-            }
-            result.progress("Salvataggio...", -1);
-            String name = "Immagini_" + new java.text.SimpleDateFormat("yyMMdd_HHmmss", Locale.US)
-                    .format(new java.util.Date()) + ".pdf";
-            Uri u = FileUtil.save(this, MediaStore.Downloads.EXTERNAL_CONTENT_URI, "Download/MamoTools",
-                    name, "application/pdf", new FileUtil.Writer() {
-                        @Override
-                        public void write(OutputStream os) throws IOException {
-                            doc.writeTo(os);
-                        }
-                    });
-            result.ok("Fatto! PDF di " + work.size() + (work.size() == 1 ? " pagina" : " pagine")
-                    + " salvato in Download/MamoTools/" + name, u, "application/pdf", "Apri il PDF");
-        } finally {
-            doc.close();
-        }
-    }
 
     // ------------------------------------------------------------------ PDF -> immagini
 

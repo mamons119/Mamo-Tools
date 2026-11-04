@@ -47,14 +47,10 @@ public class MainActivity extends Activity {
                     "Registra video stabilizzati alla massima qualita' del telefono "
                             + "e li salva in Galleria.",
                     StableCamActivity.class),
-            new Tool("📄", "PDF Tools",
-                    "Leggi i PDF, PDF ↔ Word, unisci, dividi, estrai, elimina e ruota pagine, "
-                            + "immagini ↔ PDF.",
-                    PdfToolsActivity.class),
-            new Tool("🖼", "Image Converter",
-                    "Converte un'immagine in JPG, PNG, WEBP o BMP partendo dai formati "
-                            + "piu' diffusi.",
-                    ImageConverterActivity.class),
+            new Tool("📄", "File Tools",
+                    "Leggi PDF e Word, converti PDF ↔ Word, immagini e PDF, "
+                            + "unisci, dividi, estrai, elimina e ruota pagine.",
+                    FileToolsActivity.class),
             new Tool("🎬", "Video Editor",
                     "Taglia parti del video, togli l'audio o aggiungi una colonna sonora.",
                     VideoEditorActivity.class),

@@ -31,6 +31,7 @@ final class DocxParser {
     private static final String R = "http://schemas.openxmlformats.org/officeDocument/2006/relationships";
     private static final String WP = "http://schemas.openxmlformats.org/drawingml/2006/wordprocessingDrawing";
     private static final String A = "http://schemas.openxmlformats.org/drawingml/2006/main";
+    private static final String M = "http://schemas.openxmlformats.org/officeDocument/2006/math";
 
     /** Formattazione parziale: i campi null vengono ereditati. */
     private static final class Fmt {
@@ -82,6 +83,13 @@ final class DocxParser {
     }
 
     private final ZipFile zip;
+    private final java.util.LinkedHashSet<String> warnSet = new java.util.LinkedHashSet<>();
+    private final List<DocModel.Para> boxQueue = new ArrayList<>();
+    private final List<String> noteOrder = new ArrayList<>();   // "f:ID" o "e:ID" nell'ordine di comparsa
+    private boolean inHF = false;
+    private String fieldPending = null;
+    private boolean fieldSkip = false;
+    private boolean usesTotal = false;
     private final Fmt defaults = new Fmt();
     private final Map<String, Fmt> styleDefs = new HashMap<>();
     private String defaultParaStyle;
@@ -134,13 +142,18 @@ final class DocxParser {
             }
         }
         readSection(kid(body, "sectPr"), model);
+        appendNotes(model);
+        model.warnings.addAll(warnSet);
+        model.usesTotalPages = usesTotal;
         return model;
     }
 
-    private void readSection(Element sect, DocModel m) {
+    private void readSection(Element sect, DocModel m) throws IOException {
         if (sect == null) {
             return;
         }
+        loadHF(sect, "headerReference", m.header);
+        loadHF(sect, "footerReference", m.footer);
         Element sz = kid(sect, "pgSz");
         if (sz != null) {
             Float w = twips(wattr(sz, "w"));
@@ -169,6 +182,99 @@ final class DocxParser {
             m.marginT = 72f;
             m.marginB = 72f;
         }
+    }
+
+    private void loadHF(Element sect, String refName, List<DocModel.Block> out) throws IOException {
+        String rid = null;
+        for (Element r : kids(sect, refName)) {
+            String type = wattr(r, "type");
+            String id = r.getAttributeNS(R, "id");
+            if (id == null || id.isEmpty()) {
+                id = r.getAttribute("r:id");
+            }
+            if (type == null || "default".equals(type)) {
+                rid = id;
+                break;
+            }
+        }
+        String target = rid == null ? null : rels.get(rid);
+        if (target == null) {
+            return;
+        }
+        Document d = domOrNull(target.startsWith("/") ? target.substring(1) : normalize("word/" + target));
+        if (d == null) {
+            return;
+        }
+        inHF = true;
+        try {
+            for (Node n = d.getDocumentElement().getFirstChild(); n != null; n = n.getNextSibling()) {
+                if (n instanceof Element) {
+                    processBlock((Element) n, out);
+                }
+            }
+        } finally {
+            inHF = false;
+        }
+    }
+
+    /** Note a pie' di pagina e di chiusura: mostrate in fondo al documento, col loro numero. */
+    private void appendNotes(DocModel m) throws IOException {
+        if (noteOrder.isEmpty()) {
+            return;
+        }
+        Document fd = domOrNull("word/footnotes.xml");
+        Document ed = domOrNull("word/endnotes.xml");
+        DocModel.Para head = new DocModel.Para();
+        DocModel.Run hr = new DocModel.Run();
+        hr.text = "Note";
+        hr.bold = true;
+        hr.size = 12f;
+        head.runs.add(hr);
+        head.before = 18f;
+        head.after = 6f;
+        m.blocks.add(head);
+        int num = 0;
+        for (String key : noteOrder) {
+            num++;
+            boolean foot = key.startsWith("f:");
+            String id = key.substring(2);
+            Document d = foot ? fd : ed;
+            Element note = null;
+            if (d != null) {
+                for (Element e : kids(d.getDocumentElement(), foot ? "footnote" : "endnote")) {
+                    if (id.equals(wattr(e, "id"))) {
+                        note = e;
+                        break;
+                    }
+                }
+            }
+            if (note == null) {
+                continue;
+            }
+            boolean first = true;
+            for (Element p : kids(note, "p")) {
+                DocModel.Para para = parsePara(p);
+                if (first) {
+                    DocModel.Run nr = new DocModel.Run();
+                    nr.text = "[" + num + "] ";
+                    nr.bold = true;
+                    nr.size = 9f;
+                    para.runs.add(0, nr);
+                    first = false;
+                }
+                for (DocModel.Run r : para.runs) {
+                    r.size = Math.min(r.size, 10f);
+                }
+                m.blocks.add(para);
+            }
+        }
+        m.blocks.addAll(boxQueueDrain());
+    }
+
+    private List<DocModel.Block> boxQueueDrain() {
+        List<DocModel.Block> l = new ArrayList<>(boxQueue);
+        boxQueue.clear();
+        return l;
     }
 
     // ------------------------------------------------------------------ stili, numerazione, relazioni
@@ -369,6 +475,7 @@ final class DocxParser {
         switch (ln(e)) {
             case "p":
                 out.add(parsePara(e));
+                out.addAll(boxQueueDrain());
                 break;
             case "tbl":
                 out.add(parseTable(e));
@@ -453,11 +560,41 @@ final class DocxParser {
                 case "r":
                     parseRun(c, pf, para);
                     break;
+                case "fldSimple": {
+                    String instr = wattr(c, "instr");
+                    String t = instr == null ? "" : instr.trim().toUpperCase(Locale.ROOT);
+                    if (t.equals("PAGE") || t.startsWith("PAGE ") || t.startsWith("PAGE\\")) {
+                        addMarker(para, pf, "\u0001");
+                    } else if (t.startsWith("NUMPAGES")) {
+                        usesTotal = true;
+                        addMarker(para, pf, "\u0002");
+                    } else {
+                        walkRuns(c, pf, para);
+                    }
+                    break;
+                }
+                case "oMathPara":
+                case "oMath": {
+                    NodeList ts = c.getElementsByTagNameNS(M, "t");
+                    StringBuilder mt = new StringBuilder();
+                    for (int i = 0; i < ts.getLength(); i++) {
+                        mt.append(ts.item(i).getTextContent());
+                    }
+                    if (mt.length() > 0) {
+                        DocModel.Run mr = new DocModel.Run();
+                        mr.text = " " + mt + " ";
+                        mr.italic = true;
+                        mr.size = pf.sz == null ? 11f : pf.sz;
+                        para.runs.add(mr);
+                        warnSet.add("Formule matematiche: mostrate come testo semplice, senza l'impaginazione "
+                                + "originale (frazioni, radici, apici...)");
+                    }
+                    break;
+                }
                 case "hyperlink":
                 case "ins":
                 case "moveTo":
                 case "smartTag":
-                case "fldSimple":
                 case "customXml":
                     walkRuns(c, pf, para);
                     break;
@@ -495,7 +632,47 @@ final class DocxParser {
             Element c = (Element) n;
             switch (ln(c)) {
                 case "t":
-                    sb.append(c.getTextContent());
+                    if (!fieldSkip) {
+                        sb.append(c.getTextContent());
+                    }
+                    break;
+                case "instrText": {
+                    String t = c.getTextContent().trim().toUpperCase(Locale.ROOT);
+                    if (t.startsWith("NUMPAGES")) {
+                        fieldPending = "\u0002";
+                        usesTotal = true;
+                    } else if (t.equals("PAGE") || t.startsWith("PAGE ") || t.startsWith("PAGE\\")) {
+                        fieldPending = "\u0001";
+                    }
+                    break;
+                }
+                case "fldChar": {
+                    String type = wattr(c, "fldCharType");
+                    if ("begin".equals(type)) {
+                        fieldPending = null;
+                    } else if ("separate".equals(type)) {
+                        if (fieldPending != null) {
+                            sb.append(fieldPending);
+                            fieldPending = null;
+                            fieldSkip = true;
+                        }
+                    } else if ("end".equals(type)) {
+                        fieldSkip = false;
+                        fieldPending = null;
+                    }
+                    break;
+                }
+                case "footnoteReference":
+                case "endnoteReference": {
+                    String id = wattr(c, "id");
+                    if (id != null) {
+                        noteOrder.add((ln(c).startsWith("foot") ? "f:" : "e:") + id);
+                        sb.append('[').append(noteOrder.size()).append(']');
+                    }
+                    break;
+                }
+                case "pict":
+                    scanShape(c, para, false);
                     break;
                 case "tab":
                     sb.append('\t');
@@ -521,12 +698,16 @@ final class DocxParser {
                     break;
                 case "drawing":
                     addImage(c, para);
+                    scanShape(c, para, true);
                     break;
                 case "AlternateContent": {
-                    NodeList nl = c.getElementsByTagNameNS(W, "drawing");
+                    Element choice = kid(c, "Choice");
+                    Element scope = choice != null ? choice : c;
+                    NodeList nl = scope.getElementsByTagNameNS(W, "drawing");
                     if (nl.getLength() > 0) {
                         addImage((Element) nl.item(0), para);
                     }
+                    scanShape(scope, para, nl.getLength() > 0);
                     break;
                 }
                 default:
@@ -548,7 +729,55 @@ final class DocxParser {
         para.runs.add(run);
     }
 
+    /** Caselle di testo (le metto in coda come paragrafi) e segnalazione di grafici, SmartArt, forme. */
+    private void scanShape(Element scope, DocModel.Para para, boolean modern) throws IOException {
+        NodeList tb = scope.getElementsByTagNameNS(W, "txbxContent");
+        int boxes = 0;
+        for (int i = 0; i < tb.getLength(); i++) {
+            Element box = (Element) tb.item(i);
+            for (Element p : kids(box, "p")) {
+                if (!inHF) {
+                    boxQueue.add(parsePara(p));
+                }
+                boxes++;
+            }
+        }
+        boolean blip = scope.getElementsByTagNameNS(A, "blip").getLength() > 0;
+        boolean special = false;
+        NodeList gd = scope.getElementsByTagNameNS(A, "graphicData");
+        for (int i = 0; i < gd.getLength(); i++) {
+            String uri = ((Element) gd.item(i)).getAttribute("uri").toLowerCase(Locale.ROOT);
+            if (uri.contains("chart")) {
+                warnSet.add("Grafici: non vengono disegnati");
+                special = true;
+            } else if (uri.contains("diagram")) {
+                warnSet.add("Diagrammi SmartArt: non vengono disegnati");
+                special = true;
+            }
+        }
+        if (!special && !blip && boxes == 0) {
+            warnSet.add("Forme e disegni: non vengono disegnati");
+        }
+        if (inHF && (blip || boxes > 0)) {
+            warnSet.add("Immagini e caselle di testo nelle intestazioni e nei pie' di pagina: non vengono mostrate");
+        }
+    }
+
+    private void addMarker(DocModel.Para para, Fmt pf, String marker) {
+        DocModel.Run run = new DocModel.Run();
+        run.text = marker;
+        run.bold = Boolean.TRUE.equals(pf.b);
+        run.italic = Boolean.TRUE.equals(pf.i);
+        run.size = pf.sz == null ? 11f : Math.max(1f, pf.sz);
+        run.color = pf.color == null ? 0xFF000000 : pf.color;
+        run.font = pf.font == null ? "" : pf.font;
+        para.runs.add(run);
+    }
+
     private void addImage(Element drawing, DocModel.Para para) throws IOException {
+        if (inHF) {
+            return;   // gli id delle immagini di intestazione/pie' di pagina sono in un altro file di relazioni
+        }
         NodeList blips = drawing.getElementsByTagNameNS(A, "blip");
         if (blips.getLength() == 0) {
             return;

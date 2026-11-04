@@ -46,21 +46,36 @@ final class DocxToPdf {
     private int pageNo = 0;
     private float y;
     private final float contentW;
-    private final float bottom;
+    private float bottom;
+    private final float pageBottom;
+    private boolean hf = false;
+    private int totalPages = 0;
     private final Paint imgPaint = new Paint(Paint.FILTER_BITMAP_FLAG | Paint.ANTI_ALIAS_FLAG);
     private final Paint linePaint = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private DocxToPdf(DocModel doc) {
         this.doc = doc;
         this.contentW = doc.pageW - doc.marginL - doc.marginR;
-        this.bottom = doc.pageH - doc.marginB;
+        this.pageBottom = doc.pageH - doc.marginB;
+        this.bottom = pageBottom;
         linePaint.setStyle(Paint.Style.STROKE);
         linePaint.setStrokeWidth(0.6f);
         linePaint.setColor(Color.BLACK);
     }
 
     static void render(DocModel doc, OutputStream out) throws IOException {
+        int total = 0;
+        if (doc.usesTotalPages) {
+            DocxToPdf count = new DocxToPdf(doc);
+            try {
+                count.run();
+                total = count.pageNo;
+            } finally {
+                count.pdf.close();
+            }
+        }
         DocxToPdf r = new DocxToPdf(doc);
+        r.totalPages = total;
         try {
             r.run();
             r.pdf.writeTo(out);
@@ -92,12 +107,57 @@ final class DocxToPdf {
         page = pdf.startPage(info);
         canvas = page.getCanvas();
         y = doc.marginT;
+        drawHeaderFooter();
     }
+
+    /** Intestazione e pie' di pagina, ripetuti su ogni pagina (solo la versione "predefinita"). */
+    private void drawHeaderFooter() {
+        if (doc.header.isEmpty() && doc.footer.isEmpty()) {
+            return;
+        }
+        float savedY = y;
+        float savedBottom = bottom;
+        hf = true;
+        bottom = 1e9f;
+        if (!doc.header.isEmpty()) {
+            y = Math.min(36f, doc.marginT / 2f);
+            for (DocModel.Block b : doc.header) {
+                drawHFBlock(b);
+            }
+        }
+        if (!doc.footer.isEmpty()) {
+            float h = 0f;
+            for (DocModel.Block b : doc.footer) {
+                if (b instanceof DocModel.Para) {
+                    DocModel.Para p = (DocModel.Para) b;
+                    h += buildLayout(p, contentW).getHeight() + p.before + p.after;
+                } else {
+                    h += 20f;
+                }
+            }
+            y = Math.max(doc.marginT, doc.pageH - Math.max(18f, doc.marginB / 2f) - h);
+            for (DocModel.Block b : doc.footer) {
+                drawHFBlock(b);
+            }
+        }
+        hf = false;
+        bottom = savedBottom;
+        y = savedY;
+    }
+
+    private void drawHFBlock(DocModel.Block b) {
+        if (b instanceof DocModel.Para) {
+            drawPara((DocModel.Para) b);
+        } else if (b instanceof DocModel.Table) {
+            drawTable((DocModel.Table) b);
+        }
+    }
+
 
     // ------------------------------------------------------------------ paragrafi
 
     private void drawPara(DocModel.Para p) {
-        if (p.pageBreakBefore && y > doc.marginT + 1f) {
+        if (!hf && p.pageBreakBefore && y > doc.marginT + 1f) {
             newPage();
         }
         if (y > doc.marginT + 0.5f) {
@@ -114,7 +174,7 @@ final class DocxToPdf {
         }
 
         y += p.after;
-        if (p.pageBreakAfter) {
+        if (!hf && p.pageBreakAfter) {
             newPage();
         }
     }
@@ -165,7 +225,9 @@ final class DocxToPdf {
         }
         for (DocModel.Run r : p.runs) {
             int s = sb.length();
-            sb.append(r.text);
+            sb.append(r.text.indexOf('\u0001') >= 0 || r.text.indexOf('\u0002') >= 0
+                    ? r.text.replace("\u0001", String.valueOf(pageNo)).replace("\u0002", String.valueOf(totalPages))
+                    : r.text);
             int e = sb.length();
             if (e == s) {
                 continue;

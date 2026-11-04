@@ -55,7 +55,7 @@ public class ImageConverterActivity extends Activity {
     private static final int C_CARD = 0xFF1A1D24, C_CARD2 = 0xFF262B35, C_ACCENT = 0xFF4DD0E1,
             C_TEXT = 0xFFECEFF4, C_DIM = 0xFF9AA3B2, C_BG = 0xFF0F1115;
 
-    private static final String[] FORMATS = {"JPG", "PNG", "WEBP", "BMP", "ICO"};
+    private static final String[] FORMATS = {"JPG", "PNG", "WEBP", "BMP", "ICO", "PDF"};
     private static final int[] ICO_SIZES = {16, 32, 48, 64, 128, 256};
 
     private Uri pickedUri;
@@ -77,6 +77,8 @@ public class ImageConverterActivity extends Activity {
     private boolean icoEditing = false;
     private Button convertBtn, openBtn;
     private ProgressBar progress;
+    private LinearLayout pickCard;
+    private ImagesToPdfPanel pdfPanel;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -104,7 +106,7 @@ public class ImageConverterActivity extends Activity {
         root.addView(sub);
 
         // ---- scelta
-        LinearLayout pickCard = card();
+        pickCard = card();
         pickCard.setOrientation(LinearLayout.HORIZONTAL);
         pickCard.setGravity(Gravity.CENTER_VERTICAL);
         pickCard.setClickable(true);
@@ -149,7 +151,6 @@ public class ImageConverterActivity extends Activity {
             fmtChips[i] = chip;
             (i < 3 ? r1 : r2).addView(chip, lp(0, dp(44), i % 3 == 0 ? 0 : 8, 0, 1f));
         }
-        r2.addView(new View(this), lp(0, dp(44), 8, 0, 1f));
         fcard.addView(r1, new LinearLayout.LayoutParams(MATCH, WRAP));
         LinearLayout.LayoutParams r2p = new LinearLayout.LayoutParams(MATCH, WRAP);
         r2p.topMargin = dp(8);
@@ -242,6 +243,11 @@ public class ImageConverterActivity extends Activity {
         fcard.addView(icoBox, new LinearLayout.LayoutParams(MATCH, WRAP));
         root.addView(fcard, lp(MATCH, WRAP, 0, 12));
 
+        // ---- opzioni "Immagini → PDF" (visibili solo con il formato PDF)
+        pdfPanel = new ImagesToPdfPanel(this);
+        pdfPanel.view.setVisibility(View.GONE);
+        root.addView(pdfPanel.view, lp(MATCH, WRAP, 0, 12));
+
         // ---- converti
         convertBtn = btn("Converti", C_ACCENT, Color.BLACK, v -> convert());
         convertBtn.setTextSize(16);
@@ -285,6 +291,13 @@ public class ImageConverterActivity extends Activity {
 
     private void selectFormat(int idx) {
         format = idx;
+        boolean pdf = idx == 5;
+        pickCard.setVisibility(pdf ? View.GONE : View.VISIBLE);
+        inCard.setVisibility(!pdf && pickedUri != null ? View.VISIBLE : View.GONE);
+        convertBtn.setVisibility(pdf ? View.GONE : View.VISIBLE);
+        outCard.setVisibility(!pdf && resultUri != null ? View.VISIBLE : View.GONE);
+        status.setVisibility(pdf ? View.GONE : View.VISIBLE);
+        pdfPanel.view.setVisibility(pdf ? View.VISIBLE : View.GONE);
         qualityBox.setVisibility(idx == 0 || idx == 2 ? View.VISIBLE : View.GONE);
         icoBox.setVisibility(idx == 4 ? View.VISIBLE : View.GONE);
         refreshQualityLabel();
@@ -342,6 +355,9 @@ public class ImageConverterActivity extends Activity {
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (pdfPanel != null && pdfPanel.handleResult(requestCode, resultCode, data)) {
+            return;
+        }
         if (requestCode != REQ_PICK || resultCode != RESULT_OK || data == null
                 || data.getData() == null) {
             return;

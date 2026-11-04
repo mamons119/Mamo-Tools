@@ -18,7 +18,7 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   - Impostazioni: qualita'/fps, stabilizzazione, audio on/off, zoom, esposizione (EV),
     bilanciamento del bianco, griglia dei terzi, timer di avvio (3/5/10 s).
 
-- **PDF Tools**: menu con tutte le operazioni sui PDF; i file nuovi vanno in Download/MamoTools.
+- **File Tools**: menu con Reader (PDF e Word), conversioni (PDF ↔ Word, PDF → immagini), organizzazione dei PDF e Image Converter; i file nuovi vanno in Download/MamoTools.
   - Unisci (ordine a scelta con frecce), Dividi (una pagina per file o a gruppi di N), Estrai
     pagine, Elimina pagine, Ruota pagine (90/180/270). Le pagine si indicano come `1-3, 5, 8-`.
     Usa PdfBox-Android; i PDF protetti da password non sono supportati.
@@ -34,7 +34,7 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
     di pagina, caselle di testo e forme non vengono disegnati. Il formato .doc vecchio non
     e' supportato.
 
-- **Image Converter**: sceglie un'immagine (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...)
+- **Image Converter** (dentro File Tools; con il formato PDF diventa "Immagini → PDF" con elenco ordinabile, pagina e margini): sceglie un'immagine (JPG, PNG, WEBP, GIF, BMP, ICO, HEIC/HEIF, DNG...)
   e la salva come JPG, PNG, WEBP, BMP o ICO in Immagini/MamoTools, con qualita' regolabile per
   JPG e WEBP. Supporta anche ICO in uscita, con dimensione in pixel a scelta (1-256). Non e' possibile scrivere GIF, TIFF o HEIC: Android non li sa codificare.
 - **Video Editor** (con effetti e testi inseribili in qualsiasi intervallo della timeline, font/dimensione/colore a scelta, e stabilizzazione opzionale: analisi del movimento, 4 intensita', zoom massimo,
@@ -75,7 +75,8 @@ Raccolta di strumenti per Android (minSdk 29, pensata per Android 11).
   letture alle app: se `/proc/stat` non e' leggibile il carico per core e' stimato dalla frequenza,
   e temperature/GPU compaiono solo se il telefono le espone.
 
-- **PDF Reader** (dentro PDF Tools, sezione "Reader"; resta selezionabile come "Mamo Tools (PDF)" per aprire i PDF): scorrimento continuo, zoom a pizzico e doppio tap, vai a pagina, ricerca di testo
+- **Leggi Word** (File Tools → Reader; compare anche in "Apri con" per i .docx come "Mamo Tools (Word)"): apre il .docx direttamente, senza convertirlo, con testo formattato selezionabile, elenchi, tabelle, immagini, intestazioni e pie' di pagina, note, caselle di testo, zoom (pizzico o A−/A+) e modalita' notte. Grafici, SmartArt e forme non vengono disegnati: l'app lo segnala.
+- **PDF Reader** (dentro File Tools, sezione "Reader"; resta selezionabile come "Mamo Tools (PDF)" per aprire i PDF): scorrimento continuo, zoom a pizzico e doppio tap, vai a pagina, ricerca di testo
   con evidenziazione in giallo, modalita' notte, condividi, stampa, salva una copia in Download, informazioni.
   Compare anche in "Apri con" per i file PDF come "Mamo Tools (PDF)". Non modifica i PDF.
 

@@ -14,6 +14,11 @@ final class DocModel {
     float marginB = 72f;
 
     final List<Block> blocks = new ArrayList<>();
+    final List<Block> header = new ArrayList<>();   // intestazione (uguale su ogni pagina)
+    final List<Block> footer = new ArrayList<>();   // pie' di pagina
+    final List<String> warnings = new ArrayList<>(); // elementi non disegnabili trovati
+    boolean usesTotalPages;                          // il documento usa il campo "numero di pagine"
+
 
     abstract static class Block {
     }

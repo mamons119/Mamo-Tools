@@ -288,6 +288,10 @@ public class PdfReaderActivity extends Activity {
     private void open(final Uri uri) {
         docUri = uri;
         docName = queryName(uri);
+        Intent inIntent = getIntent();
+        if (inIntent != null && uri.equals(inIntent.getData()) && inIntent.getStringExtra("name") != null) {
+            docName = inIntent.getStringExtra("name");
+        }
         docBytes = querySize(uri);
         pageTexts = null;
         matches.clear();
