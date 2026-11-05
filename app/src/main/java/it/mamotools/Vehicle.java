@@ -3,8 +3,7 @@ package it.mamotools;
 /** Mezzi selezionabili nel registratore. */
 final class Vehicle {
     static final String[] IDS = {"car", "moto", "bike", "boat", "canoe"};
-    static final String[] LABELS = {"Macchina", "Moto", "Bicicletta", "Barca a motore", "Canoa"};
-    static final String[] ICONS = {"🚗", "🏍", "🚲", "🚤", "🛶"};
+    static final String[] LABELS = {"Macchina", "Moto", "Bicicletta", "Barca", "Canoa"};
 
     private Vehicle() {
     }
@@ -21,10 +20,5 @@ final class Vehicle {
     static String label(String id) {
         int i = index(id);
         return i < 0 ? "Non indicato" : LABELS[i];
-    }
-
-    static String icon(String id) {
-        int i = index(id);
-        return i < 0 ? "" : ICONS[i];
     }
 }

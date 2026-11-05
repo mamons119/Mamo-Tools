@@ -37,7 +37,7 @@ public class SessionsActivity extends Activity {
             }
         });
         if (fs == null || fs.length == 0) {
-            TextView e = Ui.text(this, "Nessuna sessione registrata.\nUsa \"Registra percorsi viaggio\" per crearne una.", 14,
+            TextView e = Ui.text(this, "Nessuna sessione registrata.\nUsa \"Registra Onboard\" per crearne una.", 14,
                     Ui.DIM, false);
             e.setGravity(Gravity.CENTER);
             e.setPadding(0, Ui.dp(this, 30), 0, 0);
@@ -73,9 +73,9 @@ public class SessionsActivity extends Activity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                title.setText((Vehicle.icon(d.vehicle).isEmpty() ? "" : Vehicle.icon(d.vehicle) + "  ")
-                                        + (d.name.isEmpty() ? f.getName() : d.name));
-                                sub.setText(String.format(Locale.ITALY, "%.2f km · %s · max %.0f km/h", d.distM / 1000,
+                                title.setText(d.name.isEmpty() ? f.getName() : d.name);
+                                sub.setText(String.format(Locale.ITALY, "%s%.2f km · %s · max %.0f km/h",
+                                        Vehicle.index(d.vehicle) < 0 ? "" : Vehicle.label(d.vehicle) + " · ", d.distM / 1000,
                                         SessionData.fmtTime(d.duration), d.vMax * 3.6));
                             }
                         });

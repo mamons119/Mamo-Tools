@@ -71,23 +71,47 @@ public class SessionViewActivity extends Activity {
         ((TextView) root.getChildAt(1)).setText(String.format(Locale.ITALY, "%s · %s", SessionData.fmtTime(s.duration),
                 s.distM >= 1000 ? String.format(Locale.ITALY, "%.2f km", s.distM / 1000) : Math.round(s.distM) + " m"));
 
-        // ---- descrizione
-        if (!s.desc.isEmpty()) {
-            LinearLayout dc = Ui.card(this);
-            dc.addView(Ui.section(this, "Descrizione"));
-            TextView dt = Ui.text(this, s.desc, 14, Ui.TEXT, false);
-            dt.setLineSpacing(0, 1.2f);
-            dc.addView(dt);
-            root.addView(dc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0));
-        }
+        // ---- dettagli modificabili
+        LinearLayout dc = Ui.card(this);
+        dc.addView(Ui.section(this, "Dettagli"));
+        dc.addView(Ui.text(this, "Nome sessione", 12, Ui.DIM, true));
+        final android.widget.EditText ne = detailField("Nome della sessione", false);
+        ne.setText(s.name);
+        dc.addView(ne, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        TextView dl = Ui.text(this, "Descrizione", 12, Ui.DIM, true);
+        dl.setPadding(0, Ui.dp(this, 14), 0, 0);
+        dc.addView(dl);
+        final android.widget.EditText de = detailField("Aggiungi una descrizione…", true);
+        de.setText(s.desc);
+        dc.addView(de, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        dc.addView(Ui.btn(this, "Salva nome e descrizione", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String nm = ne.getText().toString().trim();
+                if (nm.isEmpty()) {
+                    nm = s.name.isEmpty() ? "Sessione" : s.name;
+                    ne.setText(nm);
+                }
+                try {
+                    SessionData.updateMeta(file, nm, de.getText().toString());
+                    s.name = nm;
+                    s.desc = de.getText().toString().trim();
+                    ((TextView) root.getChildAt(0)).setText(nm);
+                    Toast.makeText(SessionViewActivity.this, "Salvato", Toast.LENGTH_SHORT).show();
+                } catch (IOException e) {
+                    Toast.makeText(SessionViewActivity.this, "Non riesco a salvare: " + e.getMessage(),
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+        }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 46), 0, 14));
+        root.addView(dc);
 
         // ---- riepilogo (tabella)
         LinearLayout sc = Ui.card(this);
         sc.addView(Ui.section(this, "Riepilogo"));
         java.util.List<String[]> rows = new java.util.ArrayList<>();
         rows.add(new String[]{"Viaggio"});
-        rows.add(new String[]{"Veicolo", Vehicle.index(s.vehicle) < 0 ? "Non indicato"
-                : Vehicle.icon(s.vehicle) + "  " + Vehicle.label(s.vehicle)});
+        rows.add(new String[]{"Veicolo", Vehicle.label(s.vehicle)});
         if (s.startEpoch > 0) {
             rows.add(new String[]{"Data e ora", new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY)
                     .format(new java.util.Date(s.startEpoch))});
@@ -120,7 +144,7 @@ public class SessionViewActivity extends Activity {
         KvTable kv = new KvTable(this);
         kv.set(rows.toArray(new String[0][]));
         sc.addView(kv);
-        root.addView(sc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, s.desc.isEmpty() ? 0 : 12));
+        root.addView(sc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
         // ---- mappa
         LinearLayout mc = Ui.card(this);
@@ -270,6 +294,26 @@ public class SessionViewActivity extends Activity {
         }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 44), 0, 8));
         root.addView(ec, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         addDelete();
+    }
+
+    private android.widget.EditText detailField(String hint, boolean multi) {
+        android.widget.EditText e = new android.widget.EditText(this);
+        e.setHint(hint);
+        e.setHintTextColor(0x669AA3B2);
+        e.setTextColor(Ui.TEXT);
+        e.setTextSize(15);
+        e.setBackground(Ui.round(this, Ui.BG, 12));
+        e.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+        if (multi) {
+            e.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            e.setMinLines(3);
+            e.setGravity(Gravity.TOP);
+        } else {
+            e.setInputType(android.text.InputType.TYPE_CLASS_TEXT | android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            e.setSingleLine(true);
+        }
+        return e;
     }
 
     private void addDelete() {

@@ -22,17 +22,23 @@ public class TelemetryActivity extends Activity {
                 PerfActivity.class));
         root.addView(tile("🏍", "Piega e G-meter", "Angolo di piega, accelerazione, frenata e forza laterale",
                 LeanActivity.class));
-        root.addView(tile("🗺", "Registra percorsi viaggio",
-                "Registra il viaggio anche a schermo spento: percorso, velocità, G; poi rivedi mappa e grafici",
+        root.addView(tile(new Icons.Helmet(this), "Registra Onboard",
+                "Registra viaggio/corsa anche a schermo spento: percorso, velocità, G; poi rivedi mappa e grafici",
                 RecorderActivity.class));
         TextView n = Ui.text(this, "Suggerimenti: fissa bene il telefono, tieni lo schermo acceso, usa il GPS "
-                + "all'aperto. Le prove di accelerazione vanno fatte solo su strada chiusa o in pista.",
+                + "all'aperto.",
                 12, Ui.DIM, false);
         n.setPadding(0, Ui.dp(this, 8), 0, 0);
         root.addView(n);
     }
 
     private View tile(String icon, String title, String desc, final Class<? extends Activity> target) {
+        TextView ic = Ui.text(this, icon, 24, Ui.TEXT, false);
+        ic.setGravity(Gravity.CENTER);
+        return tile(ic, title, desc, target);
+    }
+
+    private View tile(View ic, String title, String desc, final Class<? extends Activity> target) {
         LinearLayout t = new LinearLayout(this);
         t.setGravity(Gravity.CENTER_VERTICAL);
         t.setPadding(Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14), Ui.dp(this, 14));
@@ -45,9 +51,8 @@ public class TelemetryActivity extends Activity {
                 startActivity(new Intent(TelemetryActivity.this, target));
             }
         });
-        TextView ic = Ui.text(this, icon, 24, Ui.TEXT, false);
-        ic.setGravity(Gravity.CENTER);
         ic.setBackground(Ui.round(this, Ui.BG, 100));
+        ic.setPadding(Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 9));
         t.addView(ic, new LinearLayout.LayoutParams(Ui.dp(this, 52), Ui.dp(this, 52)));
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);

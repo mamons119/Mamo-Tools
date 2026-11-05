@@ -31,43 +31,37 @@ public class RecorderActivity extends TelemBase {
     private boolean wasRunning = false;
     private String vehicle = "";
 
-    private Button startBtn, lineBtn, openBtn, saveBtn;
+    private Button startBtn, lineBtn, openBtn;
+    private VehCell[] vehCells;
+    private String autoName = "";
     private TextView tTime, tSpeed, tDist, tVmax, tLean, tG, lapsTv, infoTv;
-    private TextView[] vehChips;
-    private LinearLayout vehCard, doneCard;
+    private LinearLayout vehCard;
     private EditText nameEdit, descEdit;
     private String donePath = null;
-    private boolean metaDirty = false;
 
     @Override
     protected String title() {
-        return "Registra percorsi viaggio";
+        return "Registra Onboard";
     }
 
     @Override
     protected String subtitle() {
-        return "Registra percorso, velocita' e forze G di un viaggio, anche a schermo spento, per rivederlo "
-                + "dopo su mappa e grafici.";
+        return "Registra viaggio/corsa anche a schermo spento: percorso, velocita' e forze G, "
+                + "da rivedere dopo su mappa e grafici.";
     }
 
     @Override
     protected void build(LinearLayout root) {
-        // ---- veicolo
+        // ---- dettagli: veicolo, nome, descrizione
         vehCard = Ui.card(this);
-        vehCard.addView(Ui.section(this, "Veicolo"));
-        LinearLayout vr = new LinearLayout(this);
-        vehChips = new TextView[Vehicle.IDS.length];
-        for (int i = 0; i < vehChips.length; i++) {
+        vehCard.addView(Ui.section(this, "Dettagli"));
+        vehCard.addView(sub("Veicolo"));
+        vehCells = new VehCell[Vehicle.IDS.length];
+        LinearLayout r1 = new LinearLayout(this), r2 = new LinearLayout(this);
+        for (int i = 0; i < vehCells.length; i++) {
             final int k = i;
-            SpannableString ss = new SpannableString(Vehicle.ICONS[i] + "\n" + Vehicle.LABELS[i]);
-            ss.setSpan(new RelativeSizeSpan(2.1f), 0, Vehicle.ICONS[i].length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-            TextView t = Ui.chip(this, "");
-            t.setText(ss);
-            t.setSingleLine(false);
-            t.setMaxLines(4);
-            t.setTextSize(10);
-            t.setPadding(Ui.dp(this, 2), Ui.dp(this, 6), Ui.dp(this, 2), Ui.dp(this, 6));
-            t.setOnClickListener(new View.OnClickListener() {
+            VehCell vc = new VehCell(i);
+            vc.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     if (RecorderService.running) {
@@ -77,10 +71,33 @@ public class RecorderActivity extends TelemBase {
                     styleVehicles();
                 }
             });
-            vehChips[i] = t;
-            vr.addView(t, Ui.lp(this, 0, Ui.dp(this, 78), i == 0 ? 0 : 6, 0, 1f));
+            vehCells[i] = vc;
+            if (i < 3) {
+                r1.addView(vc, Ui.lp(this, 0, Ui.dp(this, 74), i == 0 ? 0 : 8, 0, 1f));
+            } else {
+                if (i == 3) {
+                    r2.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 0.5f));
+                }
+                r2.addView(vc, Ui.lp(this, 0, Ui.dp(this, 74), i == 3 ? 0 : 8, 0, 1f));
+                if (i == 4) {
+                    r2.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 0.5f));
+                }
+            }
         }
-        vehCard.addView(vr);
+        vehCard.addView(r1, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        vehCard.addView(r2, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+        TextView nl = sub("Nome sessione");
+        nl.setPadding(0, Ui.dp(this, 16), 0, 0);
+        vehCard.addView(nl);
+        nameEdit = field("Nome della sessione", false);
+        autoName = defaultName();
+        nameEdit.setText(autoName);
+        vehCard.addView(nameEdit, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        TextView dl = sub("Descrizione (facoltativa)");
+        dl.setPadding(0, Ui.dp(this, 16), 0, 0);
+        vehCard.addView(dl);
+        descEdit = field("Note sul viaggio, condizioni, meta…", true);
+        vehCard.addView(descEdit, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
         root.addView(vehCard);
         styleVehicles();
 
@@ -135,41 +152,17 @@ public class RecorderActivity extends TelemBase {
         lc.addView(lapsTv);
         root.addView(lc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
-        // ---- sessione appena registrata: nome, descrizione, apri
-        doneCard = Ui.card(this);
-        doneCard.addView(Ui.section(this, "Sessione appena registrata"));
-        doneCard.addView(Ui.text(this, "Nome", 12, Ui.DIM, false));
-        nameEdit = field("Nome della sessione", false);
-        doneCard.addView(nameEdit, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 4));
-        TextView dl = Ui.text(this, "Descrizione (facoltativa)", 12, Ui.DIM, false);
-        dl.setPadding(0, Ui.dp(this, 12), 0, 0);
-        doneCard.addView(dl);
-        descEdit = field("Note sul viaggio, condizioni, meta…", true);
-        doneCard.addView(descEdit, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 4));
-        LinearLayout dr = new LinearLayout(this);
-        saveBtn = Ui.btn(this, "Salva", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                if (saveMeta()) {
-                    Toast.makeText(RecorderActivity.this, "Nome e descrizione salvati", Toast.LENGTH_SHORT).show();
-                }
-            }
-        });
-        dr.addView(saveBtn, Ui.lp(this, 0, Ui.dp(this, 48), 0, 0, 1f));
-        openBtn = Ui.btn(this, "Apri sessione appena registrata", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
+        openBtn = Ui.btn(this, "Apri sessione registrata", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 if (donePath != null) {
-                    saveMeta();
                     startActivity(new Intent(RecorderActivity.this, SessionViewActivity.class)
                             .putExtra("path", donePath));
                 }
             }
         });
-        dr.addView(openBtn, Ui.lp(this, 0, Ui.dp(this, 48), 8, 0, 2f));
-        doneCard.addView(dr, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 14));
-        doneCard.setVisibility(View.GONE);
-        root.addView(doneCard, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+        openBtn.setVisibility(View.GONE);
+        root.addView(openBtn, Ui.lp(this, Ui.MATCH, Ui.dp(this, 52), 0, 12));
 
         root.addView(Ui.btn(this, "Sessioni salvate", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
             @Override
@@ -212,8 +205,46 @@ public class RecorderActivity extends TelemBase {
     }
 
     private void styleVehicles() {
-        for (int i = 0; i < vehChips.length; i++) {
-            Ui.styleChip(this, vehChips[i], Vehicle.IDS[i].equals(vehicle));
+        for (int i = 0; i < vehCells.length; i++) {
+            vehCells[i].setOn(Vehicle.IDS[i].equals(vehicle));
+        }
+    }
+
+    private TextView sub(String t) {
+        return Ui.text(this, t, 12, Ui.DIM, true);
+    }
+
+    private static String defaultName() {
+        return "Sessione " + new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY)
+                .format(new java.util.Date());
+    }
+
+    /** Pulsante veicolo: icona disegnata sopra, nome sotto; diventa blu se selezionato. */
+    private final class VehCell extends LinearLayout {
+        private final Icons.VehicleIcon icon;
+        private final TextView label;
+
+        VehCell(int i) {
+            super(RecorderActivity.this);
+            setOrientation(VERTICAL);
+            setGravity(Gravity.CENTER);
+            setClickable(true);
+            icon = new Icons.VehicleIcon(RecorderActivity.this, i);
+            addView(icon, new LinearLayout.LayoutParams(Ui.dp(RecorderActivity.this, 32),
+                    Ui.dp(RecorderActivity.this, 32)));
+            label = Ui.text(RecorderActivity.this, Vehicle.LABELS[i], 12, Ui.TEXT, true);
+            label.setSingleLine(true);
+            label.setGravity(Gravity.CENTER);
+            addView(label, Ui.lp(RecorderActivity.this, Ui.WRAP, Ui.WRAP, 0, 4));
+            setOn(false);
+        }
+
+        void setOn(boolean on) {
+            setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x44FFFFFF),
+                    Ui.round(RecorderActivity.this, on ? Ui.ACCENT : Ui.CARD2, 12), null));
+            icon.setColor(on ? 0xFF000000 : Ui.TEXT);
+            label.setTextColor(on ? 0xFF000000 : Ui.TEXT);
         }
     }
 
@@ -245,12 +276,14 @@ public class RecorderActivity extends TelemBase {
     }
 
     private void doStart() {
-        saveMetaQuiet();
+        String nm = nameEdit.getText().toString().trim();
         donePath = null;
-        doneCard.setVisibility(View.GONE);
+        openBtn.setVisibility(View.GONE);
         RecorderService.lastPath = null;
         startForegroundService(new Intent(this, RecorderService.class)
-                .setAction(RecorderService.ACTION_START).putExtra("vehicle", vehicle));
+                .setAction(RecorderService.ACTION_START).putExtra("vehicle", vehicle)
+                .putExtra("name", nm.equals(autoName) ? "" : nm)
+                .putExtra("desc", descEdit.getText().toString()));
         wasRunning = true;
         applyState(true);
     }
@@ -274,51 +307,24 @@ public class RecorderActivity extends TelemBase {
             startBtn.setBackground(Ui.round(this, Ui.ACCENT, 12));
             lineBtn.setEnabled(false);
         }
-        for (TextView t : vehChips) {
+        for (VehCell t : vehCells) {
             t.setAlpha(rec ? 0.55f : 1f);
         }
+        nameEdit.setEnabled(!rec);
+        descEdit.setEnabled(!rec);
     }
 
-    // ------------------------------------------------------------------ sessione conclusa
-
-    private void showDone(String path, String defName) {
+    /** Sessione appena salvata: mostra "Apri" e prepara nome e descrizione per la prossima. */
+    private void showDone(String path) {
         donePath = path;
-        nameEdit.setText(defName);
+        openBtn.setVisibility(View.VISIBLE);
+        resetDetails();
+    }
+
+    private void resetDetails() {
+        autoName = defaultName();
+        nameEdit.setText(autoName);
         descEdit.setText("");
-        metaDirty = false;
-        doneCard.setVisibility(View.VISIBLE);
-    }
-
-    private boolean saveMeta() {
-        if (donePath == null) {
-            return false;
-        }
-        try {
-            String nm = nameEdit.getText().toString().trim();
-            SessionData.updateMeta(new File(donePath), nm.isEmpty() ? RecorderService.lastName : nm,
-                    descEdit.getText().toString());
-            return true;
-        } catch (Exception e) {
-            Toast.makeText(this, "Non riesco a salvare: " + e.getMessage(), Toast.LENGTH_LONG).show();
-            return false;
-        }
-    }
-
-    private void saveMetaQuiet() {
-        if (donePath != null) {
-            try {
-                String nm = nameEdit.getText().toString().trim();
-                SessionData.updateMeta(new File(donePath), nm.isEmpty() ? RecorderService.lastName : nm,
-                        descEdit.getText().toString());
-            } catch (Exception ignored) {
-            }
-        }
-    }
-
-    @Override
-    protected void onPause() {
-        super.onPause();
-        saveMetaQuiet();
     }
 
     @Override
@@ -329,7 +335,10 @@ public class RecorderActivity extends TelemBase {
             vehicle = RecorderService.vehicle;
             styleVehicles();
         } else if (RecorderService.lastPath != null && donePath == null) {
-            showDone(RecorderService.lastPath, RecorderService.lastName);
+            showDone(RecorderService.lastPath);
+        } else if (nameEdit.getText().toString().equals(autoName)) {
+            autoName = defaultName();
+            nameEdit.setText(autoName);
         }
         wasRunning = rec;
         applyState(rec);
@@ -356,7 +365,7 @@ public class RecorderActivity extends TelemBase {
             wasRunning = false;
             applyState(false);
             if (RecorderService.lastPath != null) {
-                showDone(RecorderService.lastPath, RecorderService.lastName);
+                showDone(RecorderService.lastPath);
             }
         } else if (!wasRunning && rec) {
             wasRunning = true;

@@ -109,7 +109,7 @@
 
         <activity
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".RecorderActivity"
-            android:label="Registra percorsi viaggio"
+            android:label="Registra Onboard"
             android:launchMode="singleTop"
             android:exported="false" />
 

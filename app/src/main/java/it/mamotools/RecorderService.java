@@ -91,13 +91,14 @@ public class RecorderService extends Service {
             }
             return START_NOT_STICKY;
         }
-        startRecording(intent.getStringExtra("vehicle"));
+        startRecording(intent.getStringExtra("vehicle"), intent.getStringExtra("name"),
+                intent.getStringExtra("desc"));
         return START_NOT_STICKY;
     }
 
     // ------------------------------------------------------------------ avvio / arresto
 
-    private void startRecording(String veh) {
+    private void startRecording(String veh, String customName, String customDesc) {
         makeChannels();
         Notification n = buildNotif(0, 0);
         if (Build.VERSION.SDK_INT >= 29) {
@@ -110,11 +111,15 @@ public class RecorderService extends Service {
         dir.mkdirs();
         startEpoch = System.currentTimeMillis();
         file = new File(dir, "s_" + startEpoch + ".csv");
-        name = "Sessione " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY).format(new Date(startEpoch));
+        name = customName != null && !customName.trim().isEmpty() ? customName.trim()
+                : "Sessione " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY).format(new Date(startEpoch));
         try {
             out = new BufferedWriter(new FileWriter(file), 32 * 1024);
             out.write(SessionData.header(startEpoch, name) + "\n");
             out.write("#VEH," + (veh == null ? "" : veh) + "\n");
+            if (customDesc != null && !customDesc.trim().isEmpty()) {
+                out.write("#DESC," + SessionData.esc1(customDesc.trim()) + "\n");
+            }
         } catch (IOException e) {
             stopForeground(true);
             stopSelf();
