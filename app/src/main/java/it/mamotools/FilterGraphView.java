@@ -55,7 +55,7 @@ final class FilterGraphView extends View {
     @Override
     protected void onDraw(Canvas cv) {
         float d = getResources().getDisplayMetrics().density;
-        float l = 34 * d, r = 10 * d, t = 10 * d, b = 22 * d;
+        float l = 34 * d, r = 20 * d, t = 10 * d, b = 22 * d;
         float w = getWidth() - l - r, h = getHeight() - t - b;
         if (w <= 0 || h <= 0) {
             return;
@@ -76,7 +76,7 @@ final class FilterGraphView extends View {
             float x = xOf(fs[i], l, w);
             cv.drawLine(x, t, x, t + h, grid);
             if (i % 2 == 0 || fs[i] == 1000 || i == fs.length - 1) {
-                lbl.setTextAlign(i == 0 ? Paint.Align.LEFT : i == fs.length - 1 ? Paint.Align.RIGHT : Paint.Align.CENTER);
+                lbl.setTextAlign(i == 0 ? Paint.Align.LEFT : Paint.Align.CENTER);
                 cv.drawText(fn[i], x, t + h + 14 * d, lbl);
             }
         }

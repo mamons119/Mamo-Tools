@@ -24,6 +24,8 @@ public class FileToolsActivity extends Activity {
                 new Intent(this, PdfReaderActivity.class)));
         root.addView(tile("📘", "Leggi Word", "Apri i documenti .docx direttamente, senza convertirli",
                 new Intent(this, WordReaderActivity.class)));
+        root.addView(tile("📖", "Leggi EPUB", "Libri .epub con indice, ricerca, segnalibri, temi e carattere regolabile",
+                new Intent(this, EpubReaderActivity.class)));
 
         root.addView(space());
         root.addView(Ui.section(this, "Converti"));

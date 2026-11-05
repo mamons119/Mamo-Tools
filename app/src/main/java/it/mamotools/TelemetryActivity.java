@@ -20,7 +20,7 @@ public class TelemetryActivity extends Activity {
                 "Per moto, auto e fuoristrada: GPS, accelerometro e giroscopio del telefono.");
         root.addView(tile("🏁", "Prestazioni", "0–100, 0–200, 100–200, 1/4 di miglio, ripresa e frenata",
                 PerfActivity.class));
-        root.addView(tile(new Icons.VehicleIcon(this, 1), "Piega e G-meter", "Angolo di piega, accelerazione, frenata e forza laterale",
+        root.addView(tile("🏍", "Piega e G-meter", "Angolo di piega, accelerazione, frenata e forza laterale",
                 LeanActivity.class));
         root.addView(tile(new Icons.Helmet(this), "Registra Onboard",
                 "Registra viaggio/corsa anche a schermo spento: percorso, velocità, G; poi rivedi mappa e grafici",
@@ -35,6 +35,7 @@ public class TelemetryActivity extends Activity {
     private View tile(String icon, String title, String desc, final Class<? extends Activity> target) {
         TextView ic = Ui.text(this, icon, 24, Ui.TEXT, false);
         ic.setGravity(Gravity.CENTER);
+        ic.setIncludeFontPadding(false);
         return tile(ic, title, desc, target);
     }
 

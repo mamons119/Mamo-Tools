@@ -181,6 +181,27 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".EpubReaderActivity"
+            android:label="Mamo Tools (EPUB)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/epub+zip" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:pathPattern=".*\\.epub" />
+            </intent-filter>
+        </activity>
+
         <provider
             android:name=".PdfShareProvider"
             android:authorities="it.mamotools.pdfshare"

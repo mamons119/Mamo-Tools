@@ -17,8 +17,10 @@ public class LeanActivity extends TelemBase {
     private GGView gg;
     private LeanGauge gauge;
     private TextView leanTv, srcTv, gTv, maxTv;
-    private TextView[] mountChips;
-    private TextView invChip;
+    private LinearLayout[] mountOpts;
+    private PhoneIcon[] mountIcons;
+    private TextView[] mountTitles, mountSubs;
+    private android.widget.Switch invSwitch;
     private float maxL, maxR;
 
     @Override
@@ -34,16 +36,31 @@ public class LeanActivity extends TelemBase {
     @Override
     protected void build(LinearLayout root) {
         LinearLayout mc = Ui.card(this);
-        mc.addView(Ui.section(this, "Come hai montato il telefono"));
+        mc.addView(Ui.section(this, "Montaggio del telefono"));
+        mc.addView(Ui.text(this, "Scegli come hai fissato il telefono alla moto.", 12, Ui.DIM, false));
         LinearLayout r = new LinearLayout(this);
-        String[] n = {"In piedi (schermo verso di me)", "Disteso (schermo in alto)"};
-        mountChips = new TextView[2];
+        String[] n = {"In piedi", "Disteso"};
+        String[] n2 = {"schermo verso di me", "schermo in alto"};
+        mountOpts = new LinearLayout[2];
+        mountIcons = new PhoneIcon[2];
+        mountTitles = new TextView[2];
+        mountSubs = new TextView[2];
         for (int i = 0; i < 2; i++) {
             final int m = i;
-            mountChips[i] = Ui.chip(this, n[i]);
-            mountChips[i].setTextSize(12);
-            mountChips[i].setSingleLine(false);
-            mountChips[i].setOnClickListener(new View.OnClickListener() {
+            LinearLayout o = new LinearLayout(this);
+            o.setOrientation(LinearLayout.VERTICAL);
+            o.setGravity(Gravity.CENTER_HORIZONTAL);
+            o.setClickable(true);
+            o.setPadding(Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12));
+            mountIcons[i] = new PhoneIcon(this, i == 0);
+            o.addView(mountIcons[i], new LinearLayout.LayoutParams(Ui.dp(this, 56), Ui.dp(this, 56)));
+            mountTitles[i] = Ui.text(this, n[i], 14, Ui.TEXT, true);
+            mountTitles[i].setGravity(Gravity.CENTER);
+            o.addView(mountTitles[i], Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+            mountSubs[i] = Ui.text(this, n2[i], 11, Ui.DIM, false);
+            mountSubs[i].setGravity(Gravity.CENTER);
+            o.addView(mountSubs[i], new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+            o.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     imu.mount = m;
@@ -51,21 +68,34 @@ public class LeanActivity extends TelemBase {
                     styleMount();
                 }
             });
-            r.addView(mountChips[i], Ui.lp(this, 0, Ui.dp(this, 52), i == 0 ? 0 : 8, 0, 1f));
+            mountOpts[i] = o;
+            r.addView(o, Ui.lp(this, 0, Ui.WRAP, i == 0 ? 0 : 10, 0, 1f));
         }
-        mc.addView(r);
-        invChip = Ui.chip(this, "Inverti il senso di marcia (se accelerazione e frenata sono scambiate)");
-        invChip.setTextSize(12);
-        invChip.setSingleLine(false);
-        invChip.setOnClickListener(new View.OnClickListener() {
+        mc.addView(r, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+        View sep = new View(this);
+        sep.setBackgroundColor(0x22FFFFFF);
+        mc.addView(sep, Ui.lp(this, Ui.MATCH, 1, 0, 14));
+        LinearLayout ir = new LinearLayout(this);
+        ir.setGravity(Gravity.CENTER_VERTICAL);
+        ir.setPadding(0, Ui.dp(this, 12), 0, 0);
+        LinearLayout it = new LinearLayout(this);
+        it.setOrientation(LinearLayout.VERTICAL);
+        it.addView(Ui.text(this, "Inverti il senso di marcia", 14, Ui.TEXT, true));
+        it.addView(Ui.text(this, "Attivalo se accelerazione e frenata risultano scambiate.", 11, Ui.DIM, false));
+        ir.addView(it, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        invSwitch = new android.widget.Switch(this);
+        invSwitch.setOnCheckedChangeListener(new android.widget.CompoundButton.OnCheckedChangeListener() {
             @Override
-            public void onClick(View v) {
-                imu.invert = !imu.invert;
-                saveMount();
+            public void onCheckedChanged(android.widget.CompoundButton b, boolean on) {
+                if (imu.invert != on) {
+                    imu.invert = on;
+                    saveMount();
+                }
                 styleMount();
             }
         });
-        mc.addView(invChip, Ui.lp(this, Ui.MATCH, Ui.dp(this, 48), 0, 8));
+        ir.addView(invSwitch, new LinearLayout.LayoutParams(Ui.WRAP, Ui.WRAP));
+        mc.addView(ir);
         root.addView(mc);
 
         LinearLayout lc = Ui.card(this);
@@ -82,6 +112,13 @@ public class LeanActivity extends TelemBase {
         srcTv.setGravity(Gravity.CENTER);
         srcTv.setPadding(0, Ui.dp(this, 6), 0, 0);
         lc.addView(srcTv, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        lc.addView(Ui.btn(this, "Azzera i massimi", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                maxL = maxR = 0;
+                gauge.maxL = gauge.maxR = 0;
+            }
+        }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 44), 0, 12));
         root.addView(lc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
         LinearLayout gc = Ui.card(this);
@@ -96,9 +133,7 @@ public class LeanActivity extends TelemBase {
         gc.addView(Ui.btn(this, "Azzera i massimi", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                maxL = maxR = 0;
                 gg.clearMax();
-                gauge.maxL = gauge.maxR = 0;
             }
         }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 44), 0, 12));
         root.addView(gc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
@@ -114,9 +149,76 @@ public class LeanActivity extends TelemBase {
 
     private void styleMount() {
         for (int i = 0; i < 2; i++) {
-            Ui.styleChip(this, mountChips[i], imu.mount == i);
+            boolean on = imu.mount == i;
+            mountOpts[i].setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x44FFFFFF),
+                    Ui.round(this, on ? Ui.ACCENT : Ui.CARD2, 14), null));
+            mountIcons[i].setColor(on ? 0xFF000000 : Ui.TEXT);
+            mountTitles[i].setTextColor(on ? 0xFF000000 : Ui.TEXT);
+            mountSubs[i].setTextColor(on ? 0xCC000000 : Ui.DIM);
         }
-        Ui.styleChip(this, invChip, imu.invert);
+        if (invSwitch.isChecked() != imu.invert) {
+            invSwitch.setChecked(imu.invert);
+        }
+        invSwitch.setThumbTintList(android.content.res.ColorStateList.valueOf(imu.invert ? Ui.ACCENT : 0xFFB0B7C3));
+        invSwitch.setTrackTintList(android.content.res.ColorStateList.valueOf(imu.invert ? 0x884DD0E1 : 0x66FFFFFF));
+    }
+
+    /** Icona del telefono: in piedi (verticale) oppure disteso (visto dall'alto in prospettiva). */
+    static final class PhoneIcon extends View {
+        private final boolean upright;
+        private int color = Ui.TEXT;
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.graphics.Path path = new android.graphics.Path();
+
+        PhoneIcon(Context c, boolean upright) {
+            super(c);
+            this.upright = upright;
+            p.setStyle(Paint.Style.STROKE);
+            p.setStrokeJoin(Paint.Join.ROUND);
+            p.setStrokeCap(Paint.Cap.ROUND);
+        }
+
+        void setColor(int c) {
+            color = c;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float s = Math.min(getWidth(), getHeight()) / 24f;
+            c.save();
+            c.translate((getWidth() - 24 * s) / 2f, (getHeight() - 24 * s) / 2f);
+            c.scale(s, s);
+            p.setColor(color);
+            p.setStrokeWidth(1.8f);
+            path.reset();
+            if (upright) {
+                // telefono in piedi: corpo, altoparlante e pulsante
+                c.drawRoundRect(6.5f, 2.5f, 17.5f, 21.5f, 2.6f, 2.6f, p);
+                c.drawLine(10.5f, 5f, 13.5f, 5f, p);
+                c.drawLine(10.5f, 19f, 13.5f, 19f, p);
+            } else {
+                // telefono disteso: parallelogramma con schermo
+                path.moveTo(7.5f, 7f);
+                path.lineTo(21.5f, 7f);
+                path.lineTo(16.5f, 17f);
+                path.lineTo(2.5f, 17f);
+                path.close();
+                c.drawPath(path, p);
+                path.reset();
+                path.moveTo(8.8f, 9.6f);
+                path.lineTo(18.4f, 9.6f);
+                path.lineTo(15.4f, 14.4f);
+                path.lineTo(5.8f, 14.4f);
+                path.close();
+                p.setStrokeWidth(1.2f);
+                p.setAlpha(150);
+                c.drawPath(path, p);
+                p.setAlpha(255);
+            }
+            c.restore();
+        }
     }
 
     @Override
