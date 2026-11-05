@@ -7,6 +7,7 @@ import android.os.Bundle;
 import android.provider.MediaStore;
 import android.view.Gravity;
 import android.view.View;
+import android.widget.Button;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -71,9 +72,19 @@ public class SessionViewActivity extends Activity {
         ((TextView) root.getChildAt(1)).setText(String.format(Locale.ITALY, "%s · %s", SessionData.fmtTime(s.duration),
                 s.distM >= 1000 ? String.format(Locale.ITALY, "%.2f km", s.distM / 1000) : Math.round(s.distM) + " m"));
 
-        // ---- dettagli modificabili
+        // ---- dettagli: si modificano solo dopo aver premuto la matita
         LinearLayout dc = Ui.card(this);
-        dc.addView(Ui.section(this, "Dettagli"));
+        LinearLayout dh = new LinearLayout(this);
+        dh.setGravity(Gravity.CENTER_VERTICAL);
+        dh.addView(Ui.section(this, "Dettagli"), new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        final android.widget.FrameLayout pencil = new android.widget.FrameLayout(this);
+        final android.widget.ImageView pi = Icons.edit(this, Ui.TEXT);
+        pi.setPadding(Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 9), Ui.dp(this, 9));
+        pencil.addView(pi, new android.widget.FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+        pencil.setBackground(Ui.round(this, Ui.CARD2, 12));
+        pencil.setClickable(true);
+        dh.addView(pencil, new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)));
+        dc.addView(dh);
         dc.addView(Ui.text(this, "Nome sessione", 12, Ui.DIM, true));
         final android.widget.EditText ne = detailField("Nome della sessione", false);
         ne.setText(s.name);
@@ -81,29 +92,69 @@ public class SessionViewActivity extends Activity {
         TextView dl = Ui.text(this, "Descrizione", 12, Ui.DIM, true);
         dl.setPadding(0, Ui.dp(this, 14), 0, 0);
         dc.addView(dl);
-        final android.widget.EditText de = detailField("Aggiungi una descrizione…", true);
+        final android.widget.EditText de = detailField("Nessuna descrizione", true);
         de.setText(s.desc);
         dc.addView(de, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
-        dc.addView(Ui.btn(this, "Salva nome e descrizione", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
+        final Button save = Ui.btn(this, "Salva modifiche", Ui.ACCENT, 0xFF000000, null);
+        dc.addView(save, Ui.lp(this, Ui.MATCH, Ui.dp(this, 46), 0, 14));
+        final boolean[] editing = {false};
+        final Runnable lock = new Runnable() {
+            @Override
+            public void run() {
+                editing[0] = false;
+                ne.setEnabled(false);
+                de.setEnabled(false);
+                save.setEnabled(false);
+                pencil.setBackground(Ui.round(SessionViewActivity.this, Ui.CARD2, 12));
+                pi.setImageTintList(android.content.res.ColorStateList.valueOf(Ui.TEXT));
+                android.view.inputmethod.InputMethodManager im = (android.view.inputmethod.InputMethodManager)
+                        getSystemService(INPUT_METHOD_SERVICE);
+                im.hideSoftInputFromWindow(ne.getWindowToken(), 0);
+            }
+        };
+        lock.run();
+        pencil.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (editing[0]) {
+                    // annulla: torna agli ultimi valori salvati
+                    ne.setText(s.name);
+                    de.setText(s.desc);
+                    lock.run();
+                    return;
+                }
+                editing[0] = true;
+                ne.setEnabled(true);
+                de.setEnabled(true);
+                save.setEnabled(true);
+                pencil.setBackground(Ui.round(SessionViewActivity.this, Ui.ACCENT, 12));
+                pi.setImageTintList(android.content.res.ColorStateList.valueOf(0xFF000000));
+                ne.requestFocus();
+                ne.setSelection(ne.getText().length());
+            }
+        });
+        save.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 String nm = ne.getText().toString().trim();
                 if (nm.isEmpty()) {
                     nm = s.name.isEmpty() ? "Sessione" : s.name;
-                    ne.setText(nm);
                 }
                 try {
                     SessionData.updateMeta(file, nm, de.getText().toString());
-                    s.name = nm;
+                    s.name = nm.replace(',', ' ');
                     s.desc = de.getText().toString().trim();
-                    ((TextView) root.getChildAt(0)).setText(nm);
-                    Toast.makeText(SessionViewActivity.this, "Salvato", Toast.LENGTH_SHORT).show();
+                    ne.setText(s.name);
+                    de.setText(s.desc);
+                    ((TextView) root.getChildAt(0)).setText(s.name);
+                    lock.run();
+                    Toast.makeText(SessionViewActivity.this, "Modifiche salvate", Toast.LENGTH_SHORT).show();
                 } catch (IOException e) {
                     Toast.makeText(SessionViewActivity.this, "Non riesco a salvare: " + e.getMessage(),
                             Toast.LENGTH_LONG).show();
                 }
             }
-        }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 46), 0, 14));
+        });
         root.addView(dc);
 
         // ---- riepilogo (tabella)
