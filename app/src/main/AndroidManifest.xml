@@ -197,8 +197,107 @@
                 <category android:name="android.intent.category.BROWSABLE" />
                 <data android:scheme="content" />
                 <data android:scheme="file" />
+                <data android:host="*" />
                 <data android:mimeType="application/octet-stream" />
                 <data android:pathPattern=".*\\.epub" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".CodeReaderActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode"
+            android:label="Mamo Tools (Codice)"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="text/*" />
+                <data android:mimeType="application/json" />
+                <data android:mimeType="application/xml" />
+                <data android:mimeType="application/javascript" />
+                <data android:mimeType="application/x-sh" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="application/octet-stream" />
+                <data android:pathPattern=".*\\.java" />
+                <data android:pathPattern=".*\\.kt" />
+                <data android:pathPattern=".*\\.kts" />
+                <data android:pathPattern=".*\\.c" />
+                <data android:pathPattern=".*\\.h" />
+                <data android:pathPattern=".*\\.cpp" />
+                <data android:pathPattern=".*\\.cc" />
+                <data android:pathPattern=".*\\.hpp" />
+                <data android:pathPattern=".*\\.cs" />
+                <data android:pathPattern=".*\\.js" />
+                <data android:pathPattern=".*\\.mjs" />
+                <data android:pathPattern=".*\\.ts" />
+                <data android:pathPattern=".*\\.tsx" />
+                <data android:pathPattern=".*\\.jsx" />
+                <data android:pathPattern=".*\\.py" />
+                <data android:pathPattern=".*\\.go" />
+                <data android:pathPattern=".*\\.rs" />
+                <data android:pathPattern=".*\\.swift" />
+                <data android:pathPattern=".*\\.php" />
+                <data android:pathPattern=".*\\.rb" />
+                <data android:pathPattern=".*\\.lua" />
+                <data android:pathPattern=".*\\.dart" />
+                <data android:pathPattern=".*\\.scala" />
+                <data android:pathPattern=".*\\.gradle" />
+                <data android:pathPattern=".*\\.sh" />
+                <data android:pathPattern=".*\\.bash" />
+                <data android:pathPattern=".*\\.zsh" />
+                <data android:pathPattern=".*\\.ps1" />
+                <data android:pathPattern=".*\\.bat" />
+                <data android:pathPattern=".*\\.sql" />
+                <data android:pathPattern=".*\\.xml" />
+                <data android:pathPattern=".*\\.json" />
+                <data android:pathPattern=".*\\.html" />
+                <data android:pathPattern=".*\\.htm" />
+                <data android:pathPattern=".*\\.css" />
+                <data android:pathPattern=".*\\.scss" />
+                <data android:pathPattern=".*\\.yml" />
+                <data android:pathPattern=".*\\.yaml" />
+                <data android:pathPattern=".*\\.toml" />
+                <data android:pathPattern=".*\\.ini" />
+                <data android:pathPattern=".*\\.properties" />
+                <data android:pathPattern=".*\\.md" />
+                <data android:pathPattern=".*\\.gpx" />
+                <data android:pathPattern=".*\\.kml" />
+            </intent-filter>
+        </activity>
+
+        <activity
+            android:name=".SessionImportActivity"
+            android:label="Mamo Tools (Telemetria)"
+            android:theme="@android:style/Theme.Translucent.NoTitleBar"
+            android:excludeFromRecents="true"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:mimeType="application/x-mamotools-telemetry" />
+            </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="content" />
+                <data android:scheme="file" />
+                <data android:host="*" />
+                <data android:mimeType="*/*" />
+                <data android:pathPattern=".*\\.mamotel" />
+                <data android:pathPattern=".*\\..*\\.mamotel" />
             </intent-filter>
         </activity>
 

@@ -24,6 +24,7 @@ public class PerfActivity extends TelemBase {
     private TextView[] modeChips;
     private LinearLayout paramBox;
     private EditText fromEt, toEt;
+    private SpeedGaugeView gauge;
     private TextView toLabel, speedTv, stateTv, resultTv, accTv;
     private SharedPreferences prefs;
 
@@ -80,12 +81,15 @@ public class PerfActivity extends TelemBase {
         root.addView(c);
 
         LinearLayout live = Ui.card(this);
-        speedTv = Ui.text(this, "0", 64, Ui.TEXT, true);
+        gauge = new SpeedGaugeView(this);
+        live.addView(gauge, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        speedTv = Ui.text(this, "0", 56, Ui.TEXT, true);
         speedTv.setGravity(Gravity.CENTER);
         live.addView(speedTv, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
         TextView unit = Ui.text(this, "km/h", 14, Ui.DIM, false);
         unit.setGravity(Gravity.CENTER);
         live.addView(unit, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        speedTv.setTextColor(Ui.ACCENT);
         stateTv = Ui.text(this, "", 16, Ui.ACCENT, true);
         stateTv.setGravity(Gravity.CENTER);
         stateTv.setPadding(0, Ui.dp(this, 12), 0, 0);
@@ -147,6 +151,9 @@ public class PerfActivity extends TelemBase {
         trap = Double.NaN;
         rollTime = rollDist = stopTime = stopDist = Double.NaN;
         vmax = 0;
+        if (gauge != null) {
+            gauge.resetMax();
+        }
         java.util.Arrays.fill(spT, Double.NaN);
         java.util.Arrays.fill(dsT, Double.NaN);
         updateState();
@@ -161,6 +168,7 @@ public class PerfActivity extends TelemBase {
     protected void onFix(GpsSource.Fix f) {
         double v = f.speed;
         speedTv.setText(String.valueOf(Math.round(kmh(v))));
+        gauge.setSpeed((float) kmh(v));
         accTv.setText(String.format(Locale.ITALY, "precisione GPS ±%.0f m", f.acc));
         vmax = Math.max(vmax, v);
         if (mode == 0) {

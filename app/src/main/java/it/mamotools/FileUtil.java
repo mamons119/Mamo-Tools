@@ -81,6 +81,17 @@ final class FileUtil {
         return n.isEmpty() ? "file" : n;
     }
 
+    static void copyFile(java.io.File src, java.io.File dst) throws IOException {
+        try (java.io.InputStream in = new java.io.FileInputStream(src);
+             java.io.OutputStream out = new java.io.FileOutputStream(dst)) {
+            byte[] b = new byte[32 * 1024];
+            int n;
+            while ((n = in.read(b)) > 0) {
+                out.write(b, 0, n);
+            }
+        }
+    }
+
     static void copyToFile(Context c, Uri src, File dst) throws IOException {
         try (InputStream in = c.getContentResolver().openInputStream(src);
              OutputStream os = new FileOutputStream(dst)) {

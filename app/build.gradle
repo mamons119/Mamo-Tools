@@ -10,15 +10,28 @@ android {
         applicationId "it.mamotools"
         minSdk 29             // Android 10+ (salvataggio in Galleria senza permessi di archiviazione)
         targetSdk 33
-        versionCode 32
-        versionName "3.2.1"
+        versionCode 33
+        versionName "3.3"
+    }
+
+    signingConfigs {
+        // chiave fissa inclusa nel progetto: ogni build ha la stessa firma, quindi Android
+        // aggiorna l'app mantenendo i dati (sessioni, impostazioni)
+        mamo {
+            storeFile file('mamotools.jks')
+            storePassword 'mamotools'
+            keyAlias 'mamotools'
+            keyPassword 'mamotools'
+        }
     }
 
     buildTypes {
         release {
             minifyEnabled false
-            // firmato con la chiave di debug cosi' si installa direttamente
-            signingConfig signingConfigs.debug
+            signingConfig signingConfigs.mamo
+        }
+        debug {
+            signingConfig signingConfigs.mamo
         }
     }
 

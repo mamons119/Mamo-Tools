@@ -26,6 +26,8 @@ public class FileToolsActivity extends Activity {
                 new Intent(this, WordReaderActivity.class)));
         root.addView(tile("📖", "Leggi EPUB", "Libri .epub con indice, ricerca, segnalibri, temi e carattere regolabile",
                 new Intent(this, EpubReaderActivity.class)));
+        root.addView(tile("💻", "Leggi Codice", "Sorgenti, XML, JSON e script colorati, con indentazione corretta in automatico",
+                new Intent(this, CodeReaderActivity.class)));
 
         root.addView(space());
         root.addView(Ui.section(this, "Converti"));

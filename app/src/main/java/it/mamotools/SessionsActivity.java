@@ -24,6 +24,61 @@ public class SessionsActivity extends Activity {
         root = Ui.screen(this, "Sessioni salvate", "Tocca una sessione per rivederla.");
     }
 
+    private void confirmDelete(final File f, String name) {
+        new android.app.AlertDialog.Builder(this)
+                .setTitle("Eliminare la sessione?")
+                .setMessage("\"" + name + "\" verrà eliminata definitivamente da questo telefono.")
+                .setNegativeButton("Annulla", null)
+                .setPositiveButton("Elimina", new android.content.DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(android.content.DialogInterface d, int w) {
+                        //noinspection ResultOfMethodCallIgnored
+                        f.delete();
+                        onResume();
+                    }
+                }).show();
+    }
+
+    private void share(final File f, final String name) {
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String base = name.replaceAll("[^\\p{L}\\p{N}._ -]", "_").trim();
+                    if (base.isEmpty() || base.equals(f.getName())) {
+                        base = f.getName().replace(".csv", "");
+                    }
+                    final String out = base + ".mamotel";
+                    File dir = new File(getCacheDir(), "shared");
+                    //noinspection ResultOfMethodCallIgnored
+                    dir.mkdirs();
+                    FileUtil.copyFile(f, new File(dir, out));
+                    final android.net.Uri u = android.net.Uri.parse("content://" + PdfShareProvider.AUTHORITY + "/"
+                            + android.net.Uri.encode(out));
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Intent s = new Intent(Intent.ACTION_SEND);
+                            s.setType("application/octet-stream");
+                            s.putExtra(Intent.EXTRA_STREAM, u);
+                            s.putExtra(Intent.EXTRA_SUBJECT, name);
+                            s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            startActivity(Intent.createChooser(s, "Condividi sessione"));
+                        }
+                    });
+                } catch (final Throwable t) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            android.widget.Toast.makeText(SessionsActivity.this,
+                                    "Condivisione non riuscita: " + t.getMessage(), android.widget.Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
     @Override
     protected void onResume() {
         super.onResume();
@@ -64,6 +119,21 @@ public class SessionsActivity extends Activity {
             final TextView sub = Ui.text(this, FileUtil.humanSize(f.length()), 12, Ui.DIM, false);
             row.addView(title);
             row.addView(sub);
+            LinearLayout acts = new LinearLayout(this);
+            acts.setOrientation(LinearLayout.HORIZONTAL);
+            acts.addView(Ui.btn(this, "Condividi", Ui.CARD2, Ui.ACCENT, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    share(f, title.getText().toString());
+                }
+            }), Ui.lp(this, 0, Ui.WRAP, 0, 0, 1f));
+            acts.addView(Ui.btn(this, "Elimina", Ui.CARD2, Ui.DANGER, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    confirmDelete(f, title.getText().toString());
+                }
+            }), Ui.lp(this, 0, Ui.WRAP, 8, 0, 1f));
+            row.addView(acts, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
             root.addView(row, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
             new Thread(new Runnable() {
                 @Override
