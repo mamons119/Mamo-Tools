@@ -56,7 +56,6 @@ public class RulerActivity extends Activity {
         panel.setOrientation(LinearLayout.VERTICAL);
         panel.setBackground(Ui.round(this, 0xF51A1D24, 20));
         panel.setPadding(Ui.dp(this, 18), Ui.dp(this, 16), Ui.dp(this, 18), Ui.dp(this, 18));
-        panel.setVisibility(View.GONE);
         panel.setClickable(true);
 
         // titolo + chiusura

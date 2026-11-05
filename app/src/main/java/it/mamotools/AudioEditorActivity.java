@@ -329,6 +329,10 @@ public class AudioEditorActivity extends Activity {
         fc.addView(f1);
         graph = new FilterGraphView(this);
         fc.addView(graph, Ui.lp(this, Ui.MATCH, Ui.dp(this, 150), 0, 12));
+        TextView logNote = Ui.text(this, "Scala logaritmica", 10, Ui.ACCENT, false);
+        logNote.setGravity(android.view.Gravity.CENTER);
+        logNote.setPadding(0, Ui.dp(this, 4), 0, 0);
+        fc.addView(logNote, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
 
         rowLo = new LinearLayout(this);
         rowLo.setOrientation(LinearLayout.VERTICAL);
@@ -381,7 +385,11 @@ public class AudioEditorActivity extends Activity {
         }
         fc.addView(rowSlope, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         TextView ftip = Ui.text(this, "Il filtro vale per tutta la traccia: lo senti subito in ascolto "
-                + "e viene applicato all'esportazione.", 11, Ui.DIM, false);
+                + "e viene applicato all'esportazione.\n\nNel grafico la frequenza e' in scala logaritmica: "
+                + "i quadrati della griglia non hanno tutti la stessa larghezza, perche' ogni passo "
+                + "(per esempio da 100 Hz a 1 kHz) vale un multiplo e non una somma. In verticale il livello "
+                + "e' in dB e la linea tratteggiata segna -3 dB, il punto in cui il filtro comincia a "
+                + "tagliare.", 11, Ui.DIM, false);
         ftip.setPadding(0, Ui.dp(this, 10), 0, 0);
         fc.addView(ftip);
 
@@ -501,6 +509,12 @@ public class AudioEditorActivity extends Activity {
         updateFilterUi();
         updateFilterTexts();
         updateAll();
+
+        // aperto da "Apri con" dal telefono
+        Intent in = getIntent();
+        if (in != null && in.getData() != null && Intent.ACTION_VIEW.equals(in.getAction())) {
+            startLoad(in.getData(), false);
+        }
     }
 
     private String defaultName() {
@@ -621,8 +635,10 @@ public class AudioEditorActivity extends Activity {
                 || data.getData() == null) {
             return;
         }
-        final Uri uri = data.getData();
-        final boolean add = req == REQ_ADD && eng.total() > 0;
+        startLoad(data.getData(), req == REQ_ADD && eng.total() > 0);
+    }
+
+    private void startLoad(final Uri uri, final boolean add) {
         final String name = FileUtil.queryName(this, uri);
         if (!add) {
             origUri = uri;

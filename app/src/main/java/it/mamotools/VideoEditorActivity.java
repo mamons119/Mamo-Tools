@@ -580,6 +580,12 @@ public class VideoEditorActivity extends Activity {
 
         setContentView(scroll);
         updateTexts();
+
+        // aperto da "Apri con" dal telefono
+        Intent in = getIntent();
+        if (in != null && in.getData() != null && Intent.ACTION_VIEW.equals(in.getAction())) {
+            loadVideo(in.getData());
+        }
     }
 
     // ---- componenti grafici
