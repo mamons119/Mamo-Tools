@@ -13,6 +13,8 @@ import android.view.View;
 import android.view.ViewGroup;
 import android.webkit.WebSettings;
 import android.webkit.WebView;
+import android.widget.Button;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -35,8 +37,8 @@ public class CodeReaderActivity extends Activity {
 
     private SharedPreferences prefs;
     private WebView web;
-    private TextView nameTv, langChip, fixChip, hintTv;
-    private LinearLayout bar;
+    private TextView nameTv, langChip, fixChip, saveChip, hintTv;
+    private LinearLayout row2, empty;
     private String fileName = "", original = "", shown = "";
     private CodeLang lang;
     private boolean fix = true, truncated = false;
@@ -56,25 +58,49 @@ public class CodeReaderActivity extends Activity {
         root.setBackgroundColor(Ui.BG);
         root.setFitsSystemWindows(true);
 
+        // barra superiore: titolo + info a sinistra, azioni a destra
         LinearLayout top = new LinearLayout(this);
         top.setOrientation(LinearLayout.VERTICAL);
-        top.setPadding(Ui.dp(this, 14), Ui.dp(this, 10), Ui.dp(this, 14), Ui.dp(this, 8));
+        top.setBackgroundColor(Ui.CARD);
+        top.setPadding(Ui.dp(this, 14), Ui.dp(this, 10), Ui.dp(this, 10), Ui.dp(this, 10));
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout titles = new LinearLayout(this);
+        titles.setOrientation(LinearLayout.VERTICAL);
         nameTv = Ui.text(this, "Leggi Codice", 17, Ui.TEXT, true);
         nameTv.setSingleLine(true);
         nameTv.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
-        top.addView(nameTv);
-        hintTv = Ui.text(this, "Apri un file di codice per vederlo colorato e indentato.", 12, Ui.DIM, false);
-        top.addView(hintTv);
-
-        bar = new LinearLayout(this);
-        bar.setOrientation(LinearLayout.HORIZONTAL);
-        bar.setGravity(Gravity.CENTER_VERTICAL);
-        bar.addView(Ui.btn(this, "Apri", Ui.ACCENT, 0xFF0F1115, new View.OnClickListener() {
+        titles.addView(nameTv);
+        hintTv = Ui.text(this, "", 12, Ui.DIM, false);
+        hintTv.setSingleLine(true);
+        hintTv.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        titles.addView(hintTv);
+        head.addView(titles, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        head.addView(topBtn("A−", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                zoom(-10);
+            }
+        }));
+        head.addView(topBtn("A+", new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                zoom(10);
+            }
+        }));
+        head.addView(topBtn("📂", new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pick();
             }
-        }), Ui.lp(this, Ui.WRAP, Ui.dp(this, 38), 0, 0));
+        }));
+        top.addView(head, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+
+        // seconda riga (solo con un file aperto): linguaggio, indentazione, salvataggio
+        row2 = new LinearLayout(this);
+        row2.setOrientation(LinearLayout.HORIZONTAL);
+        row2.setPadding(0, Ui.dp(this, 10), Ui.dp(this, 4), 0);
+        row2.setVisibility(View.GONE);
         langChip = Ui.chip(this, "Linguaggio");
         langChip.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -82,8 +108,8 @@ public class CodeReaderActivity extends Activity {
                 chooseLang();
             }
         });
-        bar.addView(langChip, Ui.lp(this, Ui.WRAP, Ui.dp(this, 38), 8, 0));
-        fixChip = Ui.chip(this, "Correggi indentazione");
+        row2.addView(langChip, Ui.lp(this, 0, Ui.dp(this, 40), 0, 0, 1.3f));
+        fixChip = Ui.chip(this, "Indentazione");
         fixChip.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -92,35 +118,19 @@ public class CodeReaderActivity extends Activity {
                 render();
             }
         });
-        bar.addView(fixChip, Ui.lp(this, Ui.WRAP, Ui.dp(this, 38), 8, 0));
-        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        hs.addView(bar);
-        top.addView(hs, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-
-        LinearLayout bar2 = new LinearLayout(this);
-        bar2.setOrientation(LinearLayout.HORIZONTAL);
-        bar2.addView(Ui.btn(this, "A−", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                zoom(-10);
-            }
-        }), Ui.lp(this, Ui.dp(this, 52), Ui.dp(this, 36), 0, 0));
-        bar2.addView(Ui.btn(this, "A+", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
-            @Override
-            public void onClick(View v) {
-                zoom(10);
-            }
-        }), Ui.lp(this, Ui.dp(this, 52), Ui.dp(this, 36), 8, 0));
-        bar2.addView(Ui.btn(this, "Salva copia", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
+        row2.addView(fixChip, Ui.lp(this, 0, Ui.dp(this, 40), 8, 0, 1.3f));
+        saveChip = Ui.chip(this, "Salva");
+        saveChip.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 saveCopy();
             }
-        }), Ui.lp(this, Ui.WRAP, Ui.dp(this, 36), 8, 0));
-        top.addView(bar2, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        });
+        row2.addView(saveChip, Ui.lp(this, 0, Ui.dp(this, 40), 8, 0, 0.9f));
+        top.addView(row2, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
         root.addView(top, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
 
+        FrameLayout body = new FrameLayout(this);
         web = new WebView(this);
         web.setBackgroundColor(Ui.BG);
         WebSettings ws = web.getSettings();
@@ -129,7 +139,32 @@ public class CodeReaderActivity extends Activity {
         ws.setBuiltInZoomControls(true);
         ws.setDisplayZoomControls(false);
         ws.setTextZoom(textPct);
-        root.addView(web, new LinearLayout.LayoutParams(Ui.MATCH, 0, 1f));
+        body.addView(web, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+
+        // schermata iniziale: invito ad aprire un file
+        empty = new LinearLayout(this);
+        empty.setOrientation(LinearLayout.VERTICAL);
+        empty.setGravity(Gravity.CENTER);
+        empty.setBackgroundColor(Ui.BG);
+        empty.setPadding(Ui.dp(this, 28), 0, Ui.dp(this, 28), 0);
+        TextView ico = Ui.text(this, "💻", 54, Ui.TEXT, false);
+        ico.setGravity(Gravity.CENTER);
+        empty.addView(ico, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        TextView t1 = Ui.text(this, "Apri un file di codice", 18, Ui.TEXT, true);
+        t1.setGravity(Gravity.CENTER);
+        empty.addView(t1, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+        TextView t2 = Ui.text(this, "Java, Kotlin, Python, C, JavaScript, XML, JSON, HTML, shell e molti altri. "
+                + "Li vedi colorati e, se serve, con l'indentazione corretta.", 13, Ui.DIM, false);
+        t2.setGravity(Gravity.CENTER);
+        empty.addView(t2, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+        empty.addView(Ui.btn(this, "Scegli file", Ui.ACCENT, 0xFF0F1115, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                pick();
+            }
+        }), Ui.lp(this, Ui.dp(this, 200), Ui.dp(this, 48), 0, 22));
+        body.addView(empty, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
+        root.addView(body, new LinearLayout.LayoutParams(Ui.MATCH, 0, 1f));
         setContentView(root);
         refreshChips();
 
@@ -143,13 +178,26 @@ public class CodeReaderActivity extends Activity {
         }
         if (u != null) {
             load(u);
+        } else if (b == null) {
+            pick();
         }
+    }
+
+    private Button topBtn(String t, View.OnClickListener l) {
+        Button x = Ui.btn(this, t, Ui.CARD2, Ui.TEXT, l);
+        x.setTextSize(15);
+        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(Ui.dp(this, 44), Ui.dp(this, 40));
+        p.leftMargin = Ui.dp(this, 6);
+        x.setLayoutParams(p);
+        return x;
     }
 
     private void refreshChips() {
         Ui.styleChip(this, fixChip, fix);
         Ui.styleChip(this, langChip, false);
+        Ui.styleChip(this, saveChip, false);
         langChip.setText(lang == null ? "Linguaggio" : lang.name);
+        fixChip.setText(fix ? "Indentazione ✓" : "Indentazione");
     }
 
     private void zoom(int d) {
@@ -253,6 +301,8 @@ public class CodeReaderActivity extends Activity {
                         truncated = ct;
                         lang = CodeLang.detect(fn, original);
                         nameTv.setText(fn);
+                        empty.setVisibility(View.GONE);
+                        row2.setVisibility(View.VISIBLE);
                         render();
                     }
                 });

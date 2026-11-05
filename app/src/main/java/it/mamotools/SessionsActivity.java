@@ -126,14 +126,14 @@ public class SessionsActivity extends Activity {
                 public void onClick(View v) {
                     share(f, title.getText().toString());
                 }
-            }), Ui.lp(this, 0, Ui.WRAP, 0, 0, 1f));
+            }), Ui.lp(this, 0, Ui.dp(this, 46), 0, 0, 1f));
             acts.addView(Ui.btn(this, "Elimina", Ui.CARD2, Ui.DANGER, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     confirmDelete(f, title.getText().toString());
                 }
-            }), Ui.lp(this, 0, Ui.WRAP, 8, 0, 1f));
-            row.addView(acts, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+            }), Ui.lp(this, 0, Ui.dp(this, 46), 8, 0, 1f));
+            row.addView(acts, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
             root.addView(row, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
             new Thread(new Runnable() {
                 @Override
