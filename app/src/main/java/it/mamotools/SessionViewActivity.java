@@ -71,19 +71,56 @@ public class SessionViewActivity extends Activity {
         ((TextView) root.getChildAt(1)).setText(String.format(Locale.ITALY, "%s · %s", SessionData.fmtTime(s.duration),
                 s.distM >= 1000 ? String.format(Locale.ITALY, "%.2f km", s.distM / 1000) : Math.round(s.distM) + " m"));
 
-        // ---- statistiche
+        // ---- descrizione
+        if (!s.desc.isEmpty()) {
+            LinearLayout dc = Ui.card(this);
+            dc.addView(Ui.section(this, "Descrizione"));
+            TextView dt = Ui.text(this, s.desc, 14, Ui.TEXT, false);
+            dt.setLineSpacing(0, 1.2f);
+            dc.addView(dt);
+            root.addView(dc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0));
+        }
+
+        // ---- riepilogo (tabella)
         LinearLayout sc = Ui.card(this);
         sc.addView(Ui.section(this, "Riepilogo"));
-        TextView st = Ui.text(this, String.format(Locale.ITALY,
-                "Distanza: %.2f km\nDurata: %s  (in movimento %s)\nVelocità max: %.0f km/h   media in marcia: %.0f km/h\n"
-                        + "Accelerazione max: %.2f G   frenata max: %.2f G\nForza laterale max: %.2f G\n"
-                        + "Piega max: SX %.0f°   DX %.0f°\nQuota: %.0f–%.0f m   dislivello positivo: %.0f m",
-                s.distM / 1000, SessionData.fmtTime(s.duration), SessionData.fmtTime(s.movingTime), s.vMax * 3.6,
-                s.vAvgMoving * 3.6, s.maxAccelG, s.maxBrakeG, s.maxLatG, s.maxLeanL, s.maxLeanR,
-                s.altMin, s.altMax, s.altGain), 14, Ui.TEXT, false);
-        st.setLineSpacing(0, 1.3f);
-        sc.addView(st);
-        root.addView(sc);
+        java.util.List<String[]> rows = new java.util.ArrayList<>();
+        rows.add(new String[]{"Viaggio"});
+        rows.add(new String[]{"Veicolo", Vehicle.index(s.vehicle) < 0 ? "Non indicato"
+                : Vehicle.icon(s.vehicle) + "  " + Vehicle.label(s.vehicle)});
+        if (s.startEpoch > 0) {
+            rows.add(new String[]{"Data e ora", new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY)
+                    .format(new java.util.Date(s.startEpoch))});
+        }
+        rows.add(new String[]{"Distanza", String.format(Locale.ITALY, "%.2f km", s.distM / 1000)});
+        rows.add(new String[]{"Durata", SessionData.fmtTime(s.duration)});
+        rows.add(new String[]{"In movimento", SessionData.fmtTime(s.movingTime)});
+        rows.add(new String[]{"Velocità"});
+        rows.add(new String[]{"Massima", String.format(Locale.ITALY, "%.0f km/h", s.vMax * 3.6)});
+        rows.add(new String[]{"Media in marcia", String.format(Locale.ITALY, "%.0f km/h", s.vAvgMoving * 3.6)});
+        rows.add(new String[]{"Forze"});
+        rows.add(new String[]{"Accelerazione max", String.format(Locale.ITALY, "%.2f G", s.maxAccelG)});
+        rows.add(new String[]{"Frenata max", String.format(Locale.ITALY, "%.2f G", s.maxBrakeG)});
+        rows.add(new String[]{"Forza laterale max", String.format(Locale.ITALY, "%.2f G", s.maxLatG)});
+        rows.add(new String[]{"Piega max", String.format(Locale.ITALY, "SX %.0f°  ·  DX %.0f°", s.maxLeanL,
+                s.maxLeanR)});
+        rows.add(new String[]{"Quota"});
+        rows.add(new String[]{"Minima – massima", String.format(Locale.ITALY, "%.0f – %.0f m", s.altMin, s.altMax)});
+        rows.add(new String[]{"Dislivello positivo", String.format(Locale.ITALY, "%.0f m", s.altGain)});
+        java.util.List<Double> lt = s.lapTimes();
+        if (!lt.isEmpty()) {
+            double best = Double.MAX_VALUE;
+            for (double t : lt) {
+                best = Math.min(best, t);
+            }
+            rows.add(new String[]{"Giri"});
+            rows.add(new String[]{"Giri completati", String.valueOf(lt.size())});
+            rows.add(new String[]{"Giro migliore", SessionData.fmtTime(best)});
+        }
+        KvTable kv = new KvTable(this);
+        kv.set(rows.toArray(new String[0][]));
+        sc.addView(kv);
+        root.addView(sc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, s.desc.isEmpty() ? 0 : 12));
 
         // ---- mappa
         LinearLayout mc = Ui.card(this);

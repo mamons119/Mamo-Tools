@@ -10,7 +10,7 @@ import android.view.View;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 
-/** Menu della telemetria: prestazioni, piega e G-meter, registratore, sessioni salvate. */
+/** Menu della telemetria: prestazioni, piega e G-meter, registra percorsi viaggio. */
 public class TelemetryActivity extends Activity {
 
     @Override
@@ -22,10 +22,9 @@ public class TelemetryActivity extends Activity {
                 PerfActivity.class));
         root.addView(tile("🏍", "Piega e G-meter", "Angolo di piega, accelerazione, frenata e forza laterale",
                 LeanActivity.class));
-        root.addView(tile("⏺", "Registratore", "Registra percorso, velocità, G e piega; giri col traguardo",
+        root.addView(tile("🗺", "Registra percorsi viaggio",
+                "Registra il viaggio anche a schermo spento: percorso, velocità, G; poi rivedi mappa e grafici",
                 RecorderActivity.class));
-        root.addView(tile("🗺", "Sessioni salvate", "Rivedi mappa, grafici e statistiche; esporta GPX",
-                SessionsActivity.class));
         TextView n = Ui.text(this, "Suggerimenti: fissa bene il telefono, tieni lo schermo acceso, usa il GPS "
                 + "all'aperto. Le prove di accelerazione vanno fatte solo su strada chiusa o in pista.",
                 12, Ui.DIM, false);

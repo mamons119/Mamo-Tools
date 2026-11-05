@@ -1,76 +1,110 @@
 package it.mamotools;
 
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
+import android.os.Build;
 import android.os.SystemClock;
+import android.text.InputType;
+import android.text.SpannableString;
+import android.text.Spanned;
+import android.text.style.RelativeSizeSpan;
 import android.view.Gravity;
 import android.view.View;
 import android.widget.Button;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
 import android.widget.Toast;
 
-import java.io.BufferedWriter;
 import java.io.File;
-import java.io.FileWriter;
-import java.io.IOException;
-import java.text.SimpleDateFormat;
-import java.util.ArrayList;
-import java.util.Date;
-import java.util.List;
 import java.util.Locale;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 
-/** Registra una sessione di guida (GPS + sensori, 10 righe al secondo) da rivedere con mappa e grafici. */
+/**
+ * Registra percorsi viaggio: la registrazione vive in RecorderService (continua a schermo spento o app chiusa);
+ * qui si sceglie il veicolo, si avvia/ferma e si rivedono i valori in tempo reale.
+ */
 public class RecorderActivity extends TelemBase {
 
-    private boolean recording = false;
-    private long startElapsedMs, lastRowMs, lastLapMs = -100000;
-    private long startEpoch;
-    private File file;
-    private BufferedWriter out;
-    private ExecutorService io;
-    private GpsSource.Fix fix, prevFix;
-    private double dist, vMax;
-    private float maxLeanL, maxLeanR, maxG;
-    private double[] gate; // lat, lon, direzione
-    private int lapCount = 0;
-    private final List<Double> lapTimes = new ArrayList<>();
-    private double lapStartS = -1;
+    private static final int REQ_NOTIF = 78;
 
-    private Button startBtn, lineBtn, openBtn;
+    private boolean wasRunning = false;
+    private String vehicle = "";
+
+    private Button startBtn, lineBtn, openBtn, saveBtn;
     private TextView tTime, tSpeed, tDist, tVmax, tLean, tG, lapsTv, infoTv;
+    private TextView[] vehChips;
+    private LinearLayout vehCard, doneCard;
+    private EditText nameEdit, descEdit;
+    private String donePath = null;
+    private boolean metaDirty = false;
 
     @Override
     protected String title() {
-        return "Registratore";
+        return "Registra percorsi viaggio";
     }
 
     @Override
     protected String subtitle() {
-        return "Registra percorso, velocita', forze G e piega per rivederli dopo su mappa e grafici.";
+        return "Registra percorso, velocita' e forze G di un viaggio, anche a schermo spento, per rivederlo "
+                + "dopo su mappa e grafici.";
     }
 
     @Override
     protected void build(LinearLayout root) {
+        // ---- veicolo
+        vehCard = Ui.card(this);
+        vehCard.addView(Ui.section(this, "Veicolo"));
+        LinearLayout vr = new LinearLayout(this);
+        vehChips = new TextView[Vehicle.IDS.length];
+        for (int i = 0; i < vehChips.length; i++) {
+            final int k = i;
+            SpannableString ss = new SpannableString(Vehicle.ICONS[i] + "\n" + Vehicle.LABELS[i]);
+            ss.setSpan(new RelativeSizeSpan(2.1f), 0, Vehicle.ICONS[i].length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+            TextView t = Ui.chip(this, "");
+            t.setText(ss);
+            t.setSingleLine(false);
+            t.setMaxLines(4);
+            t.setTextSize(10);
+            t.setPadding(Ui.dp(this, 2), Ui.dp(this, 6), Ui.dp(this, 2), Ui.dp(this, 6));
+            t.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    if (RecorderService.running) {
+                        return;
+                    }
+                    vehicle = Vehicle.IDS[k];
+                    styleVehicles();
+                }
+            });
+            vehChips[i] = t;
+            vr.addView(t, Ui.lp(this, 0, Ui.dp(this, 78), i == 0 ? 0 : 6, 0, 1f));
+        }
+        vehCard.addView(vr);
+        root.addView(vehCard);
+        styleVehicles();
+
+        // ---- avvio
         LinearLayout c = Ui.card(this);
         startBtn = Ui.btn(this, "●  Avvia registrazione", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                if (recording) {
-                    stopRecording(true);
+                if (RecorderService.running) {
+                    startService(new Intent(RecorderActivity.this, RecorderService.class)
+                            .setAction(RecorderService.ACTION_STOP));
                 } else {
-                    startRecording();
+                    tryStart();
                 }
             }
         });
         startBtn.setTextSize(16);
         c.addView(startBtn, new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 56)));
-        infoTv = Ui.text(this, "Tieni lo schermo acceso e il telefono fissato: il GPS non registra con lo "
-                + "schermo spento o l'app in secondo piano.", 12, Ui.DIM, false);
+        infoTv = Ui.text(this, "La registrazione continua anche con lo schermo bloccato o fuori dall'app: "
+                + "in alto compare una notifica con tempo, distanza e pulsante Stop. Per i migliori risultati "
+                + "fissa il telefono e tieni attivo il GPS.", 12, Ui.DIM, false);
         infoTv.setPadding(0, Ui.dp(this, 10), 0, 0);
         c.addView(infoTv);
-        root.addView(c);
+        root.addView(c, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
         LinearLayout g1 = new LinearLayout(this);
         tTime = stat(g1, "Tempo", 0);
@@ -90,7 +124,8 @@ public class RecorderActivity extends TelemBase {
         lineBtn = Ui.btn(this, "⚑  Imposta il traguardo qui", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
-                setGate();
+                startService(new Intent(RecorderActivity.this, RecorderService.class)
+                        .setAction(RecorderService.ACTION_GATE));
             }
         });
         lc.addView(lineBtn, new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 46)));
@@ -100,16 +135,69 @@ public class RecorderActivity extends TelemBase {
         lc.addView(lapsTv);
         root.addView(lc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
-        openBtn = Ui.btn(this, "Apri la sessione appena registrata", Ui.CARD2, Ui.ACCENT, null);
-        openBtn.setVisibility(View.GONE);
-        root.addView(openBtn, Ui.lp(this, Ui.MATCH, Ui.dp(this, 48), 0, 12));
+        // ---- sessione appena registrata: nome, descrizione, apri
+        doneCard = Ui.card(this);
+        doneCard.addView(Ui.section(this, "Sessione appena registrata"));
+        doneCard.addView(Ui.text(this, "Nome", 12, Ui.DIM, false));
+        nameEdit = field("Nome della sessione", false);
+        doneCard.addView(nameEdit, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 4));
+        TextView dl = Ui.text(this, "Descrizione (facoltativa)", 12, Ui.DIM, false);
+        dl.setPadding(0, Ui.dp(this, 12), 0, 0);
+        doneCard.addView(dl);
+        descEdit = field("Note sul viaggio, condizioni, meta…", true);
+        doneCard.addView(descEdit, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 4));
+        LinearLayout dr = new LinearLayout(this);
+        saveBtn = Ui.btn(this, "Salva", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (saveMeta()) {
+                    Toast.makeText(RecorderActivity.this, "Nome e descrizione salvati", Toast.LENGTH_SHORT).show();
+                }
+            }
+        });
+        dr.addView(saveBtn, Ui.lp(this, 0, Ui.dp(this, 48), 0, 0, 1f));
+        openBtn = Ui.btn(this, "Apri sessione appena registrata", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (donePath != null) {
+                    saveMeta();
+                    startActivity(new Intent(RecorderActivity.this, SessionViewActivity.class)
+                            .putExtra("path", donePath));
+                }
+            }
+        });
+        dr.addView(openBtn, Ui.lp(this, 0, Ui.dp(this, 48), 8, 0, 2f));
+        doneCard.addView(dr, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 14));
+        doneCard.setVisibility(View.GONE);
+        root.addView(doneCard, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+
         root.addView(Ui.btn(this, "Sessioni salvate", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 startActivity(new Intent(RecorderActivity.this, SessionsActivity.class));
             }
-        }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 48), 0, 8));
+        }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 48), 0, 12));
         lineBtn.setEnabled(false);
+    }
+
+    private EditText field(String hint, boolean multi) {
+        EditText e = new EditText(this);
+        e.setHint(hint);
+        e.setHintTextColor(0x669AA3B2);
+        e.setTextColor(Ui.TEXT);
+        e.setTextSize(15);
+        e.setBackground(Ui.round(this, Ui.BG, 12));
+        e.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 10));
+        if (multi) {
+            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            e.setMinLines(3);
+            e.setGravity(Gravity.TOP);
+        } else {
+            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+            e.setSingleLine(true);
+        }
+        return e;
     }
 
     private TextView stat(LinearLayout row, String label, int left) {
@@ -123,220 +211,171 @@ public class RecorderActivity extends TelemBase {
         return v;
     }
 
-    @Override
-    protected boolean shouldStopOnPause() {
-        return !recording;
+    private void styleVehicles() {
+        for (int i = 0; i < vehChips.length; i++) {
+            Ui.styleChip(this, vehChips[i], Vehicle.IDS[i].equals(vehicle));
+        }
     }
 
-    // ------------------------------------------------------------------ registrazione
+    // ------------------------------------------------------------------ avvio
 
-    private void startRecording() {
+    private void tryStart() {
+        if (Vehicle.index(vehicle) < 0) {
+            Toast.makeText(this, "Prima scegli il veicolo che stai usando.", Toast.LENGTH_LONG).show();
+            vehCard.setBackground(Ui.round(this, 0xFF3A2328, 16));
+            ui.postDelayed(new Runnable() {
+                @Override
+                public void run() {
+                    vehCard.setBackground(Ui.round(RecorderActivity.this, Ui.CARD, 16));
+                }
+            }, 900);
+            return;
+        }
         if (!hasPerm() || !gps.enabled()) {
             Toast.makeText(this, "Prima concedi il permesso e attiva il GPS (vedi Stato dei sensori).",
                     Toast.LENGTH_LONG).show();
             return;
         }
-        File dir = new File(getFilesDir(), "sessions");
-        //noinspection ResultOfMethodCallIgnored
-        dir.mkdirs();
-        startEpoch = System.currentTimeMillis();
-        file = new File(dir, "s_" + startEpoch + ".csv");
-        try {
-            out = new BufferedWriter(new FileWriter(file), 32 * 1024);
-            String name = "Sessione " + new SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY)
-                    .format(new Date(startEpoch));
-            out.write(SessionData.header(startEpoch, name) + "\n");
-        } catch (IOException e) {
-            Toast.makeText(this, "Impossibile creare il file: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        if (Build.VERSION.SDK_INT >= 33
+                && checkSelfPermission("android.permission.POST_NOTIFICATIONS") != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[]{"android.permission.POST_NOTIFICATIONS"}, REQ_NOTIF);
             return;
         }
-        io = Executors.newSingleThreadExecutor();
-        startElapsedMs = SystemClock.elapsedRealtime();
-        lastRowMs = 0;
-        dist = 0;
-        vMax = 0;
-        maxLeanL = maxLeanR = maxG = 0;
-        gate = null;
-        lapCount = 0;
-        lapTimes.clear();
-        lapStartS = -1;
-        prevFix = fix = null;
-        recording = true;
-        startBtn.setText("■  Ferma e salva");
-        startBtn.setBackground(Ui.round(this, Ui.DANGER, 12));
-        openBtn.setVisibility(View.GONE);
-        lineBtn.setEnabled(true);
-        lapsTv.setText("Premi il pulsante mentre passi sul traguardo, nel verso di marcia.");
+        doStart();
     }
 
-    private void stopRecording(boolean notify) {
-        if (!recording) {
-            return;
-        }
-        recording = false;
-        final BufferedWriter w = out;
-        final File f = file;
-        io.execute(new Runnable() {
-            @Override
-            public void run() {
-                try {
-                    w.flush();
-                    w.close();
-                } catch (IOException ignored) {
-                }
-            }
-        });
-        io.shutdown();
-        startBtn.setText("●  Avvia registrazione");
-        startBtn.setBackground(Ui.round(this, Ui.ACCENT, 12));
-        lineBtn.setEnabled(false);
-        if (notify) {
-            openBtn.setVisibility(View.VISIBLE);
-            openBtn.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    startActivity(new Intent(RecorderActivity.this, SessionViewActivity.class)
-                            .putExtra("path", f.getAbsolutePath()));
-                }
-            });
-            Toast.makeText(this, "Sessione salvata", Toast.LENGTH_SHORT).show();
-        }
-        if (!isFinishing()) {
-            // rilascia i sensori se non siamo piu' in primo piano
-        }
-    }
-
-    private void write(final String s) {
-        final BufferedWriter w = out;
-        if (io == null || w == null) {
-            return;
-        }
-        try {
-            io.execute(new Runnable() {
-                @Override
-                public void run() {
-                    try {
-                        w.write(s);
-                    } catch (IOException ignored) {
-                    }
-                }
-            });
-        } catch (Exception ignored) {
-        }
-    }
-
-    private long sessionMs(long tNs) {
-        return tNs / 1_000_000L - startElapsedMs;
-    }
-
-    private void setGate() {
-        if (fix == null) {
-            return;
-        }
-        float brg = fix.speed > 2f ? fix.bearing : 0;
-        gate = new double[]{fix.lat, fix.lon, brg};
-        write(String.format(Locale.US, "#LINE,%.7f,%.7f,%.1f\n", fix.lat, fix.lon, brg));
-        lapCount = 0;
-        lapTimes.clear();
-        lapStartS = -1;
-        lastLapMs = -100000;
-        lapsTv.setText(fix.speed > 2f ? "Traguardo impostato: i giri partono dal prossimo passaggio."
-                : "Traguardo impostato (muoviti per dare la direzione: meglio impostarlo in marcia).");
+    private void doStart() {
+        saveMetaQuiet();
+        donePath = null;
+        doneCard.setVisibility(View.GONE);
+        RecorderService.lastPath = null;
+        startForegroundService(new Intent(this, RecorderService.class)
+                .setAction(RecorderService.ACTION_START).putExtra("vehicle", vehicle));
+        wasRunning = true;
+        applyState(true);
     }
 
     @Override
-    protected void onFix(GpsSource.Fix f) {
-        prevFix = fix;
-        fix = f;
-        if (!recording) {
-            tSpeed.setText(String.valueOf(Math.round(f.speed * 3.6)));
+    public void onRequestPermissionsResult(int req, String[] perms, int[] res) {
+        if (req == REQ_NOTIF) {
+            // senza notifiche il servizio funziona comunque (si vede nel gestore attivita')
+            doStart();
             return;
         }
-        if (prevFix != null) {
-            double dt = (f.tNs - prevFix.tNs) / 1e9;
-            if (dt > 0 && dt < 5 && f.speed > 0.5) {
-                dist += f.speed * dt;
-            }
+        super.onRequestPermissionsResult(req, perms, res);
+    }
+
+    private void applyState(boolean rec) {
+        if (rec) {
+            startBtn.setText("■  Ferma e salva");
+            startBtn.setBackground(Ui.round(this, Ui.DANGER, 12));
+        } else {
+            startBtn.setText("●  Avvia registrazione");
+            startBtn.setBackground(Ui.round(this, Ui.ACCENT, 12));
+            lineBtn.setEnabled(false);
         }
-        vMax = Math.max(vMax, f.speed);
-        if (gate != null && prevFix != null && f.speed > 2f) {
-            double s = SessionData.crossFraction(gate[0], gate[1], gate[2], 35, prevFix.lat, prevFix.lon, f.lat, f.lon);
-            if (s >= 0) {
-                long tc = sessionMs(prevFix.tNs + (long) (s * (f.tNs - prevFix.tNs)));
-                if (tc - lastLapMs > 8000) {
-                    lastLapMs = tc;
-                    write("#LAP," + tc + "," + lapCount + "\n");
-                    double ts = tc / 1000.0;
-                    if (lapStartS >= 0) {
-                        lapTimes.add(ts - lapStartS);
-                    }
-                    lapStartS = ts;
-                    lapCount++;
-                    showLaps();
-                }
+        for (TextView t : vehChips) {
+            t.setAlpha(rec ? 0.55f : 1f);
+        }
+    }
+
+    // ------------------------------------------------------------------ sessione conclusa
+
+    private void showDone(String path, String defName) {
+        donePath = path;
+        nameEdit.setText(defName);
+        descEdit.setText("");
+        metaDirty = false;
+        doneCard.setVisibility(View.VISIBLE);
+    }
+
+    private boolean saveMeta() {
+        if (donePath == null) {
+            return false;
+        }
+        try {
+            String nm = nameEdit.getText().toString().trim();
+            SessionData.updateMeta(new File(donePath), nm.isEmpty() ? RecorderService.lastName : nm,
+                    descEdit.getText().toString());
+            return true;
+        } catch (Exception e) {
+            Toast.makeText(this, "Non riesco a salvare: " + e.getMessage(), Toast.LENGTH_LONG).show();
+            return false;
+        }
+    }
+
+    private void saveMetaQuiet() {
+        if (donePath != null) {
+            try {
+                String nm = nameEdit.getText().toString().trim();
+                SessionData.updateMeta(new File(donePath), nm.isEmpty() ? RecorderService.lastName : nm,
+                        descEdit.getText().toString());
+            } catch (Exception ignored) {
             }
         }
     }
 
-    private void showLaps() {
-        StringBuilder sb = new StringBuilder();
-        double best = Double.MAX_VALUE;
-        for (double t : lapTimes) {
-            best = Math.min(best, t);
+    @Override
+    protected void onPause() {
+        super.onPause();
+        saveMetaQuiet();
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        boolean rec = RecorderService.running;
+        if (rec) {
+            vehicle = RecorderService.vehicle;
+            styleVehicles();
+        } else if (RecorderService.lastPath != null && donePath == null) {
+            showDone(RecorderService.lastPath, RecorderService.lastName);
         }
-        for (int i = 0; i < lapTimes.size(); i++) {
-            double t = lapTimes.get(i);
-            sb.append("Giro ").append(i + 1).append(":  ").append(SessionData.fmtTime(t))
-                    .append(t == best ? "   ★ migliore" : "").append("\n");
+        wasRunning = rec;
+        applyState(rec);
+    }
+
+    @Override
+    protected boolean shouldStopOnPause() {
+        return true;
+    }
+
+    // ------------------------------------------------------------------ aggiornamento
+
+    @Override
+    protected void onFix(GpsSource.Fix f) {
+        if (!RecorderService.running) {
+            tSpeed.setText(String.valueOf(Math.round(f.speed * 3.6)));
         }
-        if (lapTimes.isEmpty()) {
-            sb.append("Primo passaggio rilevato: il giro 1 e' in corso…");
-        }
-        lapsTv.setText(sb.toString().trim());
     }
 
     @Override
     protected void onTick() {
-        if (fix != null && !recording) {
+        boolean rec = RecorderService.running;
+        if (wasRunning && !rec) {
+            wasRunning = false;
+            applyState(false);
+            if (RecorderService.lastPath != null) {
+                showDone(RecorderService.lastPath, RecorderService.lastName);
+            }
+        } else if (!wasRunning && rec) {
+            wasRunning = true;
+            vehicle = RecorderService.vehicle;
+            styleVehicles();
+            applyState(true);
+        }
+        if (!rec) {
             return;
         }
-        if (!recording) {
-            return;
-        }
-        long now = SystemClock.elapsedRealtime();
-        long el = now - startElapsedMs;
+        long el = SystemClock.elapsedRealtime() - RecorderService.startElapsedMs;
         tTime.setText(SessionData.fmtTime(el / 1000.0));
-        if (fix != null) {
-            tSpeed.setText(String.valueOf(Math.round(fix.speed * 3.6)));
-        }
-        tDist.setText(dist < 1000 ? String.format(Locale.ITALY, "%.0f m", dist)
-                : String.format(Locale.ITALY, "%.2f km", dist / 1000));
-        tVmax.setText(String.valueOf(Math.round(vMax * 3.6)));
-        float lean = imu.leanDeg;
-        if (lean > 0) {
-            maxLeanL = Math.max(maxLeanL, lean);
-        } else {
-            maxLeanR = Math.max(maxLeanR, -lean);
-        }
-        maxG = Math.max(maxG, (float) Math.hypot(imu.aLong, imu.aLat));
-        tLean.setText(String.format(Locale.ITALY, "%.0f° / %.0f°", maxLeanL, maxLeanR));
-        tG.setText(String.format(Locale.ITALY, "%.2f", maxG));
-        lineBtn.setEnabled(fix != null);
-
-        if (fix != null && gps.hasRecentFix() && now - lastRowMs >= 100) {
-            lastRowMs = now;
-            write(String.format(Locale.US, "%d,%.7f,%.7f,%.1f,%.2f,%.1f,%.1f,%.3f,%.3f,%.1f,%.1f\n",
-                    el, fix.lat, fix.lon, fix.alt, fix.speed, fix.bearing, fix.acc,
-                    imu.aLong, imu.aLat, imu.leanDeg, imu.yawDegS));
-        }
-    }
-
-    @Override
-    protected void onDestroy() {
-        super.onDestroy();
-        if (recording) {
-            stopRecording(false);
-        }
-        stopSources();
+        tSpeed.setText(RecorderService.hasFix ? String.valueOf(Math.round(RecorderService.speed * 3.6)) : "—");
+        tDist.setText(RecorderService.fmtDist(RecorderService.dist));
+        tVmax.setText(String.valueOf(Math.round(RecorderService.vMax * 3.6)));
+        tLean.setText(String.format(Locale.ITALY, "%.0f° / %.0f°", RecorderService.maxLeanL,
+                RecorderService.maxLeanR));
+        tG.setText(String.format(Locale.ITALY, "%.2f", RecorderService.maxG));
+        lineBtn.setEnabled(RecorderService.hasFix);
+        lapsTv.setText(RecorderService.lapsText);
     }
 }

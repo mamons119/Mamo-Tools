@@ -18,7 +18,7 @@ import java.util.TimeZone;
  */
 final class SessionData {
 
-    String name = "";
+    String name = "", vehicle = "", desc = "";
     long startEpoch;
     int n;
     double[] t, lat, lon, alt, v, brg, acc, aLong, aLat, lean, yaw, dist;
@@ -32,6 +32,50 @@ final class SessionData {
 
     static String header(long epoch, String name) {
         return "#MAMOTEL1," + epoch + "," + name.replace(',', ' ').replace('\n', ' ');
+    }
+
+    static String esc1(String d) {
+        return d.replace("\\", "\\\\").replace("\r", "").replace("\n", "\\n");
+    }
+
+    static String unesc(String d) {
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < d.length(); i++) {
+            char ch = d.charAt(i);
+            if (ch == '\\' && i + 1 < d.length()) {
+                char nx = d.charAt(++i);
+                sb.append(nx == 'n' ? '\n' : nx);
+            } else {
+                sb.append(ch);
+            }
+        }
+        return sb.toString();
+    }
+
+    /** Riscrive nome e descrizione di una sessione gia' salvata (copia il file in uno temporaneo). */
+    static void updateMeta(File f, String name, String desc) throws IOException {
+        File tmp = new File(f.getParentFile(), f.getName() + ".tmp");
+        try (BufferedReader br = new BufferedReader(new FileReader(f));
+             java.io.BufferedWriter bw = new java.io.BufferedWriter(new java.io.FileWriter(tmp), 32 * 1024)) {
+            String ln;
+            while ((ln = br.readLine()) != null) {
+                if (ln.startsWith("#MAMOTEL1")) {
+                    String[] p = ln.split(",", 3);
+                    long ep = 0;
+                    try {
+                        ep = Long.parseLong(p[1]);
+                    } catch (Exception ignored) {
+                    }
+                    bw.write(header(ep, name.trim().isEmpty() ? "Sessione" : name.trim()) + "\n");
+                    if (!desc.trim().isEmpty()) {
+                        bw.write("#DESC," + esc1(desc.trim()) + "\n");
+                    }
+                } else if (!ln.startsWith("#DESC,")) {
+                    bw.write(ln + "\n");
+                }
+            }
+        }
+        java.nio.file.Files.move(tmp.toPath(), f.toPath(), java.nio.file.StandardCopyOption.REPLACE_EXISTING);
     }
 
     static SessionData load(File f) throws IOException {
@@ -49,6 +93,10 @@ final class SessionData {
                         if (ln.startsWith("#MAMOTEL1") && p.length >= 3) {
                             s.startEpoch = Long.parseLong(p[1]);
                             s.name = p[2];
+                        } else if (ln.startsWith("#VEH,")) {
+                            s.vehicle = ln.substring(5).trim();
+                        } else if (ln.startsWith("#DESC,")) {
+                            s.desc = unesc(ln.substring(6));
                         } else if (ln.startsWith("#LINE")) {
                             String[] q = ln.split(",");
                             s.line = new double[]{Double.parseDouble(q[1]), Double.parseDouble(q[2]),

@@ -5,6 +5,9 @@
     <!-- Volume Boost -->
     <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission
         android:name="android.permission.WRITE_SETTINGS"
         tools:ignore="ProtectedPermissions" />
@@ -106,6 +109,8 @@
 
         <activity
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".RecorderActivity"
+            android:label="Registra percorsi viaggio"
+            android:launchMode="singleTop"
             android:exported="false" />
 
         <activity
@@ -182,6 +187,11 @@
             android:exported="false"
             android:grantUriPermissions="true" />
 
+
+        <service
+            android:name=".RecorderService"
+            android:exported="false"
+            android:foregroundServiceType="location" />
 
         <service
             android:name=".BoostService"

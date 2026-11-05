@@ -75,7 +75,7 @@ final class FilterGraphView extends View {
         for (int i = 0; i < fs.length; i++) {
             float x = xOf(fs[i], l, w);
             cv.drawLine(x, t, x, t + h, grid);
-            if (i % 2 == 0 || fs[i] == 1000) {
+            if (i % 2 == 0 || fs[i] == 1000 || i == fs.length - 1) {
                 lbl.setTextAlign(i == 0 ? Paint.Align.LEFT : i == fs.length - 1 ? Paint.Align.RIGHT : Paint.Align.CENTER);
                 cv.drawText(fn[i], x, t + h + 14 * d, lbl);
             }

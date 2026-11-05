@@ -30,9 +30,14 @@ public class SessionsActivity extends Activity {
         while (root.getChildCount() > 2) {
             root.removeViewAt(2);
         }
-        File[] fs = new File(getFilesDir(), "sessions").listFiles();
+        File[] fs = new File(getFilesDir(), "sessions").listFiles(new java.io.FilenameFilter() {
+            @Override
+            public boolean accept(File d, String n) {
+                return n.endsWith(".csv");
+            }
+        });
         if (fs == null || fs.length == 0) {
-            TextView e = Ui.text(this, "Nessuna sessione registrata.\nUsa il Registratore per crearne una.", 14,
+            TextView e = Ui.text(this, "Nessuna sessione registrata.\nUsa \"Registra percorsi viaggio\" per crearne una.", 14,
                     Ui.DIM, false);
             e.setGravity(Gravity.CENTER);
             e.setPadding(0, Ui.dp(this, 30), 0, 0);
@@ -68,7 +73,8 @@ public class SessionsActivity extends Activity {
                         runOnUiThread(new Runnable() {
                             @Override
                             public void run() {
-                                title.setText(d.name.isEmpty() ? f.getName() : d.name);
+                                title.setText((Vehicle.icon(d.vehicle).isEmpty() ? "" : Vehicle.icon(d.vehicle) + "  ")
+                                        + (d.name.isEmpty() ? f.getName() : d.name));
                                 sub.setText(String.format(Locale.ITALY, "%.2f km · %s · max %.0f km/h", d.distM / 1000,
                                         SessionData.fmtTime(d.duration), d.vMax * 3.6));
                             }
