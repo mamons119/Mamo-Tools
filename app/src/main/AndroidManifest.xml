@@ -277,6 +277,17 @@
         </activity>
 
         <activity
+            android:name=".ProducerActivity"
+            android:label="Produzioni"
+            android:exported="false" />
+
+        <activity
+            android:name=".ProdEditorActivity"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <activity
             android:name=".SessionImportActivity"
             android:label="Mamo Tools (Telemetria)"
             android:theme="@android:style/Theme.Translucent.NoTitleBar"
