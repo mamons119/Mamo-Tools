@@ -507,6 +507,9 @@ final class FxDialog {
         SeekBar sz = Ui.seek(ctx, new Ui.SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
                 it.sizeFrac = (3 + p) / 100f;
                 sizeText.setText("Dimensione: " + (3 + p) + "% dell'altezza del video");
                 if (preview != null) {
@@ -516,6 +519,7 @@ final class FxDialog {
         });
         sz.setMax(27);
         sz.setProgress(Math.max(0, Math.min(27, Math.round(it.sizeFrac * 100) - 3)));
+        settle(sz, Math.max(0, Math.min(27, Math.round(it.sizeFrac * 100) - 3)));
         sizeText.setText("Dimensione: " + Math.round(it.sizeFrac * 100) + "% dell'altezza del video");
         root.addView(sz);
 
