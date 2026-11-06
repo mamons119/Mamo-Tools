@@ -186,7 +186,8 @@ final class FxDialog {
     // ------------------------------------------------------------------ effetto
 
     private TextView[] fxChips;
-    private LinearLayout kBox;
+    private TextView crtChip;
+    private LinearLayout kBox, crtBox;
     private TextView kText;
 
     private void buildEffect(LinearLayout root) {
@@ -223,6 +224,21 @@ final class FxDialog {
         k.setProgress(Math.round(it.intensity * 100));
         kBox.addView(k);
         root.addView(kBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
+        crtBox = new LinearLayout(ctx);
+        crtBox.setOrientation(LinearLayout.VERTICAL);
+        crtChip = Ui.chip(ctx, "");
+        crtChip.setTextSize(13);
+        crtChip.setOnClickListener(v -> {
+            it.crtWarp = !it.crtWarp;
+            styleFx();
+        });
+        crtBox.addView(crtChip, new LinearLayout.LayoutParams(Ui.MATCH, dp(44)));
+        crtBox.addView(Ui.text(ctx, "Le linee orizzontali e i puntini RGB verticali dello schermo ci sono sempre. "
+                + "Le distorsioni aggiungono: schermo bombato con angoli scuri, colori leggermente sfasati, "
+                + "tremolio delle righe, fascia scura che scorre, sfarfallio e disturbo. L'anteprima mostra "
+                + "linee, puntini e curvatura; tremolio e disturbo si vedono nel video esportato.", 12, Ui.DIM,
+                false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
+        root.addView(crtBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
         styleFx();
     }
 
@@ -232,6 +248,9 @@ final class FxDialog {
         }
         kBox.setVisibility(VideoFx.EFFECT_HAS_K[it.effect] ? View.VISIBLE : View.GONE);
         kText.setText("Intensita': " + Math.round(it.intensity * 100) + "%");
+        crtBox.setVisibility(it.effect == 12 ? View.VISIBLE : View.GONE);
+        crtChip.setText(it.crtWarp ? "Distorsioni CRT: attive" : "Distorsioni CRT: disattivate");
+        Ui.styleChip(ctx, crtChip, it.crtWarp);
         if (it.effect == 8 || it.effect == 9) {
             // dissolvenze: durata = intervallo scelto
         }

@@ -58,6 +58,10 @@ public class MainActivity extends Activity {
                     "Taglia, copia e incolla parti di un audio, filtri passa-alto/basso/banda "
                             + "e volume.",
                     AudioEditorActivity.class),
+            new Tool("🎛", "Produzioni",
+                    "Componi musica da zero: pad a 16 passi, suoni sintetizzati, i tuoi sample, "
+                            + "loop ed esportazione in WAV, FLAC e M4A.",
+                    ProducerActivity.class),
             new Tool("📊", "System Monitor",
                     "CPU per core, RAM e traffico di rete in tempo reale, piu' tutte le "
                             + "informazioni del telefono.",

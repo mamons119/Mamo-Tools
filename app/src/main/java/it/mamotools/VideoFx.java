@@ -19,10 +19,10 @@ final class VideoFx {
     }
 
     static final String[] EFFECT_NAMES = {"Bianco e nero", "Seppia", "Negativo", "Vintage", "Vignettatura",
-            "Sfocatura", "Pixel", "Vivido", "Appare dal nero", "Sparisce al nero", "Zoom avanti", "Glitch RGB"};
-    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺"};
+            "Sfocatura", "Pixel", "Vivido", "Appare dal nero", "Sparisce al nero", "Zoom avanti", "Glitch RGB", "Schermo CRT"};
+    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺", "🖥"};
     /** Se l'effetto ha un'intensita' regolabile. */
-    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true};
+    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true, true};
 
     static final String[] FONT_NAMES = {"Normale", "Condensato", "Sottile", "Nero", "Serif", "Macchina",
             "Corsivo", "Informale"};
@@ -46,6 +46,7 @@ final class VideoFx {
         int color = 0xFFFFFFFF;
         boolean outline = true, shadow = false, box = false;
         float x = 0.5f, y = 0.8f; // centro, in frazione del fotogramma visualizzato
+        boolean crtWarp = false;  // effetto CRT: distorsioni (curvatura, tremolio, disturbo)
 
         Item copy() {
             Item i = new Item();
@@ -65,6 +66,7 @@ final class VideoFx {
             i.box = box;
             i.x = x;
             i.y = y;
+            i.crtWarp = crtWarp;
             return i;
         }
 
@@ -86,7 +88,7 @@ final class VideoFx {
     // ------------------------------------------------------------------ parametri degli effetti
 
     static final int U_GRAY = 0, U_SEPIA = 1, U_INV = 2, U_VIG = 3, U_BLUR = 4, U_PIX = 5, U_SAT = 6, U_CON = 7,
-            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_COUNT = 11;
+            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_COUNT = 13;
 
     /** Calcola i parametri dello shader per l'istante t combinando gli effetti attivi. */
     static void uniforms(List<Item> items, long tUs, float[] u) {
@@ -101,6 +103,8 @@ final class VideoFx {
         u[U_FADE] = 1;
         u[U_SPLIT] = 0;
         u[U_ZOOM] = 1;
+        u[U_CRT] = 0;
+        u[U_WARP] = 0;
         if (items == null) {
             return;
         }
@@ -149,6 +153,12 @@ final class VideoFx {
                     break;
                 case 11:
                     u[U_SPLIT] = Math.max(u[U_SPLIT], k);
+                    break;
+                case 12:
+                    u[U_CRT] = Math.max(u[U_CRT], k);
+                    if (it.crtWarp) {
+                        u[U_WARP] = 1;
+                    }
                     break;
                 default:
                     break;
@@ -272,12 +282,12 @@ final class VideoFx {
     }
 
     static boolean needsGrab(float[] u) {
-        return u[U_PIX] > 0 || u[U_BLUR] > 0 || u[U_SPLIT] > 0;
+        return u[U_PIX] > 0 || u[U_BLUR] > 0 || u[U_SPLIT] > 0 || (u[U_CRT] > 0 && u[U_WARP] > 0);
     }
 
     static boolean isNeutral(float[] u) {
         return u[U_GRAY] == 0 && u[U_SEPIA] == 0 && u[U_INV] == 0 && u[U_VIG] == 0 && u[U_BLUR] == 0
                 && u[U_PIX] == 0 && u[U_SAT] == 1 && u[U_CON] == 1 && u[U_FADE] == 1 && u[U_SPLIT] == 0
-                && u[U_ZOOM] == 1;
+                && u[U_ZOOM] == 1 && u[U_CRT] == 0;
     }
 }

@@ -157,6 +157,9 @@ final class TextOverlayView extends View {
                         c.drawBitmap(g, null, d2, p);
                         c.restore();
                     }
+                } else if (u[VideoFx.U_CRT] > 0 && u[VideoFx.U_WARP] > 0 && u[VideoFx.U_PIX] == 0
+                        && u[VideoFx.U_BLUR] == 0) {
+                    drawCrtMesh(c, g, dst, l, t, rw, rh);
                 } else {
                     fxPaint.setFilterBitmap(smooth);
                     fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
@@ -166,6 +169,9 @@ final class TextOverlayView extends View {
                 c.restore();
                 g.recycle();
             }
+        }
+        if (u[VideoFx.U_CRT] > 0) {
+            drawCrtOverlay(c, l, t, rw, rh);
         }
         if (u[VideoFx.U_VIG] > 0) {
             c.save();
@@ -179,5 +185,79 @@ final class TextOverlayView extends View {
             c.drawRect(-0.5f, -0.5f, 0.5f, 0.5f, vp);
             c.restore();
         }
+    }
+
+    // ------------------------------------------------------------------ schermo CRT (anteprima)
+
+    private Bitmap crtTile;
+    private String crtTileKey = "";
+
+    /** Curvatura dello schermo: il fotogramma viene deformato a "pancia" su fondo nero. */
+    private void drawCrtMesh(Canvas c, Bitmap g, RectF dst, float l, float t, float rw, float rh) {
+        Paint bk = new Paint();
+        bk.setColor(0xFF000000);
+        c.drawRect(l, t, l + rw, t + rh, bk);
+        final int n = 16;
+        float[] v = new float[(n + 1) * (n + 1) * 2];
+        int k = 0;
+        for (int j = 0; j <= n; j++) {
+            for (int i = 0; i <= n; i++) {
+                float sx = i / (float) n - 0.5f, sy = j / (float) n - 0.5f;
+                float f = 1f / (1f + 0.2f * (sx * sx + sy * sy));
+                v[k++] = dst.centerX() + sx * f * dst.width();
+                v[k++] = dst.centerY() + sy * f * dst.height();
+            }
+        }
+        fxPaint.setFilterBitmap(true);
+        fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
+        c.drawBitmapMesh(g, n, n, v, 0, null, 0, fxPaint);
+        fxPaint.setColorFilter(null);
+    }
+
+    /** Linee orizzontali (scanline), maschera RGB verticale e, con le distorsioni, angoli scuri. */
+    private void drawCrtOverlay(Canvas c, float l, float t, float rw, float rh) {
+        float k = u[VideoFx.U_CRT];
+        int tw = Math.max(3, Math.round(rw / 320f / 3f) * 3);
+        int th = Math.max(3, Math.round(rh / 240f));
+        String key = tw + "x" + th + "k" + Math.round(k * 100);
+        if (crtTile == null || !key.equals(crtTileKey)) {
+            int[] px = new int[tw * th];
+            for (int y = 0; y < th; y++) {
+                float sl = 0.5f + 0.5f * (float) Math.cos(2 * Math.PI * y / th);
+                float ad = 0.5f * k * (1 - sl);
+                for (int x = 0; x < tw; x++) {
+                    int band = x * 3 / tw;
+                    float ta = 0.16f * k;
+                    float[] tint = {band == 0 ? 255 : 0, band == 1 ? 255 : 0, band == 2 ? 255 : 0};
+                    float a = ta + ad * (1 - ta);
+                    int r = Math.round(a > 0 ? tint[0] * ta / a : 0), gg = Math.round(a > 0 ? tint[1] * ta / a : 0),
+                            b = Math.round(a > 0 ? tint[2] * ta / a : 0);
+                    px[y * tw + x] = android.graphics.Color.argb(Math.round(a * 255), r, gg, b);
+                }
+            }
+            if (crtTile != null) {
+                crtTile.recycle();
+            }
+            crtTile = Bitmap.createBitmap(px, tw, th, Bitmap.Config.ARGB_8888);
+            crtTileKey = key;
+        }
+        c.save();
+        c.clipRect(l, t, l + rw, t + rh);
+        Paint p = new Paint();
+        android.graphics.BitmapShader sh = new android.graphics.BitmapShader(crtTile, Shader.TileMode.REPEAT,
+                Shader.TileMode.REPEAT);
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.setTranslate(l, t);
+        sh.setLocalMatrix(m);
+        p.setShader(sh);
+        c.drawRect(l, t, l + rw, t + rh, p);
+        if (u[VideoFx.U_WARP] > 0) {
+            Paint vp = new Paint();
+            float rad = (float) Math.hypot(rw, rh) / 2f;
+            vp.setShader(new RadialGradient(l + rw / 2, t + rh / 2, rad, new int[]{0, 0, 0x99000000},
+                    new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
+            c.drawRect(l, t, l + rw, t + rh, vp);
+        }
+        c.restore();
     }
 }
