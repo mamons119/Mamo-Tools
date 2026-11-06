@@ -141,7 +141,7 @@ final class TextOverlayView extends View {
             Bitmap g = video.grab(gw, gh);
             if (g != null) {
                 c.save();
-                c.clipRect(l, t, l + rw, t + rh);
+                c.clipRect(l - 2, t - 2, l + rw + 2, t + rh + 2);
                 float cx = l + rw / 2, cy = t + rh / 2;
                 RectF dst = new RectF(cx - rw * z / 2, cy - rh * z / 2, cx + rw * z / 2, cy + rh * z / 2);
                 boolean frameDone = false;
@@ -189,6 +189,9 @@ final class TextOverlayView extends View {
             if (u[VideoFx.U_BARS] > 0) {
                 drawCrtBars(c, l, t, rw, rh);
             }
+            if (u[VideoFx.U_WARP] > 0) {
+                drawCrtFrame(c, l, t, rw, rh);
+            }
         }
         if (u[VideoFx.U_VHS] > 0) {
             drawVhsOverlay(c, l, t, rw, rh);
@@ -216,7 +219,7 @@ final class TextOverlayView extends View {
     private void drawCrtMesh(Canvas c, Bitmap g, RectF dst, float l, float t, float rw, float rh) {
         Paint bk = new Paint();
         bk.setColor(0xFF000000);
-        c.drawRect(l, t, l + rw, t + rh, bk);
+        c.drawRect(l - 2, t - 2, l + rw + 2, t + rh + 2, bk);
         final int n = 16;
         float[] v = new float[(n + 1) * (n + 1) * 2];
         int k = 0;
@@ -285,7 +288,7 @@ final class TextOverlayView extends View {
     private void drawCrtFrame(Canvas c, float l, float t, float rw, float rh) {
         android.graphics.Path path = new android.graphics.Path();
         path.setFillType(android.graphics.Path.FillType.EVEN_ODD);
-        path.addRect(l, t, l + rw, t + rh, android.graphics.Path.Direction.CW);
+        path.addRect(l - 2, t - 2, l + rw + 2, t + rh + 2, android.graphics.Path.Direction.CW);
         final int n = 24;
         float cx = l + rw / 2, cy = t + rh / 2;
         boolean first = true;
