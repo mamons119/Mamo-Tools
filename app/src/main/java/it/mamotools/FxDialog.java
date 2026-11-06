@@ -217,12 +217,16 @@ final class FxDialog {
         SeekBar k = Ui.seek(ctx, new Ui.SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
                 it.intensity = p / 100f;
                 kText.setText((it.effect == VideoFx.EFFECT_VHS ? "Intensita' distorsione: " : "Intensita': ") + p + "%");
             }
         });
         k.setMax(100);
         k.setProgress(Math.round(it.intensity * 100));
+        settle(k, Math.round(it.intensity * 100));
         kBox.addView(k);
         root.addView(kBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
         crtBox = new LinearLayout(ctx);
@@ -244,6 +248,9 @@ final class FxDialog {
         SeekBar bars = Ui.seek(ctx, new Ui.SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
                 it.crtBars = p;
                 barsText.setText(p == 0 ? "Fasce scure che scorrono: nessuna"
                         : "Fasce scure che scorrono: " + p);
@@ -251,22 +258,32 @@ final class FxDialog {
         });
         bars.setMax(5);
         bars.setProgress(it.crtBars);
+        settle(bars, it.crtBars);
         crtBox.addView(bars);
         barSpeedText = Ui.text(ctx, "", 14, Ui.TEXT, false);
         crtBox.addView(barSpeedText, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
         SeekBar bsp = Ui.seek(ctx, new Ui.SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
                 it.crtBarSpeed = (p + 2) / 100f;
                 barSpeedText.setText("Velocità delle fasce: " + (p + 2) + "%");
             }
         });
         bsp.setMax(98);
         bsp.setProgress(Math.max(0, Math.min(98, Math.round(it.crtBarSpeed * 100) - 2)));
+        settle(bsp, Math.max(0, Math.min(98, Math.round(it.crtBarSpeed * 100) - 2)));
         crtBox.addView(bsp);
         root.addView(crtBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
         buildVhs(root);
         styleFx();
+    }
+
+    /** Rimette il cursore sul valore salvato dopo il primo disegno della finestra. */
+    private static void settle(final SeekBar sb, final int value) {
+        sb.post(() -> sb.setProgress(value));
     }
 
     private void buildVhs(LinearLayout root) {
@@ -325,12 +342,16 @@ final class FxDialog {
         SeekBar sz = Ui.seek(ctx, new Ui.SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
                 it.vhsSize = (3 + p) / 100f;
                 vhsSizeText.setText("Dimensione scritte: " + (3 + p) + "% dell'altezza del video");
             }
         });
         sz.setMax(12);
         sz.setProgress(Math.max(0, Math.min(12, Math.round(it.vhsSize * 100) - 3)));
+        settle(sz, Math.max(0, Math.min(12, Math.round(it.vhsSize * 100) - 3)));
         vhsBox.addView(sz);
         vhsBox.addView(Ui.text(ctx, "Colore delle scritte", 14, Ui.TEXT, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
         LinearLayout sw = new LinearLayout(ctx);

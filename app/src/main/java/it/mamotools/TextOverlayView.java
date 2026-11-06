@@ -144,6 +144,7 @@ final class TextOverlayView extends View {
                 c.clipRect(l, t, l + rw, t + rh);
                 float cx = l + rw / 2, cy = t + rh / 2;
                 RectF dst = new RectF(cx - rw * z / 2, cy - rh * z / 2, cx + rw * z / 2, cy + rh * z / 2);
+                boolean frameDone = false;
                 if (u[VideoFx.U_SPLIT] > 0) {
                     Paint bk = new Paint();
                     bk.setColor(0xFF000000);
@@ -167,6 +168,7 @@ final class TextOverlayView extends View {
                 } else if (u[VideoFx.U_CRT] > 0 && u[VideoFx.U_WARP] > 0 && u[VideoFx.U_PIX] == 0
                         && u[VideoFx.U_BLUR] == 0) {
                     drawCrtMesh(c, g, dst, l, t, rw, rh);
+                    frameDone = true;
                 } else if (u[VideoFx.U_VHS] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
                     drawVhsMesh(c, g, dst, l, t, rw, rh);
                 } else {
@@ -174,6 +176,9 @@ final class TextOverlayView extends View {
                     fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
                     c.drawBitmap(g, null, dst, fxPaint);
                     fxPaint.setColorFilter(null);
+                }
+                if (u[VideoFx.U_CRT] > 0 && u[VideoFx.U_WARP] > 0 && !frameDone) {
+                    drawCrtFrame(c, l, t, rw, rh);
                 }
                 c.restore();
                 g.recycle();
@@ -274,6 +279,46 @@ final class TextOverlayView extends View {
             c.drawRect(l, t, l + rw, t + rh, vp);
         }
         c.restore();
+    }
+
+    /** Cornice nera con il bordo curvo dello schermo CRT (copre tutto il fuori-schermo, fino ai lati). */
+    private void drawCrtFrame(Canvas c, float l, float t, float rw, float rh) {
+        android.graphics.Path path = new android.graphics.Path();
+        path.setFillType(android.graphics.Path.FillType.EVEN_ODD);
+        path.addRect(l, t, l + rw, t + rh, android.graphics.Path.Direction.CW);
+        final int n = 24;
+        float cx = l + rw / 2, cy = t + rh / 2;
+        boolean first = true;
+        for (int q = 0; q < 4 * n; q++) {
+            float sx, sy;
+            int side = q / n, i = q % n;
+            float a = i / (float) n - 0.5f;
+            if (side == 0) {
+                sx = a;
+                sy = -0.5f;
+            } else if (side == 1) {
+                sx = 0.5f;
+                sy = a;
+            } else if (side == 2) {
+                sx = -a;
+                sy = 0.5f;
+            } else {
+                sx = -0.5f;
+                sy = -a;
+            }
+            float f = 1f / (1f + 0.2f * (sx * sx + sy * sy));
+            float px = cx + sx * f * rw, py = cy + sy * f * rh;
+            if (first) {
+                path.moveTo(px, py);
+                first = false;
+            } else {
+                path.lineTo(px, py);
+            }
+        }
+        path.close();
+        Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        p.setColor(0xFF000000);
+        c.drawPath(path, p);
     }
 
     /** Fasce scure che scorrono dal basso verso l'alto (stessa formula dello shader dell'esportazione). */
