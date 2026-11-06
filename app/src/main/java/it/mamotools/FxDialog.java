@@ -186,8 +186,9 @@ final class FxDialog {
     // ------------------------------------------------------------------ effetto
 
     private TextView[] fxChips;
-    private TextView crtChip;
-    private LinearLayout kBox, crtBox;
+    private TextView crtChip, barsText, barSpeedText, vhsDistChip, vhsTextChip, vhsSizeText;
+    private LinearLayout kBox, crtBox, vhsBox;
+    private LinearLayout[] vhsSw;
     private TextView kText;
 
     private void buildEffect(LinearLayout root) {
@@ -217,7 +218,7 @@ final class FxDialog {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
                 it.intensity = p / 100f;
-                kText.setText("Intensita': " + p + "%");
+                kText.setText((it.effect == VideoFx.EFFECT_VHS ? "Intensita' distorsione: " : "Intensita': ") + p + "%");
             }
         });
         k.setMax(100);
@@ -235,11 +236,118 @@ final class FxDialog {
         crtBox.addView(crtChip, new LinearLayout.LayoutParams(Ui.MATCH, dp(44)));
         crtBox.addView(Ui.text(ctx, "Le linee orizzontali e i puntini RGB verticali dello schermo ci sono sempre. "
                 + "Le distorsioni aggiungono: schermo bombato con angoli scuri, colori leggermente sfasati, "
-                + "tremolio delle righe, fascia scura che scorre, sfarfallio e disturbo. L'anteprima mostra "
-                + "linee, puntini e curvatura; tremolio e disturbo si vedono nel video esportato.", 12, Ui.DIM,
+                + "tremolio delle righe, sfarfallio e disturbo. L'anteprima mostra linee, puntini, curvatura "
+                + "e fasce; tremolio e disturbo si vedono nel video esportato.", 12, Ui.DIM,
                 false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
+        barsText = Ui.text(ctx, "", 14, Ui.TEXT, false);
+        crtBox.addView(barsText, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
+        SeekBar bars = Ui.seek(ctx, new Ui.SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                it.crtBars = p;
+                barsText.setText(p == 0 ? "Fasce scure che scorrono: nessuna"
+                        : "Fasce scure che scorrono: " + p);
+            }
+        });
+        bars.setMax(5);
+        bars.setProgress(it.crtBars);
+        crtBox.addView(bars);
+        barSpeedText = Ui.text(ctx, "", 14, Ui.TEXT, false);
+        crtBox.addView(barSpeedText, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
+        SeekBar bsp = Ui.seek(ctx, new Ui.SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                it.crtBarSpeed = (p + 2) / 100f;
+                barSpeedText.setText("Velocità delle fasce: " + (p + 2) + "%");
+            }
+        });
+        bsp.setMax(98);
+        bsp.setProgress(Math.max(0, Math.min(98, Math.round(it.crtBarSpeed * 100) - 2)));
+        crtBox.addView(bsp);
         root.addView(crtBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
+        buildVhs(root);
         styleFx();
+    }
+
+    private void buildVhs(LinearLayout root) {
+        vhsBox = new LinearLayout(ctx);
+        vhsBox.setOrientation(LinearLayout.VERTICAL);
+        vhsDistChip = Ui.chip(ctx, "");
+        vhsDistChip.setTextSize(13);
+        vhsDistChip.setOnClickListener(v -> {
+            it.vhsDist = !it.vhsDist;
+            styleFx();
+        });
+        vhsBox.addView(vhsDistChip, new LinearLayout.LayoutParams(Ui.MATCH, dp(44)));
+        vhsTextChip = Ui.chip(ctx, "");
+        vhsTextChip.setTextSize(13);
+        vhsTextChip.setOnClickListener(v -> {
+            it.vhsText = !it.vhsText;
+            styleFx();
+        });
+        vhsBox.addView(vhsTextChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsBox.addView(Ui.text(ctx, "Distorsione: righe sfasate, fasce di disturbo, neve, colori sbiaditi e "
+                + "bordi sfocati; l'intensita' regola quanto e' forte. Le scritte hanno pixel grossi e, con la "
+                + "distorsione attiva, tremano. Puoi tenere solo le scritte o solo la distorsione. "
+                + "Lascia vuota una scritta per non mostrarla.", 12, Ui.DIM, false),
+                Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
+        String[] labels = {"In alto a sinistra", "In alto a destra", "In basso a sinistra", "In basso a destra"};
+        for (int i = 0; i < 4; i++) {
+            final int idx = i;
+            vhsBox.addView(Ui.text(ctx, labels[i], 12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 10));
+            EditText e = new EditText(ctx);
+            e.setText(it.vhsTxt[i]);
+            e.setTextColor(Ui.TEXT);
+            e.setHintTextColor(Ui.DIM);
+            e.setHint("(vuota)");
+            e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_MULTI_LINE
+                    | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+            e.setBackground(Ui.round(ctx, Ui.CARD2, 12));
+            e.setPadding(dp(14), dp(8), dp(14), dp(8));
+            e.addTextChangedListener(new TextWatcher() {
+                @Override
+                public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+                }
+
+                @Override
+                public void onTextChanged(CharSequence s, int a, int b, int c) {
+                }
+
+                @Override
+                public void afterTextChanged(Editable ed) {
+                    it.vhsTxt[idx] = ed.toString();
+                }
+            });
+            vhsBox.addView(e, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
+        }
+        vhsSizeText = Ui.text(ctx, "", 14, Ui.TEXT, false);
+        vhsBox.addView(vhsSizeText, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
+        SeekBar sz = Ui.seek(ctx, new Ui.SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                it.vhsSize = (3 + p) / 100f;
+                vhsSizeText.setText("Dimensione scritte: " + (3 + p) + "% dell'altezza del video");
+            }
+        });
+        sz.setMax(12);
+        sz.setProgress(Math.max(0, Math.min(12, Math.round(it.vhsSize * 100) - 3)));
+        vhsBox.addView(sz);
+        vhsBox.addView(Ui.text(ctx, "Colore delle scritte", 14, Ui.TEXT, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
+        LinearLayout sw = new LinearLayout(ctx);
+        int ns = VideoFx.SWATCHES.length;
+        vhsSw = new LinearLayout[ns];
+        for (int i = 0; i < ns; i++) {
+            final int col = VideoFx.SWATCHES[i];
+            LinearLayout d = new LinearLayout(ctx);
+            d.setOnClickListener(v -> {
+                it.vhsColor = col;
+                styleFx();
+            });
+            vhsSw[i] = d;
+            sw.addView(d, Ui.lp(ctx, 0, dp(32), i == 0 ? 0 : 5, 0, 1f));
+        }
+        vhsBox.addView(sw, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
+        root.addView(vhsBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
     }
 
     private void styleFx() {
@@ -248,9 +356,28 @@ final class FxDialog {
         }
         kBox.setVisibility(VideoFx.EFFECT_HAS_K[it.effect] ? View.VISIBLE : View.GONE);
         kText.setText("Intensita': " + Math.round(it.intensity * 100) + "%");
-        crtBox.setVisibility(it.effect == 12 ? View.VISIBLE : View.GONE);
+        crtBox.setVisibility(it.effect == VideoFx.EFFECT_CRT ? View.VISIBLE : View.GONE);
         crtChip.setText(it.crtWarp ? "Distorsioni CRT: attive" : "Distorsioni CRT: disattivate");
         Ui.styleChip(ctx, crtChip, it.crtWarp);
+        barsText.setText(it.crtBars == 0 ? "Fasce scure che scorrono: nessuna"
+                : "Fasce scure che scorrono: " + it.crtBars);
+        barSpeedText.setText("Velocità delle fasce: " + Math.round(it.crtBarSpeed * 100) + "%");
+        vhsBox.setVisibility(it.effect == VideoFx.EFFECT_VHS ? View.VISIBLE : View.GONE);
+        vhsDistChip.setText(it.vhsDist ? "Distorsione immagine: attiva" : "Distorsione immagine: disattivata");
+        Ui.styleChip(ctx, vhsDistChip, it.vhsDist);
+        vhsTextChip.setText(it.vhsText ? "Scritte VHS: attive" : "Scritte VHS: disattivate");
+        Ui.styleChip(ctx, vhsTextChip, it.vhsText);
+        vhsSizeText.setText("Dimensione scritte: " + Math.round(it.vhsSize * 100) + "% dell'altezza del video");
+        for (int i = 0; i < vhsSw.length; i++) {
+            int col = VideoFx.SWATCHES[i];
+            android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+            g.setColor(col);
+            g.setCornerRadius(dp(8));
+            g.setStroke(dp(it.vhsColor == col ? 3 : 1), it.vhsColor == col ? Ui.ACCENT : 0x55FFFFFF);
+            vhsSw[i].setBackground(g);
+        }
+        kText.setText((it.effect == VideoFx.EFFECT_VHS ? "Intensita' distorsione: " : "Intensita': ")
+                + Math.round(it.intensity * 100) + "%");
         if (it.effect == 8 || it.effect == 9) {
             // dissolvenze: durata = intervallo scelto
         }

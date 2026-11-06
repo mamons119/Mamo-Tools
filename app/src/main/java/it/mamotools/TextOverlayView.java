@@ -20,6 +20,8 @@ import java.util.Map;
 /** Disegna sopra il VideoView i testi attivi alla posizione corrente (solo anteprima). */
 final class TextOverlayView extends View {
     private List<VideoFx.Item> items;
+    private List<VideoFx.Item> texts;
+    private final float[] cpos = new float[2];
     private long posMs;
     private int vw, vh;
     private final Paint paint = new Paint(Paint.FILTER_BITMAP_FLAG);
@@ -52,6 +54,7 @@ final class TextOverlayView extends View {
 
     void setItems(List<VideoFx.Item> l) {
         items = l;
+        texts = VideoFx.expandVhs(l);
         cache.clear();
         applyFx();
         invalidate();
@@ -74,13 +77,15 @@ final class TextOverlayView extends View {
 
     /** Da chiamare quando un elemento e' stato modificato. */
     void refresh() {
+        texts = VideoFx.expandVhs(items);
         cache.clear();
         applyFx();
         invalidate();
     }
 
     static String sig(VideoFx.Item o, int h) {
-        return o.text + "|" + o.font + o.bold + o.italic + o.sizeFrac + o.color + o.outline + o.shadow + o.box + "|" + h;
+        return o.text + "|" + o.font + o.bold + o.italic + o.sizeFrac + o.color + o.outline + o.shadow + o.box + "|" + h
+                + (o.vhs ? "v" + o.vhsJit + o.align + o.salt : "");
     }
 
     @Override
@@ -93,7 +98,7 @@ final class TextOverlayView extends View {
         float l = (getWidth() - rw) / 2f, t = (getHeight() - rh) / 2f;
         drawFx(c, l, t, rw, rh, s);
         long us = posMs * 1000;
-        for (VideoFx.Item it : items) {
+        for (VideoFx.Item it : texts) {
             if (!it.isText || !it.activeAt(us) || it.text == null || it.text.trim().isEmpty()) {
                 continue;
             }
@@ -109,7 +114,9 @@ final class TextOverlayView extends View {
             if (b == null) {
                 continue;
             }
-            c.drawBitmap(b, l + it.x * rw - b.getWidth() / 2f, t + it.y * rh - b.getHeight() / 2f, paint);
+            VideoFx.center(it, b.getWidth(), b.getHeight(), rw, rh, cpos);
+            float jx = it.vhsJit ? VideoFx.vhsJitter(us, it.salt) * rw : 0f;
+            c.drawBitmap(b, l + cpos[0] * rw - b.getWidth() / 2f + jx, t + cpos[1] * rh - b.getHeight() / 2f, paint);
         }
     }
 
@@ -160,6 +167,8 @@ final class TextOverlayView extends View {
                 } else if (u[VideoFx.U_CRT] > 0 && u[VideoFx.U_WARP] > 0 && u[VideoFx.U_PIX] == 0
                         && u[VideoFx.U_BLUR] == 0) {
                     drawCrtMesh(c, g, dst, l, t, rw, rh);
+                } else if (u[VideoFx.U_VHS] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
+                    drawVhsMesh(c, g, dst, l, t, rw, rh);
                 } else {
                     fxPaint.setFilterBitmap(smooth);
                     fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
@@ -172,6 +181,12 @@ final class TextOverlayView extends View {
         }
         if (u[VideoFx.U_CRT] > 0) {
             drawCrtOverlay(c, l, t, rw, rh);
+            if (u[VideoFx.U_BARS] > 0) {
+                drawCrtBars(c, l, t, rw, rh);
+            }
+        }
+        if (u[VideoFx.U_VHS] > 0) {
+            drawVhsOverlay(c, l, t, rw, rh);
         }
         if (u[VideoFx.U_VIG] > 0) {
             c.save();
@@ -257,6 +272,107 @@ final class TextOverlayView extends View {
             vp.setShader(new RadialGradient(l + rw / 2, t + rh / 2, rad, new int[]{0, 0, 0x99000000},
                     new float[]{0f, 0.55f, 1f}, Shader.TileMode.CLAMP));
             c.drawRect(l, t, l + rw, t + rh, vp);
+        }
+        c.restore();
+    }
+
+    /** Fasce scure che scorrono dal basso verso l'alto (stessa formula dello shader dell'esportazione). */
+    private void drawCrtBars(Canvas c, float l, float t, float rw, float rh) {
+        float tm = posMs / 1000f;
+        int n = Math.min(5, Math.round(u[VideoFx.U_BARS]));
+        c.save();
+        c.clipRect(l, t, l + rw, t + rh);
+        Paint p = new Paint();
+        for (int i = 0; i < n; i++) {
+            float ph = tm * u[VideoFx.U_BSPD] * (1f + 0.37f * i) + 0.381966f * i;
+            float y0 = (float) (-ph - Math.floor(-ph));
+            for (int w = -1; w <= 0; w++) {
+                float top = t + (y0 + w) * rh;
+                p.setShader(new android.graphics.LinearGradient(0, top, 0, top + 0.16f * rh, 0x38000000, 0,
+                        Shader.TileMode.CLAMP));
+                c.drawRect(l, top, l + rw, top + 0.16f * rh, p);
+            }
+        }
+        c.restore();
+    }
+
+    private static float sstep(float a, float b, float x) {
+        float q = Math.max(0f, Math.min(1f, (x - a) / (b - a)));
+        return q * q * (3 - 2 * q);
+    }
+
+    private static float bandY(int i, float tm) {
+        float v = tm * (0.04f + 0.025f * i) + 0.43f * i + 0.1f;
+        return (float) (v - Math.floor(v));
+    }
+
+    /** Fotogramma con righe sfasate: tremolio, fasce di disturbo e rumore in basso. */
+    private void drawVhsMesh(Canvas c, Bitmap g, RectF dst, float l, float t, float rw, float rh) {
+        float k = u[VideoFx.U_VHS];
+        float tm = posMs / 1000f;
+        long step = posMs / 40;
+        final int n = 60;
+        float[] v = new float[2 * (n + 1) * 2];
+        int q = 0;
+        for (int j = 0; j <= n; j++) {
+            float fy = j / (float) n;
+            float off = (VideoFx.hash1(j * 131L + step * 7) - 0.5f) * 0.004f * k;
+            for (int i = 0; i < 2; i++) {
+                float m = 1f - sstep(0f, 0.03f + 0.012f * i, Math.abs(fy - bandY(i, tm)));
+                off += m * (VideoFx.hash1(j * 71L + step * 11 + i * 5) - 0.5f) * 0.1f * k;
+            }
+            off += sstep(0.94f, 1f, fy) * (0.01f + 0.03f * VideoFx.hash1(j * 17L + step)) * k;
+            float y = dst.top + dst.height() * fy;
+            v[q++] = dst.left + off * rw;
+            v[q++] = y;
+            v[q++] = dst.right + off * rw;
+            v[q++] = y;
+        }
+        fxPaint.setFilterBitmap(true);
+        fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
+        c.drawBitmapMesh(g, 1, n, v, 0, null, 0, fxPaint);
+        fxPaint.setColorFilter(null);
+    }
+
+    /** Tinta violacea, puntini di neve, strisce bianche sulle fasce di disturbo e rumore in basso. */
+    private void drawVhsOverlay(Canvas c, float l, float t, float rw, float rh) {
+        float k = u[VideoFx.U_VHS];
+        float tm = posMs / 1000f;
+        java.util.Random r = new java.util.Random((posMs / 40) * 7919L + 13);
+        float cell = Math.max(1f, rh / 240f);
+        c.save();
+        c.clipRect(l, t, l + rw, t + rh);
+        Paint p = new Paint();
+        p.setColor(android.graphics.Color.argb(Math.round(255 * 0.14f * k), 48, 16, 72));
+        c.drawRect(l, t, l + rw, t + rh, p);
+        int cnt = Math.min(1500, Math.round(rw * rh / (cell * cell) * 0.01f * k));
+        float[] pts = new float[cnt * 2];
+        for (int i = 0; i < cnt; i++) {
+            pts[2 * i] = l + r.nextFloat() * rw;
+            pts[2 * i + 1] = t + r.nextFloat() * rh;
+        }
+        Paint sp = new Paint();
+        sp.setColor(0xCCDDDDDD);
+        sp.setStrokeWidth(cell);
+        sp.setStrokeCap(Paint.Cap.SQUARE);
+        c.drawPoints(pts, sp);
+        Paint dp = new Paint();
+        dp.setColor(0xDDE0E0E0);
+        for (int i = 0; i < 2; i++) {
+            float y0 = t + bandY(i, tm) * rh;
+            p.setColor(android.graphics.Color.argb(Math.round(255 * 0.12f * k), 255, 255, 255));
+            c.drawRect(l, y0 - 0.012f * rh, l + rw, y0 + 0.012f * rh, p);
+            for (int d = 0; d < 40; d++) {
+                float yy = y0 + (r.nextFloat() - 0.5f) * 0.05f * rh;
+                float x = l + r.nextFloat() * rw;
+                float len = (0.01f + r.nextFloat() * 0.08f) * rw;
+                c.drawRect(x, yy, x + len, yy + cell, dp);
+            }
+        }
+        for (int d = 0; d < 40; d++) {
+            float yy = t + (0.95f + r.nextFloat() * 0.05f) * rh;
+            float x = l + r.nextFloat() * rw;
+            c.drawRect(x, yy, x + (0.02f + r.nextFloat() * 0.1f) * rw, yy + cell, dp);
         }
         c.restore();
     }

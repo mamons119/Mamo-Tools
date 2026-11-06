@@ -1626,7 +1626,8 @@ public class VideoEditorActivity extends Activity {
                 Paint fp = new Paint(Paint.FILTER_BITMAP_FLAG);
                 fp.setColorFilter(new android.graphics.ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
                 drawThumbs(c, w, h, n, fp);
-                if (VideoFx.needsGrab(u) || u[VideoFx.U_VIG] > 0 || u[VideoFx.U_ZOOM] != 1 || u[VideoFx.U_CRT] > 0) {
+                if (VideoFx.needsGrab(u) || u[VideoFx.U_VIG] > 0 || u[VideoFx.U_ZOOM] != 1 || u[VideoFx.U_CRT] > 0
+                        || u[VideoFx.U_VHS] > 0) {
                     paint.setStyle(Paint.Style.FILL);
                     paint.setColor(0x334DD0E1);
                     c.drawRect(x(f.startUs / 1000), 0, x(f.endUs / 1000), h, paint);
