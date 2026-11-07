@@ -146,12 +146,6 @@ public class MainActivity extends Activity {
             root.addView(card);
         }
 
-        // segnaposto per i prossimi strumenti
-        final View soon = toolCard("➕", "Altri strumenti in arrivo",
-                "Qui compariranno i prossimi tool.", null);
-        soon.setAlpha(0.45f);
-        root.addView(soon);
-
         final TextView none = new TextView(this);
         none.setText("Nessuno strumento trovato.");
         none.setTextColor(getColor(R.color.text_dim));
@@ -160,6 +154,7 @@ public class MainActivity extends Activity {
         none.setPadding(0, dp(24), 0, 0);
         none.setVisibility(View.GONE);
         root.addView(none);
+        root.addView(buildFooter());
 
         final InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
         lens.setOnClickListener(new View.OnClickListener() {
@@ -207,12 +202,59 @@ public class MainActivity extends Activity {
                         shown++;
                     }
                 }
-                soon.setVisibility(q.isEmpty() ? View.VISIBLE : View.GONE);
                 none.setVisibility(!q.isEmpty() && shown == 0 ? View.VISIBLE : View.GONE);
             }
         });
 
         setContentView(scroll);
+    }
+
+    /** Versione dell'app (letta dal pacchetto, quindi sempre uguale a quella installata), autore e link a GitHub. */
+    private View buildFooter() {
+        String ver = "";
+        try {
+            ver = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+        } catch (Exception ignored) {
+        }
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setPadding(0, dp(36), 0, dp(8));
+
+        View line = new View(this);
+        line.setBackgroundColor(0x229AA3B2);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(1));
+        lp.bottomMargin = dp(16);
+        box.addView(line, lp);
+
+        LinearLayout row = new LinearLayout(this);
+        row.setGravity(Gravity.CENTER_VERTICAL);
+        TextView t = new TextView(this);
+        t.setText("v" + ver + "   ·   Mamons (ft. Claude)");
+        t.setTextSize(12);
+        t.setLetterSpacing(0.04f);
+        t.setTextColor(getColor(R.color.text_dim));
+        row.addView(t);
+
+        android.widget.ImageView gh = new android.widget.ImageView(this);
+        gh.setImageResource(R.drawable.ic_github);
+        gh.setPadding(dp(8), dp(8), dp(8), dp(8));
+        gh.setContentDescription("GitHub");
+        gh.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW,
+                            android.net.Uri.parse("https://github.com/mamons119/Mamo-Tools")));
+                } catch (Exception ignored) {
+                }
+            }
+        });
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(40), dp(40));
+        gp.leftMargin = dp(4);
+        row.addView(gh, gp);
+        box.addView(row);
+        return box;
     }
 
     private View toolCard(String icon, String name, String desc, View.OnClickListener click) {
