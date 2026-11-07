@@ -91,7 +91,7 @@ final class FxDialog {
         int max = (int) Math.max(1, durMs / 100);
         if (it.endUs <= it.startUs) {
             it.startUs = Math.min(cursorMs, Math.max(0, durMs - 500)) * 1000;
-            it.endUs = Math.min(durMs, cursorMs + 3000) * 1000;
+            it.endUs = endFor((cursorMs + 3000) * 1000);
         }
         root.addView(Ui.text(ctx, "Inizio", 12, Ui.DIM, false));
         sbStart = Ui.seek(ctx, new Ui.SimpleSeek() {
@@ -100,8 +100,8 @@ final class FxDialog {
                 if (user) {
                     it.startUs = p * 100000L;
                     if (it.endUs < it.startUs + 100000) {
-                        it.endUs = Math.min(durMs * 1000, it.startUs + 100000);
-                        sbEnd.setProgress((int) (it.endUs / 100000));
+                        it.endUs = endFor(it.startUs + 100000);
+                        sbEnd.setProgress(endProg());
                     }
                     timesChanged();
                 }
@@ -115,29 +115,30 @@ final class FxDialog {
             @Override
             public void onProgressChanged(SeekBar s, int p, boolean user) {
                 if (user) {
-                    it.endUs = Math.max(p * 100000L, it.startUs + 100000);
+                    long e = p >= sbEnd.getMax() ? durMs * 1000 : p * 100000L;
+                    it.endUs = endFor(Math.max(e, it.startUs + 100000));
                     timesChanged();
                 }
             }
         });
         sbEnd.setMax(max);
-        sbEnd.setProgress((int) (it.endUs / 100000));
+        sbEnd.setProgress(endProg());
         root.addView(sbEnd);
         LinearLayout cur = new LinearLayout(ctx);
         final long cm = cursorMs;
         cur.addView(Ui.btn(ctx, "Inizio = cursore", Ui.CARD2, Ui.TEXT, v -> {
             it.startUs = cm * 1000;
             if (it.endUs <= it.startUs) {
-                it.endUs = Math.min(durMs, cm + 3000) * 1000;
+                it.endUs = endFor((cm + 3000) * 1000);
             }
             sbStart.setProgress((int) (it.startUs / 100000));
-            sbEnd.setProgress((int) (it.endUs / 100000));
+            sbEnd.setProgress(endProg());
             timesChanged();
         }), new LinearLayout.LayoutParams(0, dp(42), 1f));
         cur.addView(Ui.btn(ctx, "Fine = cursore", Ui.CARD2, Ui.TEXT, v -> {
             if (cm * 1000 > it.startUs) {
-                it.endUs = cm * 1000;
-                sbEnd.setProgress((int) (it.endUs / 100000));
+                it.endUs = endFor(cm * 1000);
+                sbEnd.setProgress(endProg());
                 timesChanged();
             }
         }), Ui.lp(ctx, 0, dp(42), 8, 0, 1f));
@@ -279,6 +280,15 @@ final class FxDialog {
         root.addView(crtBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
         buildVhs(root);
         styleFx();
+    }
+
+    /** Fine dell'intervallo: se arriva (o supera) la fine del video, la porta 1 ms oltre, cosi' l'ultimo fotogramma e' incluso. */
+    private long endFor(long us) {
+        return us >= durMs * 1000 ? durMs * 1000 + 1000 : us;
+    }
+
+    private int endProg() {
+        return (int) Math.min(sbEnd.getMax(), (it.endUs + 99999) / 100000);
     }
 
     /** Rimette il cursore sul valore salvato dopo il primo disegno della finestra. */

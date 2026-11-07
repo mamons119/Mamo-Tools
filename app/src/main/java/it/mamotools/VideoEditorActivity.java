@@ -112,6 +112,8 @@ public class VideoEditorActivity extends Activity {
     private LinearLayout editorBox, soundBox;
     private ProgressBar progress;
     private MediaPlayer soundPlayer;
+    private MediaPlayer prevSound;          // colonna sonora riprodotta insieme al video nell'anteprima
+    private boolean prevSoundReady = false;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable ticker = new Runnable() {
@@ -187,7 +189,7 @@ public class VideoEditorActivity extends Activity {
         prev.addView(vf, new LinearLayout.LayoutParams(MATCH, dp(220)));
         videoView.setOnPreparedListener(mp -> {
             videoPlayer = mp;
-            mp.setVolume(keepAudio ? 1f : 0f, keepAudio ? 1f : 0f);
+            applyVolumes();
             if (durMs <= 0) {
                 durMs = Math.max(1, videoView.getDuration());
             }
@@ -197,6 +199,7 @@ public class VideoEditorActivity extends Activity {
         videoView.setOnCompletionListener(mp -> {
             playBtn.setText("▶");
             timeline.setPos(durMs);
+            soundPause();
         });
 
         LinearLayout ctl = new LinearLayout(this);
@@ -273,10 +276,8 @@ public class VideoEditorActivity extends Activity {
         sw.setTrackTintList(ColorStateList.valueOf(0x664DD0E1));
         sw.setOnCheckedChangeListener((CompoundButton b, boolean on) -> {
             keepAudio = on;
-            if (videoPlayer != null) {
-                videoPlayer.setVolume(on ? 1f : 0f, on ? 1f : 0f);
-            }
             updateModeAvailability();
+            applyVolumes();
         });
         au.addView(sw, new LinearLayout.LayoutParams(MATCH, WRAP));
         editorBox.addView(au, lp(MATCH, WRAP, 0, 12));
@@ -310,6 +311,7 @@ public class VideoEditorActivity extends Activity {
             public void onProgressChanged(SeekBar sb, int p, boolean user) {
                 soundStartMs = p * 100L;
                 updateTexts();
+                soundSeek(timeline == null ? 0 : timeline.pos);
             }
         });
         soundBox.addView(soundStartBar, new LinearLayout.LayoutParams(MATCH, WRAP));
@@ -328,6 +330,7 @@ public class VideoEditorActivity extends Activity {
         modeGroup.setOnCheckedChangeListener((g, id) -> {
             mix = id == 2002;
             updateModeAvailability();
+            applyVolumes();
         });
         soundBox.addView(modeGroup, new LinearLayout.LayoutParams(MATCH, WRAP));
 
@@ -339,6 +342,7 @@ public class VideoEditorActivity extends Activity {
             public void onProgressChanged(SeekBar sb, int p, boolean user) {
                 dbDown = p + 3;
                 updateTexts();
+                applyVolumes();
             }
         });
         dbBar.setMax(27);          // 3..30 dB
@@ -826,6 +830,7 @@ public class VideoEditorActivity extends Activity {
         resultUri = null;
         openBtn.setVisibility(View.GONE);
         status.setText("");
+        soundPause();
         cuts.clear();
         fxItems.clear();
         refreshFx();
@@ -919,6 +924,8 @@ public class VideoEditorActivity extends Activity {
         soundBox.setVisibility(View.VISIBLE);
         updateModeAvailability();
         updateTexts();
+        preparePrevSound();
+        applyVolumes();
     }
 
     private void clearSound() {
@@ -926,6 +933,154 @@ public class VideoEditorActivity extends Activity {
         soundUri = null;
         soundName.setText("Nessuna");
         soundBox.setVisibility(View.GONE);
+        releasePrevSound();
+        applyVolumes();
+    }
+
+    // ------------------------------------------------------------------------ colonna sonora nell'anteprima
+
+    /** Tempo del video dopo i tagli (ms) corrispondente alla posizione videoMs. */
+    private long keptBefore(long videoMs) {
+        long t = videoMs;
+        for (long[] c : cuts) {
+            long b = Math.min(c[1], videoMs);
+            if (b > c[0]) {
+                t -= b - c[0];
+            }
+        }
+        return Math.max(0, t);
+    }
+
+    /** Volumi dell'anteprima: come nel file esportato (originale muto, normale o abbassato; colonna sonora piena). */
+    private void applyVolumes() {
+        float g = 0f;
+        if (keepAudio) {
+            if (soundUri == null) {
+                g = 1f;
+            } else if (mix) {
+                g = (float) Math.pow(10.0, -dbDown / 20.0);
+            }
+        }
+        try {
+            if (videoPlayer != null) {
+                videoPlayer.setVolume(g, g);
+            }
+            if (prevSound != null && prevSoundReady) {
+                prevSound.setVolume(1f, 1f);
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void preparePrevSound() {
+        releasePrevSound();
+        if (soundUri == null) {
+            return;
+        }
+        try {
+            final MediaPlayer m = new MediaPlayer();
+            m.setDataSource(this, soundUri);
+            m.setOnErrorListener((mp, what, extra) -> true);
+            m.setOnPreparedListener(mp -> {
+                if (prevSound != mp) {
+                    return;
+                }
+                prevSoundReady = true;
+                applyVolumes();
+                if (videoUri != null && videoView.isPlaying()) {
+                    soundPlay(videoView.getCurrentPosition());
+                }
+            });
+            prevSound = m;
+            m.prepareAsync();
+        } catch (Exception e) {
+            releasePrevSound();
+        }
+    }
+
+    private void releasePrevSound() {
+        prevSoundReady = false;
+        if (prevSound != null) {
+            try {
+                prevSound.release();
+            } catch (Exception ignored) {
+            }
+            prevSound = null;
+        }
+    }
+
+    private void soundPlay(long videoMs) {
+        stopSoundTest();
+        if (prevSound == null || !prevSoundReady) {
+            return;
+        }
+        long t = soundStartMs + keptBefore(videoMs);
+        try {
+            if (t >= soundDurMs) {
+                if (prevSound.isPlaying()) {
+                    prevSound.pause();
+                }
+                return;
+            }
+            prevSound.seekTo((int) t, MediaPlayer.SEEK_CLOSEST);
+            prevSound.start();
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void soundPause() {
+        try {
+            if (prevSound != null && prevSoundReady && prevSound.isPlaying()) {
+                prevSound.pause();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Il video e' stato spostato: porta la colonna sonora nel punto giusto. */
+    private void soundSeek(long videoMs) {
+        if (prevSound == null || !prevSoundReady) {
+            return;
+        }
+        long t = soundStartMs + keptBefore(videoMs);
+        try {
+            boolean playing = prevSound.isPlaying();
+            if (playing && Math.abs(prevSound.getCurrentPosition() - t) < 200) {
+                return;
+            }
+            if (t >= soundDurMs) {
+                if (playing) {
+                    prevSound.pause();
+                }
+                return;
+            }
+            prevSound.seekTo((int) t, MediaPlayer.SEEK_CLOSEST);
+            if (videoView != null && videoView.isPlaying() && !playing) {
+                prevSound.start();
+            }
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Durante la riproduzione tiene la colonna sonora allineata al video. */
+    private void soundDrift(long videoMs) {
+        if (prevSound == null || !prevSoundReady) {
+            return;
+        }
+        long t = soundStartMs + keptBefore(videoMs);
+        try {
+            if (t >= soundDurMs) {
+                if (prevSound.isPlaying()) {
+                    prevSound.pause();
+                }
+            } else if (!prevSound.isPlaying()) {
+                prevSound.seekTo((int) t, MediaPlayer.SEEK_CLOSEST);
+                prevSound.start();
+            } else if (Math.abs(prevSound.getCurrentPosition() - t) > 350) {
+                prevSound.seekTo((int) t, MediaPlayer.SEEK_CLOSEST);
+            }
+        } catch (Exception ignored) {
+        }
     }
 
     // ------------------------------------------------------------------------ riproduzione
@@ -936,14 +1091,18 @@ public class VideoEditorActivity extends Activity {
         }
         if (videoView.isPlaying()) {
             videoView.pause();
+            soundPause();
             playBtn.setText("▶");
         } else {
+            long startMs = timeline.pos;
             if (timeline.pos >= durMs - 100) {
                 seekExact(0);
+                startMs = 0;
             } else if (!skipping) {
                 seekExact(timeline.pos);
             }
             videoView.start();
+            soundPlay(startMs);
             playBtn.setText("❚❚");
         }
     }
@@ -974,6 +1133,7 @@ public class VideoEditorActivity extends Activity {
             if (p >= c[0] && p < c[1]) {
                 if (c[1] >= durMs - 50) {
                     videoView.pause();
+                    soundPause();
                     playBtn.setText("▶");
                     p = c[0];
                     seekExact(p);
@@ -987,10 +1147,12 @@ public class VideoEditorActivity extends Activity {
         timeline.setPos(p);
         overlay.setPos(p);
         updateTexts();
+        soundDrift(p);
     }
 
     /** Salto preciso (non al fotogramma chiave precedente) con blocco anti-ripetizione. */
     private void seekExact(long ms) {
+        soundSeek(ms);
         if (videoPlayer == null) {
             videoView.seekTo((int) ms);
             return;
@@ -1025,6 +1187,11 @@ public class VideoEditorActivity extends Activity {
         if (soundUri == null) {
             return;
         }
+        if (videoUri != null && videoView.isPlaying()) {
+            videoView.pause();
+            playBtn.setText("▶");
+        }
+        soundPause();
         try {
             soundPlayer = new MediaPlayer();
             soundPlayer.setDataSource(this, soundUri);
@@ -1384,6 +1551,7 @@ public class VideoEditorActivity extends Activity {
             videoView.pause();
             playBtn.setText("▶");
         }
+        soundPause();
         stopSoundTest();
     }
 
@@ -1392,6 +1560,7 @@ public class VideoEditorActivity extends Activity {
         super.onDestroy();
         handler.removeCallbacks(ticker);
         stopSoundTest();
+        releasePrevSound();
         videoView.release();
     }
 
