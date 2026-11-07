@@ -222,17 +222,22 @@ public class MainActivity extends Activity {
         box.setPadding(0, dp(36), 0, dp(8));
 
         View line = new View(this);
-        line.setBackgroundColor(0x229AA3B2);
-        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(48), dp(1));
+        line.setBackgroundColor(0x449AA3B2);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(120), dp(2));
         lp.bottomMargin = dp(16);
         box.addView(line, lp);
 
         LinearLayout row = new LinearLayout(this);
-        row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setGravity(Gravity.CENTER);
+        String vs = "v" + ver;
+        android.text.SpannableString sp = new android.text.SpannableString(
+                vs + "   ·   Mamons (ft. Claude)   ·");
+        sp.setSpan(new android.text.style.ForegroundColorSpan(getColor(R.color.accent)), 0, vs.length(),
+                android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
         TextView t = new TextView(this);
-        t.setText("v" + ver + "   ·   Mamons (ft. Claude)");
-        t.setTextSize(12);
-        t.setLetterSpacing(0.04f);
+        t.setText(sp);
+        t.setTextSize(14);
+        t.setLetterSpacing(0.03f);
         t.setTextColor(getColor(R.color.text_dim));
         row.addView(t);
 
@@ -253,7 +258,7 @@ public class MainActivity extends Activity {
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(dp(40), dp(40));
         gp.leftMargin = dp(4);
         row.addView(gh, gp);
-        box.addView(row);
+        box.addView(row, new LinearLayout.LayoutParams(MATCH, WRAP));
         return box;
     }
 
