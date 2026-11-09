@@ -93,6 +93,52 @@ final class VideoProcessor {
             }
             return;
         }
+        // ---- taglio preciso: se un inizio di tratto non cade su un fotogramma chiave, la copia
+        // diretta includerebbe anche parte del materiale eliminato. In quel caso i tratti da tenere
+        // vengono montati con ricodifica (precisi al fotogramma) e poi si prosegue sul risultato.
+        if (needsAccurateCut(ctx, o)) {
+            File trimmed = new File(cacheDir, "trimmed.mp4");
+            try {
+                final Progress outer2 = p;
+                java.util.List<VideoComposer.Seg> segsList = new java.util.ArrayList<>();
+                long len = 0;
+                for (long[] k : o.keep) {
+                    if (k[1] - k[0] >= 100000) {
+                        segsList.add(new VideoComposer.Seg(o.video, k[0], k[1]));
+                        len += k[1] - k[0];
+                    }
+                }
+                int[] dim = displaySize(ctx, o.video);
+                int side = Math.min(1920, Math.max(dim[0], dim[1]));
+                int[] wh = VideoComposer.fitSize(dim[0], dim[1], side);
+                VideoComposer.compose(ctx, segsList, trimmed, cacheDir, wh[0], wh[1],
+                        Math.max(4000000, wh[0] * wh[1] * 8), new Progress() {
+                            @Override
+                            public void onProgress(String stage, int pct) {
+                                outer2.onProgress(stage, pct * 60 / 100);
+                            }
+                        });
+                Options o3 = new Options();
+                o3.video = Uri.fromFile(trimmed);
+                o3.keep = new long[][]{{0, len}};
+                o3.keepAudio = o.keepAudio;
+                o3.sound = o.sound;
+                o3.soundStartUs = o.soundStartUs;
+                o3.mix = o.mix;
+                o3.originalDb = o.originalDb;
+                o3.extraRot = o.extraRot;
+                export(ctx, o3, out, cacheDir, new Progress() {
+                    @Override
+                    public void onProgress(String stage, int pct) {
+                        outer2.onProgress(stage, 60 + pct * 40 / 100);
+                    }
+                });
+            } finally {
+                //noinspection ResultOfMethodCallIgnored
+                trimmed.delete();
+            }
+            return;
+        }
         p.onProgress("Analisi del video...", 1);
 
         MediaExtractor ve = new MediaExtractor();
@@ -283,6 +329,54 @@ final class VideoProcessor {
             tmpM4a.delete();
         }
         p.onProgress("Fatto", 100);
+    }
+
+    /** Vero se almeno un tratto da tenere non inizia su un fotogramma chiave. */
+    private static boolean needsAccurateCut(Context ctx, Options o) {
+        MediaExtractor ex = new MediaExtractor();
+        try {
+            ex.setDataSource(ctx, o.video, null);
+            int t = findTrack(ex, "video/");
+            if (t < 0) {
+                return false;
+            }
+            ex.selectTrack(t);
+            for (long[] k : o.keep) {
+                if (k[1] - k[0] < 100000 || k[0] <= 0) {
+                    continue;
+                }
+                ex.seekTo(k[0], MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+                long s0 = ex.getSampleTime();
+                if (s0 >= 0 && k[0] - s0 > 20000) {
+                    return true;
+                }
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        } finally {
+            ex.release();
+        }
+    }
+
+    /** Dimensioni del video come lo si vede (rotazione applicata). */
+    private static int[] displaySize(Context ctx, Uri uri) {
+        int w = 1280, h = 720, rot = 0;
+        MediaMetadataRetriever mr = new MediaMetadataRetriever();
+        try {
+            mr.setDataSource(ctx, uri);
+            w = Integer.parseInt(mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH));
+            h = Integer.parseInt(mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT));
+            String r = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            rot = r == null ? 0 : Integer.parseInt(r);
+        } catch (Exception ignored) {
+        } finally {
+            try {
+                mr.release();
+            } catch (Exception ignored) {
+            }
+        }
+        return rot % 180 == 0 ? new int[]{w, h} : new int[]{h, w};
     }
 
     /** Copia i campioni audio tra start e end, spostandoli di (offset - start). */
