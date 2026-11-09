@@ -15,6 +15,7 @@ import android.widget.SeekBar;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import java.io.File;
 import java.io.FileDescriptor;
 import java.io.IOException;
 import java.io.OutputStream;
@@ -65,6 +66,8 @@ public class AudioEditorActivity extends Activity {
     private LinearLayout loadBox;
     private TextView loadText, loadPct;
     private android.widget.ProgressBar loadBar;
+    private ProjStore store;
+    private String projectId, projectTitle;
 
     private final Runnable tick = new Runnable() {
         @Override
@@ -83,6 +86,7 @@ public class AudioEditorActivity extends Activity {
     protected void onCreate(Bundle b) {
         super.onCreate(b);
         LinearLayout root = Ui.screen(this, "Audio Editor", "");
+        store = new ProjStore(this, "audio");
 
         pick = new Ui.PickCard(this, "🎧", "Apri un audio", "MP3, M4A, WAV, OGG… oppure l'audio di un video",
                 new View.OnClickListener() {
@@ -496,8 +500,19 @@ public class AudioEditorActivity extends Activity {
                     }
                 });
         export.setTextSize(16);
-        xc.addView(export, Ui.lp(this, Ui.MATCH, Ui.dp(this, 52), 0, 16));
+        LinearLayout exRow = new LinearLayout(this);
+        exRow.addView(export, Ui.lp(this, 0, Ui.dp(this, 52), 0, 0, 1.4f));
+        Button saveBtn = Ui.btn(this, "💾  Salva progetto", Ui.CARD2, Ui.ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                saveProject();
+            }
+        });
+        saveBtn.setTextSize(14);
+        exRow.addView(saveBtn, Ui.lp(this, 0, Ui.dp(this, 52), 8, 0, 1f));
+        xc.addView(exRow, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 16));
         needsAudio.add(export);
+        needsAudio.add(saveBtn);
 
         result = new ResultCard(this, true);
         xc.addView(result.view, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
@@ -512,7 +527,9 @@ public class AudioEditorActivity extends Activity {
 
         // aperto da "Apri con" dal telefono
         Intent in = getIntent();
-        if (in != null && in.getData() != null && Intent.ACTION_VIEW.equals(in.getAction())) {
+        if (in != null && in.getStringExtra("project") != null) {
+            loadProject(in.getStringExtra("project"));
+        } else if (in != null && in.getData() != null && Intent.ACTION_VIEW.equals(in.getAction())) {
             startLoad(in.getData(), false);
         }
     }
@@ -610,6 +627,264 @@ public class AudioEditorActivity extends Activity {
         updateFilterTexts();
     }
 
+
+    // ------------------------------------------------------------------ progetti
+
+    private void saveProject() {
+        if (busy || eng.total() <= 0) {
+            return;
+        }
+        if (projectId != null) {
+            doSaveProject(projectTitle);
+            return;
+        }
+        final android.widget.EditText et = new android.widget.EditText(this);
+        et.setSingleLine(true);
+        et.setTextColor(Ui.TEXT);
+        et.setTextSize(15);
+        et.setBackground(Ui.round(this, Ui.CARD2, 12));
+        et.setPadding(Ui.dp(this, 14), Ui.dp(this, 10), Ui.dp(this, 14), Ui.dp(this, 10));
+        et.setText(projectName == null || projectName.isEmpty() ? "Progetto audio" : projectName);
+        et.selectAll();
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(Ui.round(this, Ui.CARD, 20));
+        box.setPadding(Ui.dp(this, 20), Ui.dp(this, 20), Ui.dp(this, 20), Ui.dp(this, 16));
+        box.addView(Ui.text(this, "Salva il progetto", 18, Ui.TEXT, true));
+        TextView hint = Ui.text(this, "Nome del progetto", 13, Ui.DIM, false);
+        hint.setPadding(0, Ui.dp(this, 10), 0, Ui.dp(this, 6));
+        box.addView(hint);
+        box.addView(et, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        LinearLayout br = new LinearLayout(this);
+        br.addView(Ui.btn(this, "Annulla", Ui.CARD2, Ui.TEXT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                d.dismiss();
+            }
+        }), Ui.lp(this, 0, Ui.dp(this, 46), 0, 0, 1f));
+        br.addView(Ui.btn(this, "Salva", Ui.ACCENT, 0xFF000000, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                String t = et.getText().toString().trim();
+                d.dismiss();
+                doSaveProject(t.isEmpty() ? "Progetto audio" : t);
+            }
+        }), Ui.lp(this, 0, Ui.dp(this, 46), 8, 0, 1f));
+        box.addView(br, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 16));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.92f), Ui.WRAP);
+            w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+        d.show();
+    }
+
+    private void doSaveProject(final String title) {
+        stopPlay();
+        busy = true;
+        updateAll();
+        result.start("Salvataggio del progetto...");
+        final String id = projectId != null ? projectId : ProjStore.newId();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("title", title);
+                    org.json.JSONArray sa = new org.json.JSONArray();
+                    for (int i = 0; i < eng.srcs.size(); i++) {
+                        AudioEngine.Src sr = eng.srcs.get(i);
+                        String fn = "s" + i + ".pcm";
+                        if (!fn.equals(sr.projFile) || !store.asset(id, fn).exists()) {
+                            ProjStore.copy(sr.pcm, store.asset(id, fn));
+                            sr.projFile = fn;
+                        }
+                        sa.put(new org.json.JSONObject().put("file", fn).put("frames", sr.frames));
+                    }
+                    o.put("srcs", sa);
+                    org.json.JSONArray ta = new org.json.JSONArray();
+                    for (AudioEngine.Clip c : eng.tl) {
+                        ta.put(new org.json.JSONArray().put(c.src).put(c.a).put(c.b));
+                    }
+                    o.put("tl", ta);
+                    o.put("mode", mode);
+                    o.put("order", order);
+                    o.put("lo", seekLo.getProgress());
+                    o.put("hi", seekHi.getProgress());
+                    o.put("gain", seekGain.getProgress());
+                    o.put("wavOut", wavOut);
+                    o.put("loop", loop);
+                    o.put("cursor", wave.cursor);
+                    o.put("projectName", projectName);
+                    if (origUri != null) {
+                        o.put("origUri", origUri.toString());
+                    }
+                    o.put("nameEdited", nameEdited);
+                    if (nameEdited) {
+                        o.put("outName", nameEdit.getText().toString());
+                    }
+                    o.put("summary", fmtTime(eng.total() * 1000L / AudioEngine.RATE) + " · "
+                            + eng.tl.size() + (eng.tl.size() == 1 ? " tratto" : " tratti")
+                            + (mode != AudioEngine.Fx.NONE ? " · filtro" : ""));
+                    store.write(id, o);
+                    projectId = id;
+                    projectTitle = title;
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            result.hide();
+                            Toast.makeText(AudioEditorActivity.this, "Progetto salvato: " + title,
+                                    Toast.LENGTH_SHORT).show();
+                        }
+                    });
+                } catch (Throwable t) {
+                    result.error("Salvataggio del progetto non riuscito"
+                            + (t.getMessage() != null ? ": " + t.getMessage() : "."));
+                } finally {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            busy = false;
+                            updateAll();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private static String fmtTime(long ms) {
+        long s = ms / 1000;
+        return String.format(Locale.US, "%d:%02d", s / 60, s % 60);
+    }
+
+    private void loadProject(final String id) {
+        final org.json.JSONObject o;
+        try {
+            o = store.read(id);
+        } catch (Exception e) {
+            Ui.infoDialog(this, "Progetto non leggibile", "Non riesco ad aprire questo progetto.");
+            return;
+        }
+        projectId = id;
+        projectTitle = o.optString("title", "Progetto audio");
+        eng.clearAll();
+        wave.setSelection(-1, -1);
+        wave.setCursor(0);
+        wave.refreshModel();
+        busy = true;
+        updateAll();
+        result.hide();
+        loadText.setText("Apertura di " + projectTitle);
+        loadPct.setText("Caricamento in corso...");
+        loadBar.setIndeterminate(true);
+        loadBox.setVisibility(View.VISIBLE);
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    org.json.JSONArray sa = o.getJSONArray("srcs");
+                    for (int i = 0; i < sa.length(); i++) {
+                        org.json.JSONObject so = sa.getJSONObject(i);
+                        String fn = so.getString("file");
+                        File from = store.asset(id, fn);
+                        if (!from.exists()) {
+                            throw new IOException("mancano i dati audio del progetto");
+                        }
+                        File to = new File(getCacheDir(), "aud_" + i + "_" + System.nanoTime() + ".pcm");
+                        ProjStore.copy(from, to);
+                        AudioEngine.Src sr = eng.adopt(to, so.getLong("frames"));
+                        sr.projFile = fn;
+                    }
+                    final List<AudioEngine.Clip> tl = new ArrayList<>();
+                    org.json.JSONArray ta = o.getJSONArray("tl");
+                    for (int i = 0; i < ta.length(); i++) {
+                        org.json.JSONArray c = ta.getJSONArray(i);
+                        tl.add(new AudioEngine.Clip(c.getInt(0), c.getLong(1), c.getLong(2)));
+                    }
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            applyProject(o, tl);
+                        }
+                    });
+                } catch (final Throwable t) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            busy = false;
+                            loadBox.setVisibility(View.GONE);
+                            result.error("Non riesco ad aprire il progetto"
+                                    + (t.getMessage() != null ? ": " + t.getMessage() : "."));
+                            updateAll();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void applyProject(org.json.JSONObject o, List<AudioEngine.Clip> tl) {
+        busy = false;
+        loadBox.setVisibility(View.GONE);
+        eng.tl = tl;
+        mode = o.optInt("mode", AudioEngine.Fx.NONE);
+        order = o.optInt("order", 1);
+        seekLo.setProgress(o.optInt("lo", 333));
+        seekHi.setProgress(o.optInt("hi", 767));
+        seekGain.setProgress(o.optInt("gain", 200));
+        wavOut = o.optBoolean("wavOut", false);
+        if (extText != null) {
+            extText.setText(wavOut ? ".wav" : ".m4a");
+        }
+        loop = o.optBoolean("loop", false);
+        Ui.styleChip(this, loopChip, loop);
+        projectName = o.optString("projectName", projectTitle);
+        rebuildFx();
+        updateFilterUi();
+        pick.title.setText(projectTitle);
+        if (o.optBoolean("nameEdited", false)) {
+            nameEdit.setText(o.optString("outName", ""));
+            nameEdited = true;
+        }
+        infoTable.set(1, null);
+        infoTable.set(2, null);
+        infoTable.setVisibility(View.VISIBLE);
+        String ou = o.optString("origUri", "");
+        if (!ou.isEmpty()) {
+            origUri = Uri.parse(ou);
+            final Uri fou = origUri;
+            new Thread(new Runnable() {
+                @Override
+                public void run() {
+                    try {
+                        final String[] d = AudioInfo.describe(AudioEditorActivity.this, fou);
+                        runOnUiThread(new Runnable() {
+                            @Override
+                            public void run() {
+                                if (fou == origUri) {
+                                    infoTable.set(1, d);
+                                }
+                            }
+                        });
+                    } catch (Throwable ignored) {
+                    }
+                }
+            }).start();
+        }
+        wave.setSelection(-1, -1);
+        wave.refreshModel();
+        wave.zoomAll();
+        wave.setCursor(Math.min(o.optLong("cursor", 0), eng.total()));
+        updateAll();
+        wave.ensureVisible(wave.cursor);
+    }
+
     // ------------------------------------------------------------------ apertura
 
     private void pickAudio(int req) {
@@ -635,6 +910,7 @@ public class AudioEditorActivity extends Activity {
                 || data.getData() == null) {
             return;
         }
+        ProjStore.keep(this, data.getData());
         startLoad(data.getData(), req == REQ_ADD && eng.total() > 0);
     }
 
@@ -642,6 +918,8 @@ public class AudioEditorActivity extends Activity {
         final String name = FileUtil.queryName(this, uri);
         if (!add) {
             origUri = uri;
+            projectId = null;
+            projectTitle = null;
             eng.clearAll();
             wave.setSelection(-1, -1);
             wave.setCursor(0);

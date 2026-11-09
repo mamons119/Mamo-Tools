@@ -53,11 +53,11 @@ public class MainActivity extends Activity {
                     FileToolsActivity.class),
             new Tool("🎬", "Video Editor",
                     "Taglia parti del video, togli l'audio o aggiungi una colonna sonora.",
-                    VideoEditorActivity.class),
+                    VideoProjectsActivity.class),
             new Tool("🎧", "Audio Editor",
                     "Taglia, copia e incolla parti di un audio, filtri passa-alto/basso/banda "
                             + "e volume.",
-                    AudioEditorActivity.class),
+                    AudioProjectsActivity.class),
             new Tool("🎛", "Produzioni",
                     "Componi musica da zero: pad a 16 passi, suoni sintetizzati, i tuoi sample, "
                             + "loop ed esportazione in WAV, FLAC e M4A.",

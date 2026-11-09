@@ -277,6 +277,16 @@
         </activity>
 
         <activity
+            android:name=".VideoProjectsActivity"
+            android:label="Video Editor"
+            android:exported="false" />
+
+        <activity
+            android:name=".AudioProjectsActivity"
+            android:label="Audio Editor"
+            android:exported="false" />
+
+        <activity
             android:name=".ProducerActivity"
             android:label="Produzioni"
             android:exported="false" />

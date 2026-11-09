@@ -98,6 +98,73 @@ final class VideoFx {
             return i;
         }
 
+        org.json.JSONObject toJson() throws org.json.JSONException {
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("isText", isText);
+            o.put("startUs", startUs);
+            o.put("endUs", endUs);
+            o.put("effect", effect);
+            o.put("intensity", intensity);
+            o.put("text", text);
+            o.put("font", font);
+            o.put("bold", bold);
+            o.put("italic", italic);
+            o.put("sizeFrac", sizeFrac);
+            o.put("color", color);
+            o.put("outline", outline);
+            o.put("shadow", shadow);
+            o.put("box", box);
+            o.put("x", x);
+            o.put("y", y);
+            o.put("crtWarp", crtWarp);
+            o.put("crtBars", crtBars);
+            o.put("crtBarSpeed", crtBarSpeed);
+            o.put("vhsDist", vhsDist);
+            o.put("vhsText", vhsText);
+            org.json.JSONArray a = new org.json.JSONArray();
+            for (String t : vhsTxt) {
+                a.put(t);
+            }
+            o.put("vhsTxt", a);
+            o.put("vhsSize", vhsSize);
+            o.put("vhsColor", vhsColor);
+            return o;
+        }
+
+        static Item fromJson(org.json.JSONObject o) {
+            Item i = new Item();
+            i.isText = o.optBoolean("isText", i.isText);
+            i.startUs = o.optLong("startUs", 0);
+            i.endUs = o.optLong("endUs", 0);
+            i.effect = o.optInt("effect", i.effect);
+            i.intensity = (float) o.optDouble("intensity", i.intensity);
+            i.text = o.optString("text", i.text);
+            i.font = o.optInt("font", i.font);
+            i.bold = o.optBoolean("bold", i.bold);
+            i.italic = o.optBoolean("italic", i.italic);
+            i.sizeFrac = (float) o.optDouble("sizeFrac", i.sizeFrac);
+            i.color = o.optInt("color", i.color);
+            i.outline = o.optBoolean("outline", i.outline);
+            i.shadow = o.optBoolean("shadow", i.shadow);
+            i.box = o.optBoolean("box", i.box);
+            i.x = (float) o.optDouble("x", i.x);
+            i.y = (float) o.optDouble("y", i.y);
+            i.crtWarp = o.optBoolean("crtWarp", i.crtWarp);
+            i.crtBars = o.optInt("crtBars", i.crtBars);
+            i.crtBarSpeed = (float) o.optDouble("crtBarSpeed", i.crtBarSpeed);
+            i.vhsDist = o.optBoolean("vhsDist", i.vhsDist);
+            i.vhsText = o.optBoolean("vhsText", i.vhsText);
+            org.json.JSONArray a = o.optJSONArray("vhsTxt");
+            if (a != null) {
+                for (int k = 0; k < 4 && k < a.length(); k++) {
+                    i.vhsTxt[k] = a.optString(k, "");
+                }
+            }
+            i.vhsSize = (float) o.optDouble("vhsSize", i.vhsSize);
+            i.vhsColor = o.optInt("vhsColor", i.vhsColor);
+            return i;
+        }
+
         boolean activeAt(long us) {
             return us >= startUs && us < endUs;
         }

@@ -37,6 +37,7 @@ final class AudioEngine {
         File pcm;
         long frames;
         byte[] peaks;
+        String projFile;   // copia gia' salvata nel progetto corrente (nome del file)
     }
 
     static final class Clip {
@@ -235,6 +236,16 @@ final class AudioEngine {
         s.pcm = f;
         s.frames = w.frames;
         s.peaks = computePeaks(f, w.frames);
+        srcs.add(s);
+        return s;
+    }
+
+    /** Aggiunge alle sorgenti un file PCM gia' decodificato (da un progetto salvato). */
+    Src adopt(File pcm, long frames) throws IOException {
+        Src s = new Src();
+        s.pcm = pcm;
+        s.frames = frames;
+        s.peaks = computePeaks(pcm, frames);
         srcs.add(s);
         return s;
     }

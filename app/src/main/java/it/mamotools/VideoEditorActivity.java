@@ -136,6 +136,12 @@ public class VideoEditorActivity extends Activity {
     private long origDurMs = 0;
     private int origVw = 0, origVh = 0;
     private LinearLayout clipList;
+    private Switch swKeep;
+    private android.widget.Switch stSwitch;
+    private SeekBar stabZoomBar;
+    private TextView chRollV, chAccV;
+    private ProjStore store;
+    private String projectId, projectTitle;
     private File compFile;
     private int compSeq = 0;
     private int rebuildGen = 0;
@@ -306,7 +312,9 @@ public class VideoEditorActivity extends Activity {
         // ---- audio
         LinearLayout au = card();
         au.addView(sectionTitle("Audio"));
+        store = new ProjStore(this, "video");
         Switch sw = new Switch(this);
+        swKeep = sw;
         sw.setText("Mantieni l'audio originale");
         sw.setTextColor(C_TEXT);
         sw.setTextSize(15);
@@ -437,6 +445,7 @@ public class VideoEditorActivity extends Activity {
         stHead.setGravity(Gravity.CENTER_VERTICAL);
         stHead.addView(sectionTitle("Stabilizzazione"), new LinearLayout.LayoutParams(0, WRAP, 1f));
         android.widget.Switch stSw = new android.widget.Switch(this);
+        stSwitch = stSw;
         stSw.setOnCheckedChangeListener((b, on) -> {
             stabOn = on;
             updateQualityVisibility();
@@ -481,6 +490,7 @@ public class VideoEditorActivity extends Activity {
                 styleStab();
             }
         });
+        stabZoomBar = zb;
         zb.setMax(23);
         zb.setProgress(stabZoom - 2);
         stabBox.addView(zb, new LinearLayout.LayoutParams(MATCH, WRAP));
@@ -488,6 +498,8 @@ public class VideoEditorActivity extends Activity {
         LinearLayout opt = new LinearLayout(this);
         final TextView chRoll = Ui.chip(this, "Correggi inclinazione");
         final TextView chAcc = Ui.chip(this, "Analisi accurata");
+        chRollV = chRoll;
+        chAccV = chAcc;
         chRoll.setTextSize(12);
         chAcc.setTextSize(12);
         chRoll.setOnClickListener(v -> {
@@ -588,7 +600,12 @@ public class VideoEditorActivity extends Activity {
 
         exportBtn = btn("Esporta video", C_ACCENT, Color.BLACK, v -> export());
         exportBtn.setTextSize(16);
-        ex.addView(exportBtn, lp(MATCH, dp(54), 0, 16));
+        LinearLayout exRow = new LinearLayout(this);
+        exRow.addView(exportBtn, lp(0, dp(54), 0, 0, 1.4f));
+        Button saveBtn = btn("💾  Salva progetto", C_CARD2, C_ACCENT, v -> saveProject());
+        saveBtn.setTextSize(14);
+        exRow.addView(saveBtn, lp(0, dp(54), 8, 0, 1f));
+        ex.addView(exRow, lp(MATCH, WRAP, 0, 16));
         cancelBtn = btn("Annulla esportazione", C_CARD2, C_DANGER, v -> {
             cancelExport = true;
             cancelBtn.setEnabled(false);
@@ -642,7 +659,9 @@ public class VideoEditorActivity extends Activity {
 
         // aperto da "Apri con" dal telefono
         Intent in = getIntent();
-        if (in != null && in.getData() != null && Intent.ACTION_VIEW.equals(in.getAction())) {
+        if (in != null && in.getStringExtra("project") != null) {
+            loadProject(in.getStringExtra("project"));
+        } else if (in != null && in.getData() != null && Intent.ACTION_VIEW.equals(in.getAction())) {
             loadVideo(in.getData());
         }
     }
@@ -761,7 +780,10 @@ public class VideoEditorActivity extends Activity {
             return;
         }
         Uri uri = data.getData();
+        ProjStore.keep(this, uri);
         if (req == REQ_VIDEO) {
+            projectId = null;
+            projectTitle = null;
             loadVideo(uri);
         } else if (req == REQ_SOUND) {
             loadSound(uri);
@@ -770,6 +792,221 @@ public class VideoEditorActivity extends Activity {
         }
     }
 
+
+
+    // ------------------------------------------------------------------------ progetti
+
+    private void saveProject() {
+        if (busy || videoUri == null || origUri == null) {
+            return;
+        }
+        if (projectId != null) {
+            doSaveProject(projectTitle);
+            return;
+        }
+        final EditText et = new EditText(this);
+        et.setSingleLine(true);
+        et.setTextColor(C_TEXT);
+        et.setTextSize(15);
+        et.setBackground(round(C_CARD2, 12));
+        et.setPadding(dp(14), dp(10), dp(14), dp(10));
+        et.setText(FileUtil.baseName(videoName == null ? "Progetto" : videoName));
+        et.selectAll();
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(round(C_CARD, 20));
+        box.setPadding(dp(20), dp(20), dp(20), dp(16));
+        box.addView(text("Salva il progetto", 18, R.color.text, true));
+        TextView hint = text("Nome del progetto", 13, R.color.text_dim, false);
+        hint.setPadding(0, dp(10), 0, dp(6));
+        box.addView(hint);
+        box.addView(et, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout br = new LinearLayout(this);
+        br.addView(btn("Annulla", C_CARD2, C_TEXT, v -> d.dismiss()), lp(0, dp(46), 0, 0, 1f));
+        br.addView(btn("Salva", C_ACCENT, Color.BLACK, v -> {
+            String t = et.getText().toString().trim();
+            d.dismiss();
+            doSaveProject(t.isEmpty() ? "Progetto" : t);
+        }), lp(0, dp(46), 8, 0, 1f));
+        box.addView(br, lp(MATCH, WRAP, 0, 16));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.92f), WRAP);
+            w.setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+        d.show();
+    }
+
+    private void doSaveProject(String title) {
+        try {
+            String id = projectId != null ? projectId : ProjStore.newId();
+            org.json.JSONObject o = new org.json.JSONObject();
+            o.put("title", title);
+            o.put("origUri", origUri.toString());
+            ProjStore.keep(this, origUri);
+            org.json.JSONArray pa = new org.json.JSONArray();
+            for (Piece pc : pieces) {
+                org.json.JSONObject p = new org.json.JSONObject();
+                p.put("uri", pc.s.uri.toString());
+                ProjStore.keep(this, pc.s.uri);
+                p.put("name", pc.name);
+                p.put("startUs", pc.s.startUs);
+                p.put("endUs", pc.s.endUs);
+                p.put("trans", pc.s.trans);
+                p.put("transUs", pc.s.transUs);
+                pa.put(p);
+            }
+            o.put("pieces", pa);
+            o.put("videoName", videoName);
+            o.put("extraRot", extraRot);
+            org.json.JSONArray ca = new org.json.JSONArray();
+            for (long[] c : cuts) {
+                ca.put(new org.json.JSONArray().put(c[0]).put(c[1]));
+            }
+            o.put("cuts", ca);
+            o.put("markA", markA);
+            o.put("markB", markB);
+            org.json.JSONArray fa = new org.json.JSONArray();
+            for (VideoFx.Item it : fxItems) {
+                fa.put(it.toJson());
+            }
+            o.put("fx", fa);
+            o.put("keepAudio", keepAudio);
+            o.put("mix", mix);
+            o.put("dbDown", dbDown);
+            if (soundUri != null) {
+                o.put("soundUri", soundUri.toString());
+                ProjStore.keep(this, soundUri);
+                o.put("soundStartMs", soundStartMs);
+            }
+            o.put("stabOn", stabOn);
+            o.put("stabRoll", stabRoll);
+            o.put("stabAccurate", stabAccurate);
+            o.put("stabPreset", stabPreset);
+            o.put("stabZoom", stabZoom);
+            o.put("quality", quality);
+            o.put("pos", timeline.pos);
+            o.put("nameEdited", nameEdited);
+            if (nameEdited) {
+                o.put("outName", nameEdit.getText().toString());
+            }
+            o.put("summary", fmt(keptTotal()) + " · " + pieces.size() + (pieces.size() == 1 ? " clip" : " clip")
+                    + (fxItems.isEmpty() ? "" : " · " + fxItems.size() + " effetti/testi"));
+            store.write(id, o);
+            projectId = id;
+            projectTitle = title;
+            Toast.makeText(this, "Progetto salvato: " + title, Toast.LENGTH_SHORT).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Salvataggio del progetto non riuscito.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void loadProject(String id) {
+        try {
+            org.json.JSONObject o = store.read(id);
+            Uri ou = Uri.parse(o.getString("origUri"));
+            if (durationOf(ou) <= 0) {
+                Ui.infoDialog(this, "Video non trovato", "Il video originale di questo progetto non e' piu' "
+                        + "disponibile (spostato o eliminato). Il progetto resta nell'elenco.");
+                return;
+            }
+            org.json.JSONArray pa = o.getJSONArray("pieces");
+            for (int i = 0; i < pa.length(); i++) {
+                Uri u = Uri.parse(pa.getJSONObject(i).getString("uri"));
+                if (!u.equals(ou) && durationOf(u) <= 0) {
+                    Ui.infoDialog(this, "Clip non trovata", "Una delle clip di questo progetto ("
+                            + pa.getJSONObject(i).optString("name", "") + ") non e' piu' disponibile.");
+                    return;
+                }
+            }
+            projectId = id;
+            projectTitle = o.optString("title", "Progetto");
+            loadVideo(ou);
+            if (durMs <= 0) {
+                return;
+            }
+            Snap plain = snap();
+            extraRot = o.optInt("extraRot", 0);
+            applyRotation();
+            cuts.clear();
+            org.json.JSONArray ca = o.optJSONArray("cuts");
+            for (int i = 0; ca != null && i < ca.length(); i++) {
+                cuts.add(new long[]{ca.getJSONArray(i).getLong(0), ca.getJSONArray(i).getLong(1)});
+            }
+            markA = o.optLong("markA", -1);
+            markB = o.optLong("markB", -1);
+            fxItems.clear();
+            org.json.JSONArray fa = o.optJSONArray("fx");
+            for (int i = 0; fa != null && i < fa.length(); i++) {
+                fxItems.add(VideoFx.Item.fromJson(fa.getJSONObject(i)));
+            }
+            swKeep.setChecked(o.optBoolean("keepAudio", true));
+            keepAudio = swKeep.isChecked();
+            dbDown = o.optInt("dbDown", 12);
+            dbBar.setProgress(dbDown - 3);
+            modeGroup.check(o.optBoolean("mix", false) && keepAudio ? 2002 : 2001);
+            String su = o.optString("soundUri", "");
+            if (!su.isEmpty()) {
+                Uri sUri = Uri.parse(su);
+                if (durationOf(sUri) > 0) {
+                    loadSound(sUri);
+                    long ss = o.optLong("soundStartMs", 0);
+                    soundStartBar.setProgress((int) (ss / 100));
+                    soundStartMs = ss;
+                } else {
+                    Toast.makeText(this, "La colonna sonora del progetto non e' piu' disponibile.",
+                            Toast.LENGTH_LONG).show();
+                }
+            }
+            stSwitch.setChecked(o.optBoolean("stabOn", false));
+            stabRoll = o.optBoolean("stabRoll", true);
+            stabAccurate = o.optBoolean("stabAccurate", false);
+            Ui.styleChip(this, chRollV, stabRoll);
+            Ui.styleChip(this, chAccV, stabAccurate);
+            stabPreset = o.optInt("stabPreset", 1);
+            stabZoomBar.setProgress(o.optInt("stabZoom", 8) - 2);
+            styleStab();
+            quality = o.optInt("quality", 0);
+            styleQuality();
+            if (o.optBoolean("nameEdited", false)) {
+                nameEdit.setText(o.optString("outName", ""));
+                nameEdited = true;
+            }
+            projectTitle = o.optString("title", "Progetto");
+            pickTitle.setText(projectTitle);
+            // clip aggiunte
+            pieces.clear();
+            for (int i = 0; i < pa.length(); i++) {
+                org.json.JSONObject p = pa.getJSONObject(i);
+                VideoComposer.Seg sg = new VideoComposer.Seg(Uri.parse(p.getString("uri")),
+                        p.getLong("startUs"), p.getLong("endUs"));
+                sg.trans = p.optInt("trans", 0);
+                sg.transUs = p.optLong("transUs", 0);
+                pieces.add(new Piece(sg, p.optString("name", "")));
+            }
+            long pos = o.optLong("pos", 0);
+            boolean isPlain = pieces.size() == 1 && pieces.get(0).s.uri.equals(origUri)
+                    && pieces.get(0).s.startUs == 0 && pieces.get(0).s.endUs == origDurMs * 1000;
+            refreshMarks();
+            refreshFx();
+            refreshClips();
+            if (isPlain) {
+                timeline.setPos(pos);
+                seekExact(pos);
+            } else {
+                rebuild(pos, plain);
+            }
+            updateTexts();
+        } catch (Exception e) {
+            Ui.infoDialog(this, "Progetto non leggibile", "Non riesco ad aprire questo progetto"
+                    + (e.getMessage() != null ? ": " + e.getMessage() : "."));
+        }
+    }
 
     // ------------------------------------------------------------------------ clip
 
