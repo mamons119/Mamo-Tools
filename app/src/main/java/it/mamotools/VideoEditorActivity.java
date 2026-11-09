@@ -876,6 +876,11 @@ public class VideoEditorActivity extends Activity {
                 p.put("startUs", pc.s.startUs);
                 p.put("endUs", pc.s.endUs);
                 p.put("trans", pc.s.trans);
+                org.json.JSONArray tpa = new org.json.JSONArray();
+                for (float f : pc.s.tp) {
+                    tpa.put((double) f);
+                }
+                p.put("tp", tpa);
                 p.put("transUs", pc.s.transUs);
                 pa.put(p);
             }
@@ -1004,6 +1009,11 @@ public class VideoEditorActivity extends Activity {
                 VideoComposer.Seg sg = new VideoComposer.Seg(Uri.parse(p.getString("uri")),
                         p.getLong("startUs"), p.getLong("endUs"));
                 sg.trans = p.optInt("trans", 0);
+                sg.tp = VideoComposer.defaults(sg.trans);
+                org.json.JSONArray tpa = p.optJSONArray("tp");
+                for (int k = 0; tpa != null && k < 4 && k < tpa.length(); k++) {
+                    sg.tp[k] = (float) tpa.optDouble(k, sg.tp[k]);
+                }
                 sg.transUs = p.optLong("transUs", 0);
                 pieces.add(new Piece(sg, p.optString("name", "")));
             }
@@ -1182,7 +1192,7 @@ public class VideoEditorActivity extends Activity {
         rebuild(cum / 1000, sn);
     }
 
-    private void setTrans(int idx, int type, long durUs) {
+    private void setTrans(int idx, int type, long durUs, float[] tp) {
         if (busy || idx <= 0 || idx >= pieces.size()) {
             return;
         }
@@ -1196,12 +1206,14 @@ public class VideoEditorActivity extends Activity {
         long newT = type > 0 ? durUs : 0;
         sg.trans = type;
         sg.transUs = newT;
+        sg.tp = type > 0 ? tp.clone() : new float[4];
         if (newT > oldT) {
             remapInsert((cum + oldT) / 1000, (newT - oldT) / 1000);
         } else if (newT < oldT) {
             remapRemove((cum + newT) / 1000, (cum + oldT) / 1000);
         }
-        if (newT == oldT && sg.trans == sn.pieces.get(idx).s.trans) {
+        VideoComposer.Seg old = sn.pieces.get(idx).s;
+        if (newT == oldT && sg.trans == old.trans && java.util.Arrays.equals(sg.tp, old.tp)) {
             return;
         }
         rebuild(cum / 1000, sn);
@@ -1490,10 +1502,26 @@ public class VideoEditorActivity extends Activity {
         box.setBackground(round(C_CARD, 20));
         box.setPadding(dp(20), dp(20), dp(20), dp(16));
         box.addView(text("Transizione", 18, R.color.text, true));
+        final ScrollView sv = new ScrollView(this);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(body, new ViewGroup.LayoutParams(MATCH, WRAP));
+        box.addView(sv, new LinearLayout.LayoutParams(MATCH, 0, 1f));
+
         final int[] type = {sg.trans};
+        final float[] vals = sg.trans > 0 ? sg.tp.clone() : VideoComposer.defaults(1);
+        if (sg.trans <= 0) {
+            java.util.Arrays.fill(vals, 0f);
+        }
         final TextView[] chips = new TextView[VideoComposer.TRANS_NAMES.length];
-        final TextView durText = text("", 13, R.color.text_dim, false);
+        final TextView durText = text("", 13, R.color.text, true);
         final SeekBar durBar = new SeekBar(this);
+        final LinearLayout paramBox = new LinearLayout(this);
+        paramBox.setOrientation(LinearLayout.VERTICAL);
+
+        TextView tl0 = text("Tipo", 13, R.color.text_dim, false);
+        tl0.setPadding(0, dp(12), 0, 0);
+        body.addView(tl0);
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
         LinearLayout line = null;
@@ -1506,54 +1534,159 @@ public class VideoEditorActivity extends Activity {
             chips[i] = Ui.chip(this, VideoComposer.TRANS_NAMES[i]);
             line.addView(chips[i], lp(0, dp(42), i % 2 == 0 ? 0 : 8, 0, 1f));
             chips[i].setOnClickListener(v -> {
+                if (type[0] == ti) {
+                    return;
+                }
                 type[0] = ti;
+                float[] df = VideoComposer.defaults(ti);
+                System.arraycopy(df, 0, vals, 0, 4);
                 for (int j = 0; j < chips.length; j++) {
                     Ui.styleChip(this, chips[j], j == ti);
                 }
+                buildTransParams(paramBox, ti, vals, durBar);
                 durText.setVisibility(ti > 0 ? View.VISIBLE : View.GONE);
                 durBar.setVisibility(ti > 0 ? View.VISIBLE : View.GONE);
             });
         }
-        box.addView(grid, lp(MATCH, WRAP, 0, 4));
-        box.addView(durText, lp(MATCH, WRAP, 0, 14));
-        durBar.setMax(17);
-        durBar.setProgressTintList(android.content.res.ColorStateList.valueOf(C_ACCENT));
-        durBar.setThumbTintList(android.content.res.ColorStateList.valueOf(C_ACCENT));
-        int cur = sg.trans > 0 ? (int) Math.max(0, Math.min(17, Math.round(sg.transUs / 100000.0) - 3)) : 3;
+        body.addView(grid, lp(MATCH, WRAP, 0, 2));
+
+        body.addView(durText, lp(MATCH, WRAP, 0, 16));
+        durBar.setMax(27);
+        durBar.setProgressTintList(ColorStateList.valueOf(C_ACCENT));
+        durBar.setThumbTintList(ColorStateList.valueOf(C_ACCENT));
+        int cur = sg.trans > 0 ? (int) Math.max(0, Math.min(27, Math.round(sg.transUs / 100000.0) - 3)) : 3;
         durBar.setProgress(cur);
         durText.setText(String.format(Locale.US, "Durata: %.1f s", (cur + 3) / 10.0));
         durBar.setOnSeekBarChangeListener(new SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar sb, int p, boolean user) {
                 durText.setText(String.format(Locale.US, "Durata: %.1f s", (p + 3) / 10.0));
+                // i tempi dei parametri sono in frazioni della durata: aggiorna le scritte
+                refreshTransTimes(paramBox, (p + 3) / 10f);
             }
         });
-        box.addView(durBar, lp(MATCH, WRAP, 0, 4));
-        TextView hint = text("La transizione si aggiunge alla durata del video. Il fotogramma finale della clip "
+        body.addView(durBar, lp(MATCH, WRAP, 0, 4));
+        body.addView(paramBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+        TextView hint = text("La transizione si aggiunge alla durata del video: il fotogramma finale della clip "
                 + "precedente e quello iniziale della successiva restano fermi durante l'effetto.", 12,
                 R.color.text_dim, false);
-        box.addView(hint, lp(MATCH, WRAP, 0, 12));
+        body.addView(hint, lp(MATCH, WRAP, 0, 14));
+
         for (int j = 0; j < chips.length; j++) {
             Ui.styleChip(this, chips[j], j == type[0]);
         }
         durText.setVisibility(type[0] > 0 ? View.VISIBLE : View.GONE);
         durBar.setVisibility(type[0] > 0 ? View.VISIBLE : View.GONE);
+        buildTransParams(paramBox, type[0], vals, durBar);
+
         LinearLayout br = new LinearLayout(this);
         br.addView(btn("Annulla", C_CARD2, C_TEXT, v -> d.dismiss()), lp(0, dp(46), 0, 0, 1f));
         br.addView(btn("Applica", C_ACCENT, Color.BLACK, v -> {
             d.dismiss();
-            setTrans(idx, type[0], (durBar.getProgress() + 3) * 100000L);
+            setTrans(idx, type[0], (durBar.getProgress() + 3) * 100000L, vals);
         }), lp(0, dp(46), 8, 0, 1f));
-        box.addView(br, lp(MATCH, WRAP, 0, 16));
+        box.addView(br, lp(MATCH, WRAP, 0, 14));
         d.setContentView(box);
         android.view.Window w = d.getWindow();
         if (w != null) {
             w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             w.setDimAmount(0.6f);
-            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.92f), WRAP);
+            int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.88f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.94f), maxH);
         }
         d.show();
     }
+
+    private final java.util.List<Object[]> timeLabels = new ArrayList<>();
+
+    /** Costruisce i comandi dei parametri della transizione scelta. */
+    private void buildTransParams(LinearLayout box, int type, final float[] vals, SeekBar durBar) {
+        box.removeAllViews();
+        timeLabels.clear();
+        VideoComposer.Param[] ps = VideoComposer.params(type);
+        if (ps.length == 0) {
+            return;
+        }
+        TextView t = text("Personalizza", 13, R.color.text_dim, false);
+        t.setPadding(0, dp(18), 0, 0);
+        box.addView(t);
+        for (int i = 0; i < ps.length; i++) {
+            final int pi = i;
+            final VideoComposer.Param pr = ps[i];
+            final TextView lab = text("", 14, R.color.text, true);
+            lab.setPadding(0, dp(14), 0, 0);
+            box.addView(lab);
+            if (pr.hint != null) {
+                box.addView(text(pr.hint, 11, R.color.text_dim, false));
+            }
+            if (pr.kind == VideoComposer.Param.CHOICE) {
+                lab.setText(pr.label);
+                final TextView[] cc = new TextView[pr.choices.length];
+                LinearLayout row = null;
+                LinearLayout col = new LinearLayout(this);
+                col.setOrientation(LinearLayout.VERTICAL);
+                for (int k = 0; k < cc.length; k++) {
+                    final int ki = k;
+                    if (k % 2 == 0) {
+                        row = new LinearLayout(this);
+                        col.addView(row, lp(MATCH, WRAP, 0, 6));
+                    }
+                    cc[k] = Ui.chip(this, pr.choices[k]);
+                    cc[k].setTextSize(12);
+                    Ui.styleChip(this, cc[k], Math.round(vals[pi]) == k);
+                    cc[k].setOnClickListener(v -> {
+                        vals[pi] = ki;
+                        for (int m = 0; m < cc.length; m++) {
+                            Ui.styleChip(this, cc[m], m == ki);
+                        }
+                    });
+                    row.addView(cc[k], lp(0, dp(38), k % 2 == 0 ? 0 : 6, 0, 1f));
+                }
+                box.addView(col, new LinearLayout.LayoutParams(MATCH, WRAP));
+                continue;
+            }
+            final SeekBar sb = new SeekBar(this);
+            sb.setProgressTintList(ColorStateList.valueOf(C_ACCENT));
+            sb.setThumbTintList(ColorStateList.valueOf(C_ACCENT));
+            if (pr.kind == VideoComposer.Param.COUNT) {
+                sb.setMax((int) (pr.max - pr.min));
+                sb.setProgress(Math.round(vals[pi] - pr.min));
+            } else {
+                sb.setMax(100);
+                sb.setProgress(Math.round(vals[pi] * 100));
+            }
+            final Runnable upd = () -> {
+                if (pr.kind == VideoComposer.Param.COUNT) {
+                    lab.setText(pr.label + ": " + Math.round(vals[pi]));
+                } else if (pr.kind == VideoComposer.Param.TIME) {
+                    float dur = (durBar.getProgress() + 3) / 10f;
+                    lab.setText(pr.label + ": " + String.format(Locale.US, "%.1f s (%d%%)", vals[pi] * dur,
+                            Math.round(vals[pi] * 100)));
+                } else {
+                    lab.setText(pr.label + ": " + Math.round(vals[pi] * 100) + "%");
+                }
+            };
+            sb.setOnSeekBarChangeListener(new SimpleSeek() {
+                @Override
+                public void onProgressChanged(SeekBar s2, int p, boolean user) {
+                    vals[pi] = pr.kind == VideoComposer.Param.COUNT ? pr.min + p : p / 100f;
+                    upd.run();
+                }
+            });
+            upd.run();
+            box.addView(sb, lp(MATCH, WRAP, 0, 2));
+            if (pr.kind == VideoComposer.Param.TIME) {
+                timeLabels.add(new Object[]{upd});
+            }
+        }
+    }
+
+    private void refreshTransTimes(LinearLayout box, float durSec) {
+        for (Object[] o : timeLabels) {
+            ((Runnable) o[0]).run();
+        }
+    }
+
 
     private void rotate(int delta) {
         if (videoUri == null) {

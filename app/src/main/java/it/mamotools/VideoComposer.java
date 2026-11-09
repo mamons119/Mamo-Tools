@@ -38,6 +38,7 @@ final class VideoComposer {
         long startUs, endUs;
         int trans;       // transizione che precede questo tratto (0 = nessuna)
         long transUs;    // durata della transizione
+        float[] tp = new float[4];   // parametri della transizione (vedi params())
 
         Seg(Uri uri, long startUs, long endUs) {
             this.uri = uri;
@@ -49,12 +50,84 @@ final class VideoComposer {
             Seg s = new Seg(uri, startUs, endUs);
             s.trans = trans;
             s.transUs = transUs;
+            s.tp = tp.clone();
             return s;
         }
     }
 
     static final String[] TRANS_NAMES = {"Nessuna", "Dissolvenza", "Dissolvenza al nero",
-            "Scorrimento", "Tendina", "Zoom", "Pixel"};
+            "Scorrimento", "Tendina", "Zoom", "Pixel", "VHS noise glitch"};
+
+    /** Un parametro regolabile di una transizione. */
+    static final class Param {
+        static final int PERCENT = 0, COUNT = 1, CHOICE = 2, TIME = 3;
+        final String label, hint;
+        final int kind;
+        final float def, min, max;
+        final String[] choices;
+
+        Param(String label, String hint, int kind, float def, float min, float max, String[] choices) {
+            this.label = label;
+            this.hint = hint;
+            this.kind = kind;
+            this.def = def;
+            this.min = min;
+            this.max = max;
+            this.choices = choices;
+        }
+    }
+
+    private static Param pc(String l, String h, float d) {
+        return new Param(l, h, Param.PERCENT, d, 0, 1, null);
+    }
+
+    private static Param tm(String l, String h, float d) {
+        return new Param(l, h, Param.TIME, d, 0, 1, null);
+    }
+
+    private static Param ch(String l, float d, String... c) {
+        return new Param(l, null, Param.CHOICE, d, 0, c.length - 1, c);
+    }
+
+    /** Parametri personalizzabili di ogni transizione (al massimo 4). */
+    static Param[] params(int type) {
+        switch (type) {
+            case 1:
+                return new Param[]{pc("Morbidezza", "0% = passaggio lineare, 100% = parte e finisce piano", 0.7f)};
+            case 2:
+                return new Param[]{tm("Momento del nero totale", "quando lo schermo e' tutto nero", 0.5f),
+                        pc("Quanto resta nero", "pausa al buio tra le due clip", 0.1f)};
+            case 3:
+                return new Param[]{ch("Da dove entra la nuova clip", 0, "Da destra", "Da sinistra", "Dall'alto",
+                        "Dal basso"), pc("Morbidezza del movimento", "parte e finisce piano", 0.5f)};
+            case 4:
+                return new Param[]{ch("Da dove parte la tendina", 0, "Da sinistra", "Da destra", "Dall'alto",
+                        "Dal basso"), pc("Bordo sfumato", "quanto e' morbido il bordo", 0.1f)};
+            case 5:
+                return new Param[]{pc("Intensita' dello zoom", null, 0.5f),
+                        pc("Dissolvenza", "0% = cambio netto a meta', 100% = dissolvenza", 1f)};
+            case 6:
+                return new Param[]{pc("Grandezza dei pixel", "quanto diventano grossi al culmine", 0.8f),
+                        tm("Momento del cambio clip", "dove la clip precedente lascia posto alla successiva", 0.5f)};
+            case 7:
+                return new Param[]{new Param("Barre verticali", "in quante colonne si divide lo schermo",
+                        Param.COUNT, 12, 2, 40, null),
+                        pc("Livello di interferenza", "disturbi, rumore, colori sfalsati", 0.7f),
+                        tm("Inizio scomparsa clip precedente", "da qui la clip precedente comincia a sparire", 0.25f),
+                        tm("Inizio comparsa clip successiva", "da qui la clip successiva comincia ad apparire", 0.5f)};
+            default:
+                return new Param[0];
+        }
+    }
+
+    static float[] defaults(int type) {
+        float[] d = new float[4];
+        Param[] ps = params(type);
+        for (int i = 0; i < ps.length; i++) {
+            d[i] = ps[i].def;
+        }
+        return d;
+    }
 
     private static final long TIMEOUT = 10000;
     private static final long FRAME_US = 33333;
@@ -99,35 +172,108 @@ final class VideoComposer {
             + "varying vec2 vUv;\n"
             + "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); vUv = aTex; }\n";
 
-    static final String FS_X = "precision mediump float;\n"
+    static final String FS_X = ""
+            + "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+            + "precision highp float;\n"
+            + "#else\n"
+            + "precision mediump float;\n"
+            + "#endif\n"
             + "varying vec2 vUv;\n"
             + "uniform sampler2D sA;\n"
             + "uniform sampler2D sB;\n"
             + "uniform float uType;\n"
             + "uniform float uP;\n"
-            + "vec4 A(vec2 u){ return texture2D(sA, u); }\n"
-            + "vec4 B(vec2 u){ return texture2D(sB, u); }\n"
+            + "uniform vec4 uQ;\n"
+            + "uniform vec2 uRes;\n"
+            + "vec4 A(vec2 u){ return texture2D(sA, clamp(u, 0.0, 1.0)); }\n"
+            + "vec4 B(vec2 u){ return texture2D(sB, clamp(u, 0.0, 1.0)); }\n"
+            + "float h11(float x){ return fract(sin(x * 127.1) * 43758.5453); }\n"
+            + "float h21(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }\n"
+            + "float ease(float p, float k){ return mix(p, p * p * (3.0 - 2.0 * p), k); }\n"
             + "void main(){\n"
             + "  vec2 u = vUv;\n"
             + "  vec4 c;\n"
             + "  if (uType < 0.5) {\n"
             + "    c = B(u);\n"
             + "  } else if (uType < 1.5) {\n"
-            + "    c = mix(A(u), B(u), smoothstep(0.0, 1.0, uP));\n"
+            + "    c = mix(A(u), B(u), ease(uP, uQ.x));\n"
             + "  } else if (uType < 2.5) {\n"
-            + "    c = uP < 0.5 ? A(u) * (1.0 - 2.0 * uP) : B(u) * (2.0 * uP - 1.0);\n"
+            + "    float cc = clamp(uQ.x, 0.05, 0.95);\n"
+            + "    float hd = max(0.0, min(uQ.y * 0.5, min(cc - 0.02, 0.98 - cc)));\n"
+            + "    float e1 = max(cc - hd, 0.02);\n"
+            + "    float e2 = max(1.0 - cc - hd, 0.02);\n"
+            + "    float b = uP < cc - hd ? smoothstep(0.0, 1.0, uP / e1)\n"
+            + "        : (uP > cc + hd ? 1.0 - smoothstep(0.0, 1.0, (uP - cc - hd) / e2) : 1.0);\n"
+            + "    vec4 src = uP < cc ? A(u) : B(u);\n"
+            + "    c = src * (1.0 - b);\n"
             + "  } else if (uType < 3.5) {\n"
-            + "    c = u.x < 1.0 - uP ? A(vec2(u.x + uP, u.y)) : B(vec2(u.x - (1.0 - uP), u.y));\n"
+            + "    float q = ease(uP, uQ.y);\n"
+            + "    float d = floor(uQ.x + 0.5);\n"
+            + "    vec2 dv = d < 0.5 ? vec2(1.0, 0.0) : (d < 1.5 ? vec2(-1.0, 0.0) : (d < 2.5 ? vec2(0.0, 1.0) : vec2(0.0, -1.0)));\n"
+            + "    float m = dot(u - 0.5, dv) + 0.5;\n"
+            + "    c = m < 1.0 - q ? A(u + dv * q) : B(u - dv * (1.0 - q));\n"
             + "  } else if (uType < 4.5) {\n"
-            + "    c = mix(B(u), A(u), smoothstep(uP - 0.03, uP + 0.03, u.x));\n"
+            + "    float d = floor(uQ.x + 0.5);\n"
+            + "    float m = d < 0.5 ? u.x : (d < 1.5 ? 1.0 - u.x : (d < 2.5 ? 1.0 - u.y : u.y));\n"
+            + "    float w = uQ.y * 0.3 + 0.002;\n"
+            + "    float r = uP * (1.0 + 2.0 * w) - w;\n"
+            + "    c = mix(B(u), A(u), smoothstep(r - w, r + w, m));\n"
             + "  } else if (uType < 5.5) {\n"
-            + "    vec2 ua = 0.5 + (u - 0.5) / (1.0 + uP * 0.6);\n"
-            + "    vec2 ub = 0.5 + (u - 0.5) / (1.6 - uP * 0.6);\n"
-            + "    c = mix(A(ua), B(ub), smoothstep(0.0, 1.0, uP));\n"
-            + "  } else {\n"
-            + "    float cells = mix(2000.0, 14.0, sin(uP * 3.14159));\n"
+            + "    float k = uQ.x * 1.2;\n"
+            + "    float q = uP;\n"
+            + "    vec2 ua = 0.5 + (u - 0.5) / (1.0 + q * k);\n"
+            + "    vec2 ub = 0.5 + (u - 0.5) / (1.0 + (1.0 - q) * k);\n"
+            + "    float w = mix(step(0.5, q), smoothstep(0.0, 1.0, q), uQ.y);\n"
+            + "    c = mix(A(ua), B(ub), w);\n"
+            + "  } else if (uType < 6.5) {\n"
+            + "    float s = clamp(uQ.y, 0.1, 0.9);\n"
+            + "    float env = uP < s ? smoothstep(0.0, 1.0, uP / s) : 1.0 - smoothstep(0.0, 1.0, (uP - s) / (1.0 - s));\n"
+            + "    float cells = mix(2000.0, mix(200.0, 6.0, uQ.x), env);\n"
             + "    vec2 g = (floor(u * cells) + 0.5) / cells;\n"
-            + "    c = mix(A(g), B(g), step(0.5, uP));\n"
+            + "    c = uP > s ? B(g) : A(g);\n"
+            + "  } else {\n"
+            + "    float p = uP;\n"
+            + "    float N = max(2.0, floor(uQ.x + 0.5));\n"
+            + "    float I = uQ.y;\n"
+            + "    float win = 0.2;\n"
+            + "    float tA = min(uQ.z, 1.0);\n"
+            + "    float tB = min(uQ.w, 1.0 - win);\n"
+            + "    float wa = 1.0 - smoothstep(tA, tA + win, p);\n"
+            + "    float wb = smoothstep(tB, tB + win, p);\n"
+            + "    float ts = floor(p * 24.0);\n"
+            + "    float st = min(tA, tB) - 0.12;\n"
+            + "    float en = max(tA, tB) + win + 0.12;\n"
+            + "    float env = smoothstep(st, st + 0.12, p) * (1.0 - smoothstep(en - 0.12, en, p));\n"
+            + "    env = clamp(env, 0.0, 1.0) * smoothstep(0.0, 0.06, p) * (1.0 - smoothstep(0.94, 1.0, p));\n"
+            + "    float e = env * I;\n"
+            + "    vec2 uv = u;\n"
+            + "    float col = floor(u.x * N);\n"
+            + "    float rc = h21(vec2(col, ts));\n"
+            + "    uv.y += (rc - 0.5) * 0.6 * e * step(0.35, h21(vec2(col + 17.0, ts)));\n"
+            + "    float band = floor(u.y * 48.0);\n"
+            + "    float rb = h21(vec2(band, ts + 31.0));\n"
+            + "    float tear = step(1.0 - 0.4 * e, rb) * (h21(vec2(band, ts + 7.0)) - 0.5) * 0.35 * e;\n"
+            + "    float trackY = fract(0.9 - p * 1.3);\n"
+            + "    float tb = smoothstep(0.06, 0.0, abs(u.y - trackY));\n"
+            + "    tear += tb * 0.07 * e * sin(u.y * 220.0 + ts);\n"
+            + "    uv.x += tear;\n"
+            + "    float cs = 0.014 * e * (0.4 + h21(vec2(ts, 3.0)));\n"
+            + "    vec3 a = vec3(A(uv + vec2(cs, 0.0)).r, A(uv).g, A(uv - vec2(cs, 0.0)).b);\n"
+            + "    vec3 b = vec3(B(uv + vec2(cs, 0.0)).r, B(uv).g, B(uv - vec2(cs, 0.0)).b);\n"
+            + "    float g = h21(floor(u * uRes * 0.5) + ts);\n"
+            + "    vec3 bg = mix(vec3(g) * 0.8, vec3(0.05, 0.1, 0.35) + g * 0.2, step(0.72, h11(ts * 1.7)));\n"
+            + "    float rra = h21(vec2(col, floor(u.y * 12.0) + 3.0));\n"
+            + "    float rrb = h21(vec2(col + 5.0, floor(u.y * 12.0) + 9.0));\n"
+            + "    float waP = smoothstep(rra * 0.7 - 0.15, rra * 0.7 + 0.05, wa) * smoothstep(0.0, 0.05, wa);\n"
+            + "    float wbP = smoothstep(rrb * 0.7 - 0.15, rrb * 0.7 + 0.05, wb) * smoothstep(0.0, 0.05, wb);\n"
+            + "    vec3 base = mix(bg, a, waP);\n"
+            + "    vec3 col3 = mix(base, b, wbP);\n"
+            + "    col3 *= 1.0 - 0.14 * e * (0.5 + 0.5 * sin(u.y * uRes.y * 3.14159));\n"
+            + "    float g2 = h21(u * uRes + ts * 3.1);\n"
+            + "    col3 += (g2 - 0.5) * 0.4 * e;\n"
+            + "    col3 += vec3(0.5) * step(0.985, h21(vec2(band, ts + 55.0))) * e;\n"
+            + "    col3 *= 1.0 + 0.3 * e * (h11(ts) - 0.5);\n"
+            + "    c = vec4(col3, 1.0);\n"
             + "  }\n"
             + "  gl_FragColor = vec4(c.rgb, 1.0);\n"
             + "}\n";
@@ -344,6 +490,7 @@ final class VideoComposer {
             int xPos = GLES20.glGetAttribLocation(progX, "aPos"), xTex = GLES20.glGetAttribLocation(progX, "aTex");
             int xA = GLES20.glGetUniformLocation(progX, "sA"), xB = GLES20.glGetUniformLocation(progX, "sB"),
                     xType = GLES20.glGetUniformLocation(progX, "uType"), xP = GLES20.glGetUniformLocation(progX, "uP");
+            int[] xU = {GLES20.glGetUniformLocation(progX, "uQ"), GLES20.glGetUniformLocation(progX, "uRes")};
 
             int[] oes = new int[1];
             GLES20.glGenTextures(1, oes, 0);
@@ -525,7 +672,7 @@ final class VideoComposer {
                             if (tp <= lastOut) {
                                 tp = lastOut + 1000;
                             }
-                            drawX(progX, xPos, xTex, xA, xB, xType, xP, fbFull, texPrev, texCur,
+                            drawX(progX, xPos, xTex, xA, xB, xType, xP, xU, sg.tp, fbFull, texPrev, texCur,
                                     sg.trans, prog, w, h);
                             EGLExt.eglPresentationTimeANDROID(dpy, esurf, tp * 1000L);
                             EGL14.eglSwapBuffers(dpy, esurf);
@@ -540,7 +687,7 @@ final class VideoComposer {
                     if (tp <= lastOut) {
                         tp = lastOut + 1000;
                     }
-                    drawX(progX, xPos, xTex, xA, xB, xType, xP, fbFull, texPrev, texCur, 0, 0f, w, h);
+                    drawX(progX, xPos, xTex, xA, xB, xType, xP, xU, sg.tp, fbFull, texPrev, texCur, 0, 0f, w, h);
                     EGLExt.eglPresentationTimeANDROID(dpy, esurf, tp * 1000L);
                     EGL14.eglSwapBuffers(dpy, esurf);
                     lastOut = tp;
@@ -645,8 +792,8 @@ final class VideoComposer {
         }
     }
 
-    private static void drawX(int prog, int aPos, int aTex, int uA, int uB, int uType, int uP,
-                              FloatBuffer fb, int texA, int texB, int type, float prog01, int w, int h) {
+    private static void drawX(int prog, int aPos, int aTex, int uA, int uB, int uType, int uP, int[] uExtra,
+                              float[] tp, FloatBuffer fb, int texA, int texB, int type, float prog01, int w, int h) {
         GLES20.glViewport(0, 0, w, h);
         GLES20.glDisable(GLES20.GL_BLEND);
         GLES20.glUseProgram(prog);
@@ -664,6 +811,8 @@ final class VideoComposer {
         GLES20.glUniform1i(uB, 1);
         GLES20.glUniform1f(uType, type);
         GLES20.glUniform1f(uP, prog01);
+        GLES20.glUniform4f(uExtra[0], tp[0], tp[1], tp[2], tp[3]);
+        GLES20.glUniform2f(uExtra[1], w, h);
         GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
         GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
     }
