@@ -80,6 +80,9 @@ public class VideoEditorActivity extends Activity {
     private boolean mix = false;
     private int dbDown = 12;
     private volatile boolean busy = false;
+    private volatile boolean cancelExport = false;
+    private Button cancelBtn;
+    private boolean soundBarSync = false, soundTestReady = false;
     private boolean stabOn = false, stabRoll = true, stabAccurate = false;
     private int stabPreset = 1;      // 0 leggera, 1 normale, 2 forte, 3 treppiede
     private int stabZoom = 8;        // % massimo
@@ -345,9 +348,18 @@ public class VideoEditorActivity extends Activity {
         soundStartBar = seek(new SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                if (soundBarSync) {
+                    return;
+                }
                 soundStartMs = p * 100L;
                 updateTexts();
                 soundSeek(timeline == null ? 0 : timeline.pos);
+                if (user && soundPlayer != null && soundTestReady) {
+                    try {
+                        soundPlayer.seekTo((int) soundStartMs);
+                    } catch (Exception ignored) {
+                    }
+                }
             }
         });
         soundBox.addView(soundStartBar, new LinearLayout.LayoutParams(MATCH, WRAP));
@@ -577,6 +589,13 @@ public class VideoEditorActivity extends Activity {
         exportBtn = btn("Esporta video", C_ACCENT, Color.BLACK, v -> export());
         exportBtn.setTextSize(16);
         ex.addView(exportBtn, lp(MATCH, dp(54), 0, 16));
+        cancelBtn = btn("Annulla esportazione", C_CARD2, C_DANGER, v -> {
+            cancelExport = true;
+            cancelBtn.setEnabled(false);
+            status.setText("Annullamento in corso...");
+        });
+        cancelBtn.setVisibility(View.GONE);
+        ex.addView(cancelBtn, lp(MATCH, dp(46), 0, 8));
 
         progress = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
         progress.setMax(100);
@@ -1690,6 +1709,7 @@ public class VideoEditorActivity extends Activity {
     private volatile boolean skipping = false;
 
     private void tick() {
+        followSoundTest();
         if (videoUri != null && overlay != null) {
             overlay.setPos(timeline.pos);
         }
@@ -1747,9 +1767,40 @@ public class VideoEditorActivity extends Activity {
         }
     };
 
+    /** Durante l'ascolto di prova: cursore e tempo seguono la canzone. */
+    private void followSoundTest() {
+        if (soundPlayer == null || !soundTestReady) {
+            return;
+        }
+        try {
+            int pos = soundPlayer.getCurrentPosition();
+            soundBarSync = true;
+            soundStartBar.setProgress(pos / 100);
+            soundBarSync = false;
+            soundStartText.setText("In ascolto: " + fmt(pos) + " (su " + fmt(soundDurMs) + ")");
+        } catch (Exception ignored) {
+            soundBarSync = false;
+        }
+    }
+
     private void toggleSoundTest() {
         if (soundPlayer != null) {
+            // fermando, il punto raggiunto diventa l'inizio della colonna sonora
+            long pos = -1;
+            if (soundTestReady) {
+                try {
+                    pos = soundPlayer.getCurrentPosition();
+                } catch (Exception ignored) {
+                }
+            }
             stopSoundTest();
+            if (pos >= 0) {
+                soundStartMs = Math.min(pos, Math.max(0, soundDurMs - 1000));
+                soundBarSync = true;
+                soundStartBar.setProgress((int) (soundStartMs / 100));
+                soundBarSync = false;
+                updateTexts();
+            }
             return;
         }
         if (soundUri == null) {
@@ -1766,10 +1817,11 @@ public class VideoEditorActivity extends Activity {
             soundPlayer.setOnPreparedListener(mp -> {
                 mp.seekTo((int) soundStartMs);
                 mp.start();
+                soundTestReady = true;
             });
             soundPlayer.setOnCompletionListener(mp -> stopSoundTest());
             soundPlayer.prepareAsync();
-            soundTestBtn.setText("■  Ferma");
+            soundTestBtn.setText("■  Ferma e usa questo punto");
         } catch (Exception e) {
             stopSoundTest();
             Toast.makeText(this, "Impossibile riprodurre l'audio.", Toast.LENGTH_SHORT).show();
@@ -1777,6 +1829,7 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void stopSoundTest() {
+        soundTestReady = false;
         if (soundPlayer != null) {
             try {
                 soundPlayer.release();
@@ -1786,6 +1839,12 @@ public class VideoEditorActivity extends Activity {
         }
         if (soundTestBtn != null) {
             soundTestBtn.setText("▶  Ascolta da questo punto");
+        }
+        if (soundStartBar != null) {
+            soundBarSync = true;
+            soundStartBar.setProgress((int) (soundStartMs / 100));
+            soundBarSync = false;
+            updateTexts();
         }
     }
 
@@ -1911,6 +1970,9 @@ public class VideoEditorActivity extends Activity {
             return;
         }
         busy = true;
+        cancelExport = false;
+        cancelBtn.setEnabled(true);
+        cancelBtn.setVisibility(View.VISIBLE);
         stopSoundTest();
         videoView.pause();
         playBtn.setText("▶");
@@ -1983,6 +2045,9 @@ public class VideoEditorActivity extends Activity {
                                 new VideoProcessor.Progress() {
                                     @Override
                                     public void onProgress(final String stage, final int pct) {
+                                        if (cancelExport) {
+                                            throw new IllegalStateException("annullata");
+                                        }
                                         runOnUiThread(() -> {
                                             status.setText(stage);
                                             progress.setProgress(pct * share / 100);
@@ -1995,6 +2060,9 @@ public class VideoEditorActivity extends Activity {
                             getCacheDir(), new VideoProcessor.Progress() {
                                 @Override
                                 public void onProgress(final String stage, final int pct) {
+                                    if (cancelExport) {
+                                        throw new IllegalStateException("annullata");
+                                    }
                                     runOnUiThread(new Runnable() {
                                         @Override
                                         public void run() {
@@ -2015,6 +2083,10 @@ public class VideoEditorActivity extends Activity {
                     exportDone(null, "Memoria insufficiente per elaborare questo video.");
                 } catch (Throwable t) {
                     String m = t.getMessage();
+                    if (cancelExport) {
+                        exportDone(null, "Esportazione annullata.");
+                        return;
+                    }
                     exportDone(null, "Salvataggio non riuscito"
                             + (m != null && !m.isEmpty() ? ": " + m : " (" + t.getClass().getSimpleName() + ")"));
                 } finally {
@@ -2041,6 +2113,7 @@ public class VideoEditorActivity extends Activity {
             @Override
             public void run() {
                 busy = false;
+                cancelBtn.setVisibility(View.GONE);
                 exportBtn.setEnabled(true);
                 progress.setVisibility(View.GONE);
                 if (uri != null) {
