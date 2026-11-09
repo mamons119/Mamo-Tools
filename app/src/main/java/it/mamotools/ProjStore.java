@@ -125,6 +125,51 @@ final class ProjStore {
         }
     }
 
+    /** Prepara in cache/shared il file da condividere. Audio: archivio con progetto e dati audio. */
+    File shareFile(Context c, String id, String title, boolean audio) throws IOException {
+        File sd = new File(c.getCacheDir(), "shared");
+        //noinspection ResultOfMethodCallIgnored
+        sd.mkdirs();
+        String safe = title.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+        if (safe.isEmpty()) {
+            safe = "progetto";
+        }
+        File out = new File(sd, safe + ext);
+        if (!audio) {
+            copy(file(id), out);
+            return out;
+        }
+        try (java.util.zip.ZipOutputStream zo = new java.util.zip.ZipOutputStream(new FileOutputStream(out))) {
+            zo.setLevel(1);
+            zo.putNextEntry(new java.util.zip.ZipEntry("project.json"));
+            try (InputStream in = new FileInputStream(file(id))) {
+                byte[] b = new byte[65536];
+                int n;
+                while ((n = in.read(b)) > 0) {
+                    zo.write(b, 0, n);
+                }
+            }
+            zo.closeEntry();
+            File[] fs = dir.listFiles();
+            if (fs != null) {
+                for (File f : fs) {
+                    if (f.getName().startsWith(id + "_")) {
+                        zo.putNextEntry(new java.util.zip.ZipEntry(f.getName().substring(id.length() + 1)));
+                        try (InputStream in = new FileInputStream(f)) {
+                            byte[] b = new byte[262144];
+                            int n;
+                            while ((n = in.read(b)) > 0) {
+                                zo.write(b, 0, n);
+                            }
+                        }
+                        zo.closeEntry();
+                    }
+                }
+            }
+        }
+        return out;
+    }
+
     /** Chiede ad Android di ricordare il permesso di leggere il file scelto, cosi' il progetto lo ritrova. */
     static void keep(Context c, Uri u) {
         if (u == null || !"content".equals(u.getScheme())) {

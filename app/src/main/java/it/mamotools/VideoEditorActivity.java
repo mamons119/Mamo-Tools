@@ -136,6 +136,8 @@ public class VideoEditorActivity extends Activity {
     private long origDurMs = 0;
     private int origVw = 0, origVh = 0;
     private LinearLayout clipList;
+    private LinearLayout editLoadBox;
+    private TextView editLoadText;
     private Switch swKeep;
     private android.widget.Switch stSwitch;
     private SeekBar stabZoomBar;
@@ -217,6 +219,21 @@ public class VideoEditorActivity extends Activity {
         overlay.setVideo(videoView);
         overlay.setItems(fxItems);
         vf.addView(overlay, new FrameLayout.LayoutParams(MATCH, MATCH));
+        editLoadBox = new LinearLayout(this);
+        editLoadBox.setOrientation(LinearLayout.VERTICAL);
+        editLoadBox.setGravity(Gravity.CENTER);
+        editLoadBox.setBackgroundColor(0xCC0F1115);
+        editLoadBox.setClickable(true);
+        editLoadBox.setVisibility(View.GONE);
+        ProgressBar spin = new ProgressBar(this);
+        spin.setIndeterminate(true);
+        spin.setIndeterminateTintList(ColorStateList.valueOf(C_ACCENT));
+        editLoadBox.addView(spin, new LinearLayout.LayoutParams(dp(48), dp(48)));
+        editLoadText = text("", 13, R.color.text, true);
+        editLoadText.setGravity(Gravity.CENTER);
+        editLoadText.setPadding(dp(16), dp(10), dp(16), 0);
+        editLoadBox.addView(editLoadText, new LinearLayout.LayoutParams(MATCH, WRAP));
+        vf.addView(editLoadBox, new FrameLayout.LayoutParams(MATCH, MATCH));
         prev.addView(vf, new LinearLayout.LayoutParams(MATCH, dp(220)));
         videoView.setOnPreparedListener(mp -> {
             videoPlayer = mp;
@@ -601,9 +618,10 @@ public class VideoEditorActivity extends Activity {
         exportBtn = btn("Esporta video", C_ACCENT, Color.BLACK, v -> export());
         exportBtn.setTextSize(16);
         LinearLayout exRow = new LinearLayout(this);
-        exRow.addView(exportBtn, lp(0, dp(54), 0, 0, 1.4f));
-        Button saveBtn = btn("💾  Salva progetto", C_CARD2, C_ACCENT, v -> saveProject());
-        saveBtn.setTextSize(14);
+        exRow.setBaselineAligned(false);
+        exRow.addView(exportBtn, lp(0, dp(54), 0, 0, 1f));
+        Button saveBtn = btn("Salva progetto", C_CARD2, C_ACCENT, v -> saveProject());
+        saveBtn.setTextSize(16);
         exRow.addView(saveBtn, lp(0, dp(54), 8, 0, 1f));
         ex.addView(exRow, lp(MATCH, WRAP, 0, 16));
         cancelBtn = btn("Annulla esportazione", C_CARD2, C_DANGER, v -> {
@@ -1288,9 +1306,8 @@ public class VideoEditorActivity extends Activity {
         }
         busy = true;
         exportBtn.setEnabled(false);
-        progress.setProgress(0);
-        progress.setVisibility(View.VISIBLE);
-        status.setText("Montaggio delle clip...");
+        status.setText("");
+        setEditLoading(true, "Montaggio delle clip...");
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -1303,8 +1320,7 @@ public class VideoEditorActivity extends Activity {
                                 public void onProgress(final String stage, final int pct) {
                                     runOnUiThread(() -> {
                                         if (gen == rebuildGen) {
-                                            status.setText(stage);
-                                            progress.setProgress(pct);
+                                            setEditLoading(true, stage + " " + pct + "%");
                                         }
                                     });
                                 }
@@ -1313,13 +1329,15 @@ public class VideoEditorActivity extends Activity {
                     runOnUiThread(() -> {
                         busy = false;
                         exportBtn.setEnabled(true);
-                        progress.setVisibility(View.GONE);
+                        setEditLoading(false, null);
                         if (gen != rebuildGen || d <= 0) {
                             //noinspection ResultOfMethodCallIgnored
                             out.delete();
                             if (gen == rebuildGen) {
                                 restore(undo);
                                 status.setText("Montaggio non riuscito: il video prodotto non e' leggibile.");
+                                Toast.makeText(VideoEditorActivity.this, "Montaggio non riuscito: il video "
+                                        + "prodotto non e' leggibile.", Toast.LENGTH_LONG).show();
                                 rebuildPlain();
                             }
                             return;
@@ -1338,12 +1356,13 @@ public class VideoEditorActivity extends Activity {
                     runOnUiThread(() -> {
                         busy = false;
                         exportBtn.setEnabled(true);
-                        progress.setVisibility(View.GONE);
+                        setEditLoading(false, null);
                         if (gen == rebuildGen) {
                             restore(undo);
                             String m = t.getMessage();
                             status.setText("Montaggio non riuscito" + (m != null && !m.isEmpty() ? ": " + m : "")
                                     + ". Il video e' rimasto com'era.");
+                            Toast.makeText(VideoEditorActivity.this, status.getText(), Toast.LENGTH_LONG).show();
                             rebuildPlain();
                         }
                     });
@@ -1353,6 +1372,18 @@ public class VideoEditorActivity extends Activity {
     }
 
     /** Dopo un errore: ripristina la vista sul video che c'era prima (gia' presente su disco). */
+    /** Caricamento durante la modifica: cerchio sopra l'anteprima e "Caricamento..." nella timeline. */
+    private void setEditLoading(boolean on, String msg) {
+        if (editLoadBox == null) {
+            return;
+        }
+        editLoadBox.setVisibility(on ? View.VISIBLE : View.GONE);
+        if (on && msg != null) {
+            editLoadText.setText(msg);
+        }
+        timeline.setLoading(on);
+    }
+
     private void rebuildPlain() {
         refreshMarks();
         refreshFx();
@@ -2601,6 +2632,12 @@ public class VideoEditorActivity extends Activity {
         }
 
         List<Long> joins = new ArrayList<>();
+        boolean loading = false;
+
+        void setLoading(boolean on) {
+            loading = on;
+            invalidate();
+        }
 
         void setJoins(List<Long> j) {
             joins = new ArrayList<>(j);
@@ -2753,6 +2790,21 @@ public class VideoEditorActivity extends Activity {
             paint.setColor(0xFFFFFFFF);
             float px = x(pos);
             c.drawRect(px - 3, 0, px + 3, h, paint);
+            if (loading) {
+                paint.setStyle(Paint.Style.FILL);
+                paint.setColor(0xCC0F1115);
+                c.drawRect(0, 0, w, h, paint);
+                int n3 = (int) (System.currentTimeMillis() / 400 % 3) + 1;
+                String dots = n3 == 1 ? "." : n3 == 2 ? ".." : "...";
+                paint.setColor(0xFFECEFF4);
+                paint.setTextSize(h * 0.26f);
+                paint.setTextAlign(Paint.Align.LEFT);
+                paint.setFakeBoldText(true);
+                float tw = paint.measureText("Caricamento...");
+                c.drawText("Caricamento" + dots, (w - tw) / 2f, h / 2f + h * 0.09f, paint);
+                paint.setFakeBoldText(false);
+                postInvalidateDelayed(400);
+            }
         }
 
         @Override

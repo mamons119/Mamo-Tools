@@ -501,14 +501,15 @@ public class AudioEditorActivity extends Activity {
                 });
         export.setTextSize(16);
         LinearLayout exRow = new LinearLayout(this);
-        exRow.addView(export, Ui.lp(this, 0, Ui.dp(this, 52), 0, 0, 1.4f));
-        Button saveBtn = Ui.btn(this, "💾  Salva progetto", Ui.CARD2, Ui.ACCENT, new View.OnClickListener() {
+        exRow.setBaselineAligned(false);
+        exRow.addView(export, Ui.lp(this, 0, Ui.dp(this, 52), 0, 0, 1f));
+        Button saveBtn = Ui.btn(this, "Salva progetto", Ui.CARD2, Ui.ACCENT, new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 saveProject();
             }
         });
-        saveBtn.setTextSize(14);
+        saveBtn.setTextSize(16);
         exRow.addView(saveBtn, Ui.lp(this, 0, Ui.dp(this, 52), 8, 0, 1f));
         xc.addView(exRow, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 16));
         needsAudio.add(export);

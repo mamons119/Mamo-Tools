@@ -89,12 +89,21 @@ public abstract class ProjectsActivity extends Activity {
             String when = DateFormat.format("d MMM yyyy, HH:mm", new Date(e.modified)).toString();
             card.addView(Ui.text(this, (e.summary.isEmpty() ? "" : e.summary + " · ") + "modificato " + when,
                     12, Ui.DIM, false));
-            card.addView(Ui.btn(this, "Elimina", Ui.CARD2, Ui.DANGER, new View.OnClickListener() {
+            LinearLayout btns = new LinearLayout(this);
+            btns.setBaselineAligned(false);
+            btns.addView(Ui.btn(this, "Condividi", Ui.CARD2, Ui.ACCENT, new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    share(e);
+                }
+            }), Ui.lp(this, 0, Ui.dp(this, 44), 0, 0, 1f));
+            btns.addView(Ui.btn(this, "Elimina", Ui.CARD2, Ui.DANGER, new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
                     confirmDelete(e);
                 }
-            }), Ui.lp(this, Ui.MATCH, Ui.dp(this, 44), 0, 12));
+            }), Ui.lp(this, 0, Ui.dp(this, 44), 8, 0, 1f));
+            card.addView(btns, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
             root.addView(card, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
         }
     }
@@ -111,6 +120,43 @@ public abstract class ProjectsActivity extends Activity {
         i.setClass(this, video() ? VideoEditorActivity.class : AudioEditorActivity.class);
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
         startActivity(i);
+    }
+
+    private void share(final ProjStore.Entry e) {
+        Toast.makeText(this, "Preparo il progetto da condividere...", Toast.LENGTH_SHORT).show();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final java.io.File f = store.shareFile(ProjectsActivity.this, e.id, e.title, !video());
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Uri u = Uri.parse("content://" + PdfShareProvider.AUTHORITY + "/" + Uri.encode(f.getName()));
+                            Intent s = new Intent(Intent.ACTION_SEND);
+                            s.setType("application/octet-stream");
+                            s.putExtra(Intent.EXTRA_STREAM, u);
+                            s.putExtra(Intent.EXTRA_SUBJECT, e.title);
+                            s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                            try {
+                                startActivity(Intent.createChooser(s, "Condividi il progetto"));
+                            } catch (Exception ex) {
+                                Toast.makeText(ProjectsActivity.this, "Nessuna app per condividere.",
+                                        Toast.LENGTH_LONG).show();
+                            }
+                        }
+                    });
+                } catch (final Exception ex) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            Toast.makeText(ProjectsActivity.this, "Condivisione non riuscita.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    });
+                }
+            }
+        }).start();
     }
 
     private void confirmDelete(final ProjStore.Entry e) {

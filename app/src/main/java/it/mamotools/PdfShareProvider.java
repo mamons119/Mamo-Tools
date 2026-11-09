@@ -62,6 +62,9 @@ public class PdfShareProvider extends ContentProvider {
         if (n != null && n.endsWith(".mamotel")) {
             return "application/x-mamotools-telemetry";
         }
+        if (n != null && (n.endsWith(".mamovideo") || n.endsWith(".mamoaudio"))) {
+            return "application/octet-stream";
+        }
         return "application/pdf";
     }
 
