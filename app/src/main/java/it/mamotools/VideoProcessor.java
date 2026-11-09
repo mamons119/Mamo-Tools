@@ -52,7 +52,7 @@ final class VideoProcessor {
         java.util.List<VideoFx.Item> fx; // effetti e testi (tempi in microsecondi)
     }
 
-    private static final int RATE = 44100;
+    static final int RATE = 44100;
     private static final long TIMEOUT = 10000;
 
     private VideoProcessor() {
@@ -310,7 +310,7 @@ final class VideoProcessor {
         }
     }
 
-    private static int findTrack(MediaExtractor ex, String prefix) {
+    static int findTrack(MediaExtractor ex, String prefix) {
         for (int i = 0; i < ex.getTrackCount(); i++) {
             String m = ex.getTrackFormat(i).getString(MediaFormat.KEY_MIME);
             if (m != null && m.startsWith(prefix)) {
@@ -337,6 +337,17 @@ final class VideoProcessor {
         void reset() {
             pos = 0;
             havePrev = false;
+        }
+
+        /** Aggiunge n fotogrammi di silenzio (alla frequenza di uscita). */
+        void silence(long n) throws IOException {
+            for (long i = 0; i < n; i++) {
+                os.write(0);
+                os.write(0);
+                os.write(0);
+                os.write(0);
+            }
+            frames += Math.max(0, n);
         }
 
         /** l, r: campioni -1..1 di n fotogrammi alla frequenza srcRate. */
@@ -570,7 +581,7 @@ final class VideoProcessor {
         }
     }
 
-    private static void encodeMix(File orig, File sound, float gain, File outM4a, Progress p)
+    static void encodeMix(File orig, File sound, float gain, File outM4a, Progress p)
             throws IOException {
         MixSource src = new MixSource(orig, sound, gain);
         long totalBytes = Math.max(orig == null ? 0 : orig.length(), sound.length());

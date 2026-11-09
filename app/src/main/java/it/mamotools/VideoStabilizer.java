@@ -694,6 +694,89 @@ final class VideoStabilizer {
             + "  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n"
             + "}\n";
 
+    /** Passaggio finale: lo schermo CRT agisce sull'intero fotogramma (video + effetti + testi). */
+    private static final String VS_P = "attribute vec2 aPos;\n"
+            + "attribute vec2 aTex;\n"
+            + "varying vec2 vPos;\n"
+            + "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); vPos = aTex; }\n";
+
+    private static final String FS_P = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+            + "precision highp float;\n"
+            + "#else\n"
+            + "precision mediump float;\n"
+            + "#endif\n"
+            + "varying vec2 vPos;\n"
+            + "uniform sampler2D sP;\n"
+            + "uniform vec2 texel;\n"
+            + "uniform float uCrt, uWarp, uBars, uBspd, uSwap, uTime, uRotI;\n"
+            + "vec4 s(vec2 uv){ return texture2D(sP, uv); }\n"
+            + "vec2 dpos(vec2 p){\n"
+            + "  if (uRotI < 0.5) return p;\n"
+            + "  if (uRotI < 1.5) return vec2(1.0 - p.y, p.x);\n"
+            + "  if (uRotI < 2.5) return vec2(1.0 - p.x, 1.0 - p.y);\n"
+            + "  return vec2(p.y, 1.0 - p.x);\n"
+            + "}\n"
+            + "vec2 toTc(vec2 o){\n"
+            + "  vec2 st = uSwap > 0.5 ? o.yx : o;\n"
+            + "  return vec2(st.x, -st.y);\n"
+            + "}\n"
+            + "void main(){\n"
+            + "  vec2 uv = vec2(vPos.x, 1.0 - vPos.y);\n"
+            + "  vec3 col;\n"
+            + "  if (uCrt > 0.0) {\n"
+            + "    vec2 pd = uSwap > 0.5 ? vPos.yx : vPos;\n"
+            + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    vec2 cc = pd - 0.5;\n"
+            + "    float r2 = dot(cc, cc);\n"
+            + "    vec2 off = vec2(0.0);\n"
+            + "    float conv = 0.0;\n"
+            + "    float crtEdge = 1.0;\n"
+            + "    if (uWarp > 0.0) {\n"
+            + "      vec2 pw = 0.5 + cc * (1.0 + 0.2 * r2);\n"
+            + "      off = pw - pd;\n"
+            + "      crtEdge = smoothstep(0.0, 0.012, 0.5 - max(abs(pw.x - 0.5), abs(pw.y - 0.5)));\n"
+            + "      float jit = sin(pd.y * 55.0 + uTime * 3.0) * 0.0006"
+            + " + step(0.985, fract(pd.y * 2.0 - uTime * 0.4)) * 0.006 * sin(uTime * 45.0);\n"
+            + "      off.x += jit * uCrt;\n"
+            + "      conv = (1.0 + 6.0 * r2) * 1.1;\n"
+            + "    }\n"
+            + "    vec2 tx = toTc(vec2(1.0 / sz.x, 0.0));\n"
+            + "    vec2 base = uv + toTc(off);\n"
+            + "    vec2 co = tx * conv;\n"
+            + "    vec3 ctr = vec3(s(base + co).r, s(base).g, s(base - co).b);\n"
+            + "    vec3 nb = s(base - tx).rgb + s(base + tx).rgb;\n"
+            + "    col = mix(ctr, ctr * 0.5 + nb * 0.25, 0.5 * uCrt);\n"
+            + "    vec2 pp = pd * sz;\n"
+            + "    float ly = max(3.0, floor(sz.y / 240.0 + 0.5));\n"
+            + "    float lx = 3.0 * max(1.0, floor(sz.x / 960.0 + 0.5));\n"
+            + "    float sl = 0.5 + 0.5 * cos(6.2831853 * pp.y / ly);\n"
+            + "    float ph = fract(pp.x / lx) * 3.0;\n"
+            + "    vec3 mk = clamp(vec3(1.5) - abs(vec3(ph) - vec3(0.5, 1.5, 2.5)), 0.0, 1.0);\n"
+            + "    col *= mix(vec3(1.0), mk * 1.25, 0.7 * uCrt);\n"
+            + "    col *= 1.0 - 0.5 * uCrt * (1.0 - sl);\n"
+            + "    col *= 1.0 + 0.3 * uCrt;\n"
+            + "    if (uWarp > 0.0) {\n"
+            + "      float r = length(pd - 0.5);\n"
+            + "      float flick = 1.0 + 0.03 * sin(uTime * 55.0) + 0.02 * sin(uTime * 13.0);\n"
+            + "      float g = fract(sin(dot(pp + vec2(uTime * 37.0, uTime * 91.0), vec2(12.9898, 78.233))) * 43758.5453);\n"
+            + "      col = col * flick * (1.0 - 0.55 * smoothstep(0.3, 0.72, r)) + (g - 0.5) * 0.07;\n"
+            + "      col *= crtEdge;\n"
+            + "    }\n"
+            + "    if (uBars > 0.0) {\n"
+            + "      float dy = dpos(vPos).y;\n"
+            + "      for (int i = 0; i < 5; i++) {\n"
+            + "        if (float(i) < uBars) {\n"
+            + "          float f = fract(dy + uTime * uBspd * (1.0 + 0.37 * float(i)) + 0.381966 * float(i));\n"
+            + "          col *= 1.0 - 0.22 * (1.0 - smoothstep(0.0, 0.16, f));\n"
+            + "        }\n"
+            + "      }\n"
+            + "    }\n"
+            + "  } else {\n"
+            + "    col = s(uv).rgb;\n"
+            + "  }\n"
+            + "  gl_FragColor = vec4(clamp(col, 0.0, 1.0), 1.0);\n"
+            + "}\n";
+
     private static final String VS_T = "attribute vec2 aPos;\n"
             + "attribute vec2 aTex;\n"
             + "uniform vec2 uC;\n"
@@ -844,6 +927,57 @@ final class VideoStabilizer {
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
             GLES20.glTexParameteri(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
 
+            // ---- passaggio finale dello schermo CRT (su un'immagine intermedia con video + testi)
+            boolean usePost = false;
+            if (items != null) {
+                for (VideoFx.Item pit : items) {
+                    if (!pit.isText && pit.effect == VideoFx.EFFECT_CRT) {
+                        usePost = true;
+                    }
+                }
+            }
+            int progP = 0, pPos = 0, pTex = 0, pSampler = 0, pTexel = 0, pCrt = 0, pWarp = 0, pBars = 0,
+                    pBspd = 0, pSwap = 0, pTime = 0, pRotI = 0;
+            int[] fbo = new int[1], ftex = new int[1];
+            if (usePost) {
+                progP = GLES20.glCreateProgram();
+                GLES20.glAttachShader(progP, shader(GLES20.GL_VERTEX_SHADER, VS_P));
+                GLES20.glAttachShader(progP, shader(GLES20.GL_FRAGMENT_SHADER, FS_P));
+                GLES20.glLinkProgram(progP);
+                int[] lkp = new int[1];
+                GLES20.glGetProgramiv(progP, GLES20.GL_LINK_STATUS, lkp, 0);
+                if (lkp[0] == 0) {
+                    throw new IOException("programma grafico dello schermo non valido");
+                }
+                pPos = GLES20.glGetAttribLocation(progP, "aPos");
+                pTex = GLES20.glGetAttribLocation(progP, "aTex");
+                pSampler = GLES20.glGetUniformLocation(progP, "sP");
+                pTexel = GLES20.glGetUniformLocation(progP, "texel");
+                pCrt = GLES20.glGetUniformLocation(progP, "uCrt");
+                pWarp = GLES20.glGetUniformLocation(progP, "uWarp");
+                pBars = GLES20.glGetUniformLocation(progP, "uBars");
+                pBspd = GLES20.glGetUniformLocation(progP, "uBspd");
+                pSwap = GLES20.glGetUniformLocation(progP, "uSwap");
+                pTime = GLES20.glGetUniformLocation(progP, "uTime");
+                pRotI = GLES20.glGetUniformLocation(progP, "uRotI");
+                GLES20.glGenTextures(1, ftex, 0);
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ftex[0]);
+                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA,
+                        GLES20.GL_UNSIGNED_BYTE, null);
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+                GLES20.glGenFramebuffers(1, fbo, 0);
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
+                GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+                        GLES20.GL_TEXTURE_2D, ftex[0], 0);
+                if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+                    throw new IOException("buffer grafico intermedio non disponibile");
+                }
+                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+            }
+
             // ---- programma per i testi
             int prog2 = GLES20.glCreateProgram();
             GLES20.glAttachShader(prog2, shader(GLES20.GL_VERTEX_SHADER, VS_T));
@@ -989,6 +1123,16 @@ final class VideoStabilizer {
                         st.getTransformMatrix(stm);
                         long ptsUs = info.presentationTimeUs;
                         VideoFx.uniforms(items, ptsUs, fxu);
+                        float cCrt = fxu[VideoFx.U_CRT], cWarp = fxu[VideoFx.U_WARP],
+                                cBars = fxu[VideoFx.U_BARS], cBspd = fxu[VideoFx.U_BSPD];
+                        if (usePost) {
+                            // lo schermo CRT viene applicato dopo, su tutto: qui resta spento
+                            fxu[VideoFx.U_CRT] = 0;
+                            fxu[VideoFx.U_WARP] = 0;
+                            fxu[VideoFx.U_BARS] = 0;
+                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
+                            GLES20.glViewport(0, 0, w, h);
+                        }
                         GLES20.glUseProgram(prog);
                         GLES20.glDisable(GLES20.GL_BLEND);
                         GLES20.glEnableVertexAttribArray(aPos);
@@ -1071,6 +1215,30 @@ final class VideoStabilizer {
                                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                             }
                             GLES20.glDisable(GLES20.GL_BLEND);
+                        }
+                        if (usePost) {
+                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+                            GLES20.glViewport(0, 0, w, h);
+                            GLES20.glDisable(GLES20.GL_BLEND);
+                            GLES20.glUseProgram(progP);
+                            GLES20.glEnableVertexAttribArray(pPos);
+                            GLES20.glEnableVertexAttribArray(pTex);
+                            fb.position(0);
+                            GLES20.glVertexAttribPointer(pPos, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            fb.position(2);
+                            GLES20.glVertexAttribPointer(pTex, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ftex[0]);
+                            GLES20.glUniform1i(pSampler, 0);
+                            GLES20.glUniform2f(pTexel, 1f / w, 1f / h);
+                            GLES20.glUniform1f(pCrt, cCrt);
+                            GLES20.glUniform1f(pWarp, cWarp);
+                            GLES20.glUniform1f(pBars, cBars);
+                            GLES20.glUniform1f(pBspd, cBspd);
+                            GLES20.glUniform1f(pSwap, (rotation == 90 || rotation == 270) ? 1f : 0f);
+                            GLES20.glUniform1f(pTime, (float) ((ptsUs % 600000000L) / 1e6));
+                            GLES20.glUniform1f(pRotI, rotation == 90 ? 1f : rotation == 180 ? 2f : rotation == 270 ? 3f : 0f);
+                            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                         }
                         EGLExt.eglPresentationTimeANDROID(dpy, esurf, info.presentationTimeUs * 1000L);
                         EGL14.eglSwapBuffers(dpy, esurf);
@@ -1161,7 +1329,7 @@ final class VideoStabilizer {
         }
     }
 
-    private static void drain(MediaCodec enc, MediaMuxer mx, MediaCodec.BufferInfo info, MediaFormat af,
+    static void drain(MediaCodec enc, MediaMuxer mx, MediaCodec.BufferInfo info, MediaFormat af,
                               int[] tracks, boolean[] started, boolean end) throws IOException {
         while (true) {
             int oi = enc.dequeueOutputBuffer(info, end ? TIMEOUT : 0);

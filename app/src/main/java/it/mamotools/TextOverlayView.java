@@ -96,7 +96,17 @@ final class TextOverlayView extends View {
         float s = Math.min(getWidth() / (float) vw, getHeight() / (float) vh);
         float rw = vw * s, rh = vh * s;
         float l = (getWidth() - rw) / 2f, t = (getHeight() - rh) / 2f;
+        textsDone = false;
         drawFx(c, l, t, rw, rh, s);
+        if (!textsDone) {
+            drawTexts(c, l, t, rw, rh);
+        }
+    }
+
+    private boolean textsDone = false;
+
+    /** Disegna i testi (anche VHS) del momento corrente nel rettangolo del video (l,t,rw,rh). */
+    private void drawTexts(Canvas c, float l, float t, float rw, float rh) {
         long us = posMs * 1000;
         for (VideoFx.Item it : texts) {
             if (!it.isText || !it.activeAt(us) || it.text == null || it.text.trim().isEmpty()) {
@@ -167,6 +177,15 @@ final class TextOverlayView extends View {
                     }
                 } else if (u[VideoFx.U_CRT] > 0 && u[VideoFx.U_WARP] > 0 && u[VideoFx.U_PIX] == 0
                         && u[VideoFx.U_BLUR] == 0) {
+                    if (!g.isMutable()) {
+                        Bitmap mg = g.copy(Bitmap.Config.ARGB_8888, true);
+                        g.recycle();
+                        g = mg;
+                    }
+                    Canvas gc = new Canvas(g);
+                    gc.scale(g.getWidth() / rw, g.getHeight() / rh);
+                    drawTexts(gc, 0, 0, rw, rh);
+                    textsDone = true;
                     drawCrtMesh(c, g, dst, l, t, rw, rh);
                     frameDone = true;
                 } else if (u[VideoFx.U_VHS] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
@@ -185,6 +204,11 @@ final class TextOverlayView extends View {
             }
         }
         if (u[VideoFx.U_CRT] > 0) {
+            if (!textsDone) {
+                // i testi stanno sotto lo schermo CRT: ne subiscono scanline e maschera
+                drawTexts(c, l, t, rw, rh);
+                textsDone = true;
+            }
             drawCrtOverlay(c, l, t, rw, rh);
             if (u[VideoFx.U_BARS] > 0) {
                 drawCrtBars(c, l, t, rw, rh);

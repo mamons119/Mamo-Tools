@@ -63,6 +63,8 @@ public class VideoEditorActivity extends Activity {
 
     private static final int REQ_VIDEO = 51;
     private static final int REQ_SOUND = 52;
+    private static final int REQ_CLIP = 53;
+    private static final int PROXY_SIDE = 960;
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     private static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
 
@@ -114,6 +116,26 @@ public class VideoEditorActivity extends Activity {
     private MediaPlayer soundPlayer;
     private MediaPlayer prevSound;          // colonna sonora riprodotta insieme al video nell'anteprima
     private boolean prevSoundReady = false;
+
+    // clip aggiunte al video: sequenza di tratti (il primo e' il video scelto)
+    private static final class Piece {
+        VideoComposer.Seg s;
+        String name;
+
+        Piece(VideoComposer.Seg s, String name) {
+            this.s = s;
+            this.name = name;
+        }
+    }
+
+    private final List<Piece> pieces = new ArrayList<>();
+    private Uri origUri;
+    private long origDurMs = 0;
+    private int origVw = 0, origVh = 0;
+    private LinearLayout clipList;
+    private File compFile;
+    private int compSeq = 0;
+    private int rebuildGen = 0;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final Runnable ticker = new Runnable() {
@@ -262,7 +284,21 @@ public class VideoEditorActivity extends Activity {
             }
         }), lp(0, dp(44), 8, 8, 1f));
         tl.addView(r2, new LinearLayout.LayoutParams(MATCH, WRAP));
+        tl.addView(btn("🎞  Aggiungi clip nel punto del cursore", C_CARD2, C_ACCENT, v -> pickClip()),
+                lp(MATCH, dp(46), 0, 8));
         editorBox.addView(tl, lp(MATCH, WRAP, 0, 12));
+
+        // ---- clip
+        LinearLayout cc = card();
+        cc.addView(sectionTitle("Clip"));
+        TextView clipNote = text("Qui trovi i tratti che compongono il video. Tra una clip e l'altra puoi "
+                + "scegliere una transizione; se elimini una clip il video si ricompatta.", 12, R.color.text_dim, false);
+        clipNote.setPadding(0, dp(4), 0, dp(6));
+        cc.addView(clipNote);
+        clipList = new LinearLayout(this);
+        clipList.setOrientation(LinearLayout.VERTICAL);
+        cc.addView(clipList, new LinearLayout.LayoutParams(MATCH, WRAP));
+        editorBox.addView(cc, lp(MATCH, WRAP, 0, 12));
 
         // ---- audio
         LinearLayout au = card();
@@ -710,7 +746,526 @@ public class VideoEditorActivity extends Activity {
             loadVideo(uri);
         } else if (req == REQ_SOUND) {
             loadSound(uri);
+        } else if (req == REQ_CLIP) {
+            addClip(uri);
         }
+    }
+
+
+    // ------------------------------------------------------------------------ clip
+
+    private void pickClip() {
+        if (busy || videoUri == null) {
+            return;
+        }
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        i.addCategory(Intent.CATEGORY_OPENABLE);
+        i.setType("video/*");
+        try {
+            startActivityForResult(i, REQ_CLIP);
+        } catch (Exception e) {
+            Toast.makeText(this, "Impossibile aprire il selettore di file.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private long durationOf(Uri uri) {
+        MediaMetadataRetriever mr = new MediaMetadataRetriever();
+        try {
+            mr.setDataSource(this, uri);
+            String d = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            return d == null ? 0 : Long.parseLong(d);
+        } catch (Exception e) {
+            return 0;
+        } finally {
+            try {
+                mr.release();
+            } catch (Exception ignored) {
+            }
+        }
+    }
+
+    /** Copia dello stato che dipende dalla durata, per tornare indietro se il montaggio fallisce. */
+    private static final class Snap {
+        List<Piece> pieces = new ArrayList<>();
+        List<long[]> cuts = new ArrayList<>();
+        List<VideoFx.Item> fx = new ArrayList<>();
+        long markA, markB;
+    }
+
+    private Snap snap() {
+        Snap sn = new Snap();
+        for (Piece pc : pieces) {
+            sn.pieces.add(new Piece(pc.s.copy(), pc.name));
+        }
+        for (long[] c : cuts) {
+            sn.cuts.add(c.clone());
+        }
+        for (VideoFx.Item it : fxItems) {
+            sn.fx.add(it.copy());
+        }
+        sn.markA = markA;
+        sn.markB = markB;
+        return sn;
+    }
+
+    private void restore(Snap sn) {
+        pieces.clear();
+        pieces.addAll(sn.pieces);
+        cuts.clear();
+        cuts.addAll(sn.cuts);
+        fxItems.clear();
+        fxItems.addAll(sn.fx);
+        markA = sn.markA;
+        markB = sn.markB;
+    }
+
+    private long totalUs() {
+        long t = 0;
+        for (int i = 0; i < pieces.size(); i++) {
+            t += VideoComposer.lengthUs(pieces.get(i).s, i == 0);
+        }
+        return t;
+    }
+
+    private void addClip(Uri uri) {
+        if (busy || videoUri == null) {
+            return;
+        }
+        long dMs = durationOf(uri);
+        if (dMs <= 0) {
+            Toast.makeText(this, "Questo video non sembra leggibile dal telefono.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        Snap sn = snap();
+        long tUs = timeline.pos * 1000;
+        long cum = 0;
+        int k = pieces.size() - 1;
+        long lenK = 0, trK = 0;
+        for (int i = 0; i < pieces.size(); i++) {
+            VideoComposer.Seg sg = pieces.get(i).s;
+            long len = VideoComposer.lengthUs(sg, i == 0);
+            if (tUs < cum + len || i == pieces.size() - 1) {
+                k = i;
+                lenK = len;
+                trK = (i > 0 && sg.trans > 0) ? sg.transUs : 0;
+                break;
+            }
+            cum += len;
+        }
+        Piece pk = pieces.get(k);
+        long off = tUs - cum - trK;
+        long body = pk.s.endUs - pk.s.startUs;
+        int at;
+        long insAtUs;
+        if (off <= 300000) {
+            at = k;
+            insAtUs = cum;
+        } else if (body - off <= 300000) {
+            at = k + 1;
+            insAtUs = cum + lenK;
+        } else {
+            VideoComposer.Seg s2 = pk.s.copy();
+            s2.startUs = pk.s.startUs + off;
+            s2.trans = 0;
+            pk.s.endUs = pk.s.startUs + off;
+            pieces.add(k + 1, new Piece(s2, pk.name));
+            at = k + 1;
+            insAtUs = cum + trK + off;
+        }
+        long lenUs = dMs * 1000;
+        pieces.add(at, new Piece(new VideoComposer.Seg(uri, 0, lenUs), queryName(uri)));
+        remapInsert(insAtUs / 1000, lenUs / 1000);
+        rebuild(insAtUs / 1000, sn);
+    }
+
+    private void deleteClip(int idx) {
+        if (busy || pieces.size() < 2 || idx < 0 || idx >= pieces.size()) {
+            return;
+        }
+        Snap sn = snap();
+        long cum = 0;
+        for (int i = 0; i < idx; i++) {
+            cum += VideoComposer.lengthUs(pieces.get(i).s, i == 0);
+        }
+        long len = VideoComposer.lengthUs(pieces.get(idx).s, idx == 0);
+        pieces.remove(idx);
+        if (idx == 0 && !pieces.isEmpty()) {
+            // il nuovo primo tratto non ha niente prima: la sua transizione sparisce
+            VideoComposer.Seg f = pieces.get(0).s;
+            if (f.trans > 0) {
+                len += f.transUs;
+                f.trans = 0;
+            }
+        } else if (idx > 0 && idx < pieces.size()) {
+            // tratti contigui dello stesso file senza transizione: si riuniscono
+            VideoComposer.Seg a = pieces.get(idx - 1).s, b = pieces.get(idx).s;
+            if (b.trans == 0 && a.uri.equals(b.uri) && a.endUs == b.startUs) {
+                a.endUs = b.endUs;
+                pieces.remove(idx);
+            }
+        }
+        remapRemove(cum / 1000, (cum + len) / 1000);
+        rebuild(cum / 1000, sn);
+    }
+
+    private void setTrans(int idx, int type, long durUs) {
+        if (busy || idx <= 0 || idx >= pieces.size()) {
+            return;
+        }
+        Snap sn = snap();
+        long cum = 0;
+        for (int i = 0; i < idx; i++) {
+            cum += VideoComposer.lengthUs(pieces.get(i).s, i == 0);
+        }
+        VideoComposer.Seg sg = pieces.get(idx).s;
+        long oldT = sg.trans > 0 ? sg.transUs : 0;
+        long newT = type > 0 ? durUs : 0;
+        sg.trans = type;
+        sg.transUs = newT;
+        if (newT > oldT) {
+            remapInsert((cum + oldT) / 1000, (newT - oldT) / 1000);
+        } else if (newT < oldT) {
+            remapRemove((cum + newT) / 1000, (cum + oldT) / 1000);
+        }
+        if (newT == oldT && sg.trans == sn.pieces.get(idx).s.trans) {
+            return;
+        }
+        rebuild(cum / 1000, sn);
+    }
+
+    /** Inserisce len ms nel punto t: tagli, selezione ed effetti dopo t slittano. */
+    private void remapInsert(long t, long len) {
+        long oldDur = durMs;
+        List<long[]> nc = new ArrayList<>();
+        for (long[] c : cuts) {
+            if (c[0] >= t) {
+                nc.add(new long[]{c[0] + len, c[1] + len});
+            } else if (c[1] > t) {
+                nc.add(new long[]{c[0], t});
+                nc.add(new long[]{t + len, c[1] + len});
+            } else {
+                nc.add(c);
+            }
+        }
+        cuts.clear();
+        cuts.addAll(nc);
+        if (markA >= t) {
+            markA += len;
+        }
+        if (markB >= t) {
+            markB += len;
+        }
+        long newDur = totalUs() / 1000;
+        for (VideoFx.Item it : fxItems) {
+            boolean toEnd = it.endUs >= oldDur * 1000;
+            if (it.startUs >= t * 1000) {
+                it.startUs += len * 1000;
+                it.endUs += len * 1000;
+            } else if (it.endUs > t * 1000) {
+                it.endUs += len * 1000;
+            }
+            if (toEnd) {
+                it.endUs = newDur * 1000 + 1000;
+            }
+        }
+    }
+
+    /** Toglie l'intervallo [a,b) ms: il video si ricompatta, i tempi successivi tornano indietro. */
+    private void remapRemove(long a, long b) {
+        long oldDur = durMs;
+        long l = b - a;
+        List<long[]> nc = new ArrayList<>();
+        for (long[] c : cuts) {
+            long x = mapRem(c[0], a, b, l), y = mapRem(c[1], a, b, l);
+            if (y - x > 0) {
+                nc.add(new long[]{x, y});
+            }
+        }
+        cuts.clear();
+        cuts.addAll(nc);
+        if (markA >= 0) {
+            markA = mapRem(markA, a, b, l);
+        }
+        if (markB >= 0) {
+            markB = mapRem(markB, a, b, l);
+        }
+        if (markA >= 0 && markB >= 0 && markB <= markA) {
+            markA = markB = -1;
+        }
+        long newDur = totalUs() / 1000;
+        for (java.util.Iterator<VideoFx.Item> iter = fxItems.iterator(); iter.hasNext(); ) {
+            VideoFx.Item it = iter.next();
+            boolean toEnd = it.endUs >= oldDur * 1000;
+            long x = mapRem(it.startUs / 1000, a, b, l) * 1000 + it.startUs % 1000;
+            long y = mapRem(it.endUs / 1000, a, b, l) * 1000 + it.endUs % 1000;
+            if (toEnd) {
+                y = newDur * 1000 + 1000;
+            }
+            if (y - x < 1000 && it.endUs > it.startUs) {
+                iter.remove();
+                continue;
+            }
+            it.startUs = x;
+            it.endUs = y;
+        }
+    }
+
+    private static long mapRem(long x, long a, long b, long l) {
+        return x <= a ? x : x >= b ? x - l : a;
+    }
+
+    /** Ricostruisce il video montato (o torna all'originale) e aggiorna anteprima e timeline. */
+    private void rebuild(final long seekMs, final Snap undo) {
+        final int gen = ++rebuildGen;
+        boolean plain = pieces.size() == 1 && pieces.get(0).s.uri.equals(origUri)
+                && pieces.get(0).s.startUs == 0 && pieces.get(0).s.endUs == origDurMs * 1000;
+        soundPause();
+        videoView.pause();
+        playBtn.setText("▶");
+        if (plain) {
+            applyVideo(origUri, origDurMs, seekMs);
+            return;
+        }
+        final List<VideoComposer.Seg> segs = new ArrayList<>();
+        for (Piece pc : pieces) {
+            segs.add(pc.s.copy());
+        }
+        busy = true;
+        exportBtn.setEnabled(false);
+        progress.setProgress(0);
+        progress.setVisibility(View.VISIBLE);
+        status.setText("Montaggio delle clip...");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                File out = new File(getCacheDir(), "clips_" + (++compSeq) + ".mp4");
+                try {
+                    int[] wh = VideoComposer.fitSize(origVw, origVh, PROXY_SIDE);
+                    VideoComposer.compose(VideoEditorActivity.this, segs, out, getCacheDir(), wh[0], wh[1],
+                            Math.max(1500000, wh[0] * wh[1] * 4), new VideoProcessor.Progress() {
+                                @Override
+                                public void onProgress(final String stage, final int pct) {
+                                    runOnUiThread(() -> {
+                                        if (gen == rebuildGen) {
+                                            status.setText(stage);
+                                            progress.setProgress(pct);
+                                        }
+                                    });
+                                }
+                            });
+                    final long d = durationOf(Uri.fromFile(out));
+                    runOnUiThread(() -> {
+                        busy = false;
+                        exportBtn.setEnabled(true);
+                        progress.setVisibility(View.GONE);
+                        if (gen != rebuildGen || d <= 0) {
+                            //noinspection ResultOfMethodCallIgnored
+                            out.delete();
+                            if (gen == rebuildGen) {
+                                restore(undo);
+                                status.setText("Montaggio non riuscito: il video prodotto non e' leggibile.");
+                                rebuildPlain();
+                            }
+                            return;
+                        }
+                        if (compFile != null) {
+                            //noinspection ResultOfMethodCallIgnored
+                            compFile.delete();
+                        }
+                        compFile = out;
+                        status.setText("");
+                        applyVideo(Uri.fromFile(out), d, seekMs);
+                    });
+                } catch (final Throwable t) {
+                    //noinspection ResultOfMethodCallIgnored
+                    out.delete();
+                    runOnUiThread(() -> {
+                        busy = false;
+                        exportBtn.setEnabled(true);
+                        progress.setVisibility(View.GONE);
+                        if (gen == rebuildGen) {
+                            restore(undo);
+                            String m = t.getMessage();
+                            status.setText("Montaggio non riuscito" + (m != null && !m.isEmpty() ? ": " + m : "")
+                                    + ". Il video e' rimasto com'era.");
+                            rebuildPlain();
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    /** Dopo un errore: ripristina la vista sul video che c'era prima (gia' presente su disco). */
+    private void rebuildPlain() {
+        refreshMarks();
+        refreshFx();
+        refreshClips();
+    }
+
+    private void applyVideo(Uri uri, long newDurMs, long seekMs) {
+        videoUri = uri;
+        durMs = Math.max(1, newDurMs);
+        baseVw = origVw;
+        baseVh = origVh;
+        applyRotation();
+        timeline.setDuration(durMs);
+        long sp = Math.max(0, Math.min(durMs - 1, seekMs));
+        timeline.setPos(sp);
+        videoView.setDisplaySize(dispVw, dispVh);
+        videoView.setVideoURI(uri);
+        videoView.seekTo((int) Math.max(1, sp));
+        overlay.setPos(sp);
+        timeline.loadThumbs(this, uri);
+        pickSub.setText(fmt(durMs) + " · tocca per cambiare video");
+        refreshMarks();
+        refreshFx();
+        refreshClips();
+        updateTexts();
+        final Uri du = uri;
+        new Thread(() -> {
+            final String[] d = describe(du);
+            runOnUiThread(() -> {
+                if (du.equals(videoUri)) {
+                    showInfo(1, d);
+                }
+            });
+        }).start();
+    }
+
+    private void refreshClips() {
+        if (clipList == null) {
+            return;
+        }
+        clipList.removeAllViews();
+        List<Long> joins = new ArrayList<>();
+        long cum = 0;
+        for (int i = 0; i < pieces.size(); i++) {
+            final int idx = i;
+            final Piece pc = pieces.get(i);
+            VideoComposer.Seg sg = pc.s;
+            long len = VideoComposer.lengthUs(sg, i == 0);
+            long tr = (i > 0 && sg.trans > 0) ? sg.transUs : 0;
+            if (i > 0) {
+                joins.add(cum / 1000);
+                LinearLayout jr = new LinearLayout(this);
+                jr.setGravity(Gravity.CENTER_VERTICAL);
+                jr.setPadding(dp(12), dp(2), dp(4), dp(2));
+                String jt = "↔  Transizione: " + VideoComposer.TRANS_NAMES[sg.trans]
+                        + (sg.trans > 0 ? String.format(Locale.US, " · %.1f s", sg.transUs / 1e6) : "");
+                jr.addView(text(jt, 13, R.color.accent, false), new LinearLayout.LayoutParams(0, WRAP, 1f));
+                jr.addView(btn("✎", C_CARD, C_ACCENT, v -> transDialog(idx)),
+                        new LinearLayout.LayoutParams(dp(44), dp(36)));
+                clipList.addView(jr, lp(MATCH, WRAP, 0, 4));
+            }
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setBackground(round(C_CARD2, 12));
+            row.setPadding(dp(12), dp(8), dp(4), dp(8));
+            TextView ic = text("🎞", 18, R.color.accent, true);
+            ic.setGravity(Gravity.CENTER);
+            row.addView(ic, new LinearLayout.LayoutParams(dp(30), WRAP));
+            LinearLayout tx = new LinearLayout(this);
+            tx.setOrientation(LinearLayout.VERTICAL);
+            TextView nm = text((sg.uri.equals(origUri) ? "Video" : "Clip") + " · " + pc.name, 14,
+                    R.color.text, true);
+            nm.setSingleLine(true);
+            nm.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            tx.addView(nm);
+            tx.addView(text(fmt((cum + tr) / 1000) + " → " + fmt((cum + len) / 1000) + "  ("
+                    + fmt((sg.endUs - sg.startUs) / 1000) + ")", 12, R.color.text_dim, false));
+            row.addView(tx, lp(0, WRAP, 8, 0, 1f));
+            if (pieces.size() > 1) {
+                row.addView(btn("✕", C_CARD2, C_DANGER, v -> deleteClip(idx)),
+                        new LinearLayout.LayoutParams(dp(44), dp(40)));
+            }
+            final long seekTo = (cum + tr) / 1000;
+            row.setOnClickListener(v -> {
+                seekExact(seekTo);
+                timeline.setPos(seekTo);
+                overlay.setPos(seekTo);
+            });
+            clipList.addView(row, lp(MATCH, WRAP, 0, 4));
+            cum += len;
+        }
+        timeline.setJoins(joins);
+    }
+
+    private void transDialog(final int idx) {
+        if (busy || idx <= 0 || idx >= pieces.size()) {
+            return;
+        }
+        final VideoComposer.Seg sg = pieces.get(idx).s;
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(round(C_CARD, 20));
+        box.setPadding(dp(20), dp(20), dp(20), dp(16));
+        box.addView(text("Transizione", 18, R.color.text, true));
+        final int[] type = {sg.trans};
+        final TextView[] chips = new TextView[VideoComposer.TRANS_NAMES.length];
+        final TextView durText = text("", 13, R.color.text_dim, false);
+        final SeekBar durBar = new SeekBar(this);
+        LinearLayout grid = new LinearLayout(this);
+        grid.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout line = null;
+        for (int i = 0; i < chips.length; i++) {
+            final int ti = i;
+            if (i % 2 == 0) {
+                line = new LinearLayout(this);
+                grid.addView(line, lp(MATCH, WRAP, 0, 8));
+            }
+            chips[i] = Ui.chip(this, VideoComposer.TRANS_NAMES[i]);
+            line.addView(chips[i], lp(0, dp(42), i % 2 == 0 ? 0 : 8, 0, 1f));
+            chips[i].setOnClickListener(v -> {
+                type[0] = ti;
+                for (int j = 0; j < chips.length; j++) {
+                    Ui.styleChip(this, chips[j], j == ti);
+                }
+                durText.setVisibility(ti > 0 ? View.VISIBLE : View.GONE);
+                durBar.setVisibility(ti > 0 ? View.VISIBLE : View.GONE);
+            });
+        }
+        box.addView(grid, lp(MATCH, WRAP, 0, 4));
+        box.addView(durText, lp(MATCH, WRAP, 0, 14));
+        durBar.setMax(17);
+        durBar.setProgressTintList(android.content.res.ColorStateList.valueOf(C_ACCENT));
+        durBar.setThumbTintList(android.content.res.ColorStateList.valueOf(C_ACCENT));
+        int cur = sg.trans > 0 ? (int) Math.max(0, Math.min(17, Math.round(sg.transUs / 100000.0) - 3)) : 3;
+        durBar.setProgress(cur);
+        durText.setText(String.format(Locale.US, "Durata: %.1f s", (cur + 3) / 10.0));
+        durBar.setOnSeekBarChangeListener(new SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                durText.setText(String.format(Locale.US, "Durata: %.1f s", (p + 3) / 10.0));
+            }
+        });
+        box.addView(durBar, lp(MATCH, WRAP, 0, 4));
+        TextView hint = text("La transizione si aggiunge alla durata del video. Il fotogramma finale della clip "
+                + "precedente e quello iniziale della successiva restano fermi durante l'effetto.", 12,
+                R.color.text_dim, false);
+        box.addView(hint, lp(MATCH, WRAP, 0, 12));
+        for (int j = 0; j < chips.length; j++) {
+            Ui.styleChip(this, chips[j], j == type[0]);
+        }
+        durText.setVisibility(type[0] > 0 ? View.VISIBLE : View.GONE);
+        durBar.setVisibility(type[0] > 0 ? View.VISIBLE : View.GONE);
+        LinearLayout br = new LinearLayout(this);
+        br.addView(btn("Annulla", C_CARD2, C_TEXT, v -> d.dismiss()), lp(0, dp(46), 0, 0, 1f));
+        br.addView(btn("Applica", C_ACCENT, Color.BLACK, v -> {
+            d.dismiss();
+            setTrans(idx, type[0], (durBar.getProgress() + 3) * 100000L);
+        }), lp(0, dp(46), 8, 0, 1f));
+        box.addView(br, lp(MATCH, WRAP, 0, 16));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.92f), WRAP);
+        }
+        d.show();
     }
 
     private void rotate(int delta) {
@@ -867,6 +1422,19 @@ public class VideoEditorActivity extends Activity {
             editorBox.setVisibility(View.GONE);
             return;
         }
+        origUri = uri;
+        origDurMs = durMs;
+        origVw = baseVw;
+        origVh = baseVh;
+        rebuildGen++;
+        pieces.clear();
+        pieces.add(new Piece(new VideoComposer.Seg(uri, 0, durMs * 1000), videoName));
+        if (compFile != null) {
+            //noinspection ResultOfMethodCallIgnored
+            compFile.delete();
+            compFile = null;
+        }
+        refreshClips();
         editorBox.setVisibility(View.VISIBLE);
         timeline.setDuration(durMs);
         timeline.setPos(0);
@@ -1355,6 +1923,15 @@ public class VideoEditorActivity extends Activity {
 
         final VideoProcessor.Options o = new VideoProcessor.Options();
         o.video = videoUri;
+        // con piu' clip, per il salvataggio il montaggio viene rifatto alla risoluzione piena
+        final boolean multi = !(pieces.size() == 1 && pieces.get(0).s.uri.equals(origUri)
+                && pieces.get(0).s.startUs == 0 && pieces.get(0).s.endUs == origDurMs * 1000);
+        final List<VideoComposer.Seg> exSegs = new ArrayList<>();
+        for (Piece pc : pieces) {
+            exSegs.add(pc.s.copy());
+        }
+        final int fullSide = Math.min(1920, Math.max(origVw, origVh));
+        final boolean needFull = multi && fullSide > PROXY_SIDE;
         o.keep = keptSegmentsUs();
         o.fx = new java.util.ArrayList<>(fxItems);
         o.quality = quality;
@@ -1379,6 +1956,7 @@ public class VideoEditorActivity extends Activity {
                 ContentResolver cr = getContentResolver();
                 Uri uri = null;
                 ParcelFileDescriptor pfd = null;
+                File fullFile = null;
                 boolean ok = false;
                 try {
                     String name = fileName;
@@ -1396,6 +1974,23 @@ public class VideoEditorActivity extends Activity {
                     if (pfd == null) {
                         throw new java.io.IOException("impossibile scrivere il file");
                     }
+                    final int share = needFull ? 35 : 0;
+                    if (needFull) {
+                        fullFile = new File(getCacheDir(), "clips_full.mp4");
+                        int[] wh = VideoComposer.fitSize(origVw, origVh, fullSide);
+                        VideoComposer.compose(VideoEditorActivity.this, exSegs, fullFile, getCacheDir(),
+                                wh[0], wh[1], Math.max(4000000, wh[0] * wh[1] * 8),
+                                new VideoProcessor.Progress() {
+                                    @Override
+                                    public void onProgress(final String stage, final int pct) {
+                                        runOnUiThread(() -> {
+                                            status.setText(stage);
+                                            progress.setProgress(pct * share / 100);
+                                        });
+                                    }
+                                });
+                        o.video = Uri.fromFile(fullFile);
+                    }
                     VideoProcessor.export(VideoEditorActivity.this, o, pfd.getFileDescriptor(),
                             getCacheDir(), new VideoProcessor.Progress() {
                                 @Override
@@ -1404,7 +1999,7 @@ public class VideoEditorActivity extends Activity {
                                         @Override
                                         public void run() {
                                             status.setText(stage);
-                                            progress.setProgress(pct);
+                                            progress.setProgress(share + pct * (100 - share) / 100);
                                         }
                                     });
                                 }
@@ -1423,6 +2018,10 @@ public class VideoEditorActivity extends Activity {
                     exportDone(null, "Salvataggio non riuscito"
                             + (m != null && !m.isEmpty() ? ": " + m : " (" + t.getClass().getSimpleName() + ")"));
                 } finally {
+                    if (fullFile != null) {
+                        //noinspection ResultOfMethodCallIgnored
+                        fullFile.delete();
+                    }
                     if (pfd != null) {
                         try {
                             pfd.close();
@@ -1562,6 +2161,10 @@ public class VideoEditorActivity extends Activity {
         stopSoundTest();
         releasePrevSound();
         videoView.release();
+        if (compFile != null) {
+            //noinspection ResultOfMethodCallIgnored
+            compFile.delete();
+        }
     }
 
     // ------------------------------------------------------------------------ utilita'
@@ -1684,6 +2287,13 @@ public class VideoEditorActivity extends Activity {
 
         void setFx(List<VideoFx.Item> l) {
             fxMarks = new ArrayList<>(l);
+            invalidate();
+        }
+
+        List<Long> joins = new ArrayList<>();
+
+        void setJoins(List<Long> j) {
+            joins = new ArrayList<>(j);
             invalidate();
         }
 
@@ -1824,6 +2434,11 @@ public class VideoEditorActivity extends Activity {
                 paint.setColor(0xFFFFD60A);
                 c.drawRect(x(a) - 2, 0, x(a) + 2, h, paint);
                 c.drawRect(x(b) - 2, 0, x(b) + 2, h, paint);
+            }
+            paint.setColor(0xFFB388FF);
+            for (long jm : joins) {
+                float jx = x(jm);
+                c.drawRect(jx - 2, 0, jx + 2, h, paint);
             }
             paint.setColor(0xFFFFFFFF);
             float px = x(pos);
