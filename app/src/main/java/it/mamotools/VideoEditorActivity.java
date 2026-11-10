@@ -17,6 +17,8 @@ import android.graphics.Paint;
 import android.graphics.Rect;
 import android.graphics.Typeface;
 import android.graphics.drawable.GradientDrawable;
+import android.media.MediaExtractor;
+import android.media.MediaFormat;
 import android.media.MediaMetadataRetriever;
 import android.media.MediaPlayer;
 import android.net.Uri;
@@ -1580,6 +1582,8 @@ public class VideoEditorActivity extends Activity {
             tx.addView(text(fmt((cum + tr) / 1000) + " → " + fmt((cum + len) / 1000) + "  ("
                     + fmt((sg.endUs - sg.startUs) / 1000) + ")", 12, R.color.text_dim, false));
             row.addView(tx, lp(0, WRAP, 8, 0, 1f));
+            row.addView(btn("i", C_CARD2, C_ACCENT, v -> showClipInfo(pc)),
+                    new LinearLayout.LayoutParams(dp(44), dp(40)));
             if (pieces.size() > 1) {
                 row.addView(btn("✕", C_CARD2, C_DANGER, v -> deleteClip(idx)),
                         new LinearLayout.LayoutParams(dp(44), dp(40)));
@@ -1601,6 +1605,163 @@ public class VideoEditorActivity extends Activity {
             cum += len;
         }
         timeline.setJoins(joins);
+    }
+
+    /** Popup con le informazioni del file di una clip. */
+    private void showClipInfo(Piece pc) {
+        Uri u = pc.s.uri;
+        StringBuilder sb = new StringBuilder();
+        sb.append("Nome: ").append(queryName(u)).append('\n');
+        String path = null, rel = null, mime = null, added = null;
+        long size = -1, mod = 0;
+        try (Cursor c = getContentResolver().query(u, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int i = c.getColumnIndex(OpenableColumns.SIZE);
+                if (i >= 0 && !c.isNull(i)) {
+                    size = c.getLong(i);
+                }
+                i = c.getColumnIndex("_data");
+                if (i >= 0 && !c.isNull(i)) {
+                    path = c.getString(i);
+                }
+                i = c.getColumnIndex("relative_path");
+                if (i >= 0 && !c.isNull(i)) {
+                    rel = c.getString(i);
+                }
+                i = c.getColumnIndex("mime_type");
+                if (i >= 0 && !c.isNull(i)) {
+                    mime = c.getString(i);
+                }
+                i = c.getColumnIndex("date_modified");
+                if (i >= 0 && !c.isNull(i)) {
+                    mod = c.getLong(i) * 1000;
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        if (path == null && "file".equals(u.getScheme())) {
+            path = u.getPath();
+        }
+        if (path == null && rel != null) {
+            path = rel + queryName(u);
+        }
+        sb.append("Percorso: ").append(path != null ? path : u.toString()).append('\n');
+        if (size < 0) {
+            try (android.content.res.AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(u, "r")) {
+                if (afd != null) {
+                    size = afd.getLength();
+                }
+            } catch (Exception ignored) {
+            }
+        }
+        if (size >= 0) {
+            sb.append("Dimensione: ").append(humanSize(size)).append('\n');
+        }
+        if (mime == null) {
+            mime = getContentResolver().getType(u);
+        }
+        if (mime != null) {
+            sb.append("Tipo: ").append(mime).append('\n');
+        }
+        if (mod > 0) {
+            sb.append("Modificato: ").append(new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY)
+                    .format(new java.util.Date(mod))).append('\n');
+        }
+        MediaMetadataRetriever mr = new MediaMetadataRetriever();
+        try {
+            mr.setDataSource(this, u);
+            String w = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+            String h = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+            String rot = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
+            String dur = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+            String br = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
+            String fps = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE);
+            String date = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE);
+            if (w != null && h != null) {
+                int rr = rot == null ? 0 : Integer.parseInt(rot);
+                sb.append("Risoluzione: ").append(rr % 180 == 0 ? w + " x " + h : h + " x " + w);
+                if (rr != 0) {
+                    sb.append(" (ruotato di ").append(rr).append("°)");
+                }
+                sb.append('\n');
+            }
+            if (dur != null) {
+                sb.append("Durata del file: ").append(fmt(Long.parseLong(dur))).append('\n');
+            }
+            if (br != null) {
+                sb.append("Bitrate totale: ")
+                        .append(String.format(Locale.US, "%.1f Mb/s", Long.parseLong(br) / 1e6)).append('\n');
+            }
+            if (fps != null) {
+                sb.append("Fotogrammi al secondo (dichiarati): ").append(fps).append('\n');
+            }
+            if (date != null) {
+                sb.append("Data di ripresa: ").append(date).append('\n');
+            }
+        } catch (Exception ignored) {
+        } finally {
+            try {
+                mr.release();
+            } catch (Exception ignored) {
+            }
+        }
+        MediaExtractor ex = new MediaExtractor();
+        try {
+            ex.setDataSource(this, u, null);
+            boolean audio = false;
+            for (int i = 0; i < ex.getTrackCount(); i++) {
+                MediaFormat f = ex.getTrackFormat(i);
+                String m = f.getString(MediaFormat.KEY_MIME);
+                if (m == null) {
+                    continue;
+                }
+                if (m.startsWith("video/")) {
+                    sb.append("Codec video: ").append(m.substring(6));
+                    if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) {
+                        try {
+                            sb.append(" · ").append(Math.round(f.getFloat(MediaFormat.KEY_FRAME_RATE))).append(" fps");
+                        } catch (Exception e1) {
+                            sb.append(" · ").append(f.getInteger(MediaFormat.KEY_FRAME_RATE)).append(" fps");
+                        }
+                    }
+                    sb.append('\n');
+                } else if (m.startsWith("audio/")) {
+                    audio = true;
+                    sb.append("Audio: ").append(m.substring(6));
+                    if (f.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
+                        sb.append(" · ").append(f.getInteger(MediaFormat.KEY_SAMPLE_RATE)).append(" Hz");
+                    }
+                    if (f.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
+                        int ch = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
+                        sb.append(" · ").append(ch == 1 ? "mono" : ch == 2 ? "stereo" : ch + " canali");
+                    }
+                    sb.append('\n');
+                }
+            }
+            if (!audio) {
+                sb.append("Audio: assente\n");
+            }
+        } catch (Exception ignored) {
+        } finally {
+            ex.release();
+        }
+        sb.append("\nNel montaggio\n");
+        sb.append("Parte usata: ").append(fmt(pc.s.startUs / 1000)).append(" → ").append(fmt(pc.s.endUs / 1000))
+                .append("  (").append(fmt((pc.s.endUs - pc.s.startUs) / 1000)).append(")\n");
+        sb.append("Ruolo: ").append(pc.s.uri.equals(origUri) ? "video principale" : "clip aggiunta");
+        Ui.infoDialog(this, pc.name, sb.toString());
+    }
+
+    private static String humanSize(long b) {
+        if (b < 1024) {
+            return b + " B";
+        }
+        double kb = b / 1024.0;
+        if (kb < 1024) {
+            return String.format(Locale.US, "%.0f KB", kb);
+        }
+        double mb = kb / 1024;
+        return mb < 1024 ? String.format(Locale.US, "%.1f MB", mb) : String.format(Locale.US, "%.2f GB", mb / 1024);
     }
 
     private void transDialog(final int idx) {
