@@ -142,7 +142,8 @@ public abstract class ProjectsActivity extends Activity {
         pb.setIndeterminate(true);
         pb.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
         box.addView(pb, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
-        TextView t = Ui.text(this, text + "...", 14, Ui.TEXT, false);
+        TextView t = Ui.text(this, text + "...", 15, Ui.TEXT, false);
+        t.setGravity(Gravity.CENTER);
         t.setPadding(0, Ui.dp(this, 14), 0, 0);
         box.addView(t);
         d.setContentView(box);
@@ -150,6 +151,8 @@ public abstract class ProjectsActivity extends Activity {
         if (w != null) {
             w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
             w.setDimAmount(0.6f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.78f),
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
         }
         d.show();
         openingDialog = d;

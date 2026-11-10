@@ -1587,11 +1587,13 @@ public class VideoEditorActivity extends Activity {
             tx.addView(text(fmt((cum + tr) / 1000) + " → " + fmt((cum + len) / 1000) + "  ("
                     + fmt((sg.endUs - sg.startUs) / 1000) + ")", 12, R.color.text_dim, false));
             row.addView(tx, lp(0, WRAP, 8, 0, 1f));
-            row.addView(btn("i", C_BTN_ON_CARD, C_ACCENT, v -> showClipInfo(pc)),
-                    new LinearLayout.LayoutParams(dp(44), dp(40)));
+            Button infoB = btn("i", C_BTN_ON_CARD, C_ACCENT, v -> showClipInfo(pc));
+            infoB.setPadding(0, 0, 0, 0);
+            row.addView(infoB, lp(dp(36), dp(34), 0, 0));
             if (pieces.size() > 1) {
-                row.addView(btn("✕", C_BTN_ON_CARD, C_DANGER, v -> deleteClip(idx)),
-                        new LinearLayout.LayoutParams(dp(44), dp(40)));
+                Button delB = btn("✕", C_BTN_ON_CARD, C_DANGER, v -> deleteClip(idx));
+                delB.setPadding(0, 0, 0, 0);
+                row.addView(delB, lp(dp(36), dp(34), 6, 0));
             }
             final long seekTo = cum / 1000;
             row.setClickable(true);
