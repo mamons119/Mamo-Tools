@@ -748,8 +748,11 @@ public class VideoEditorActivity extends Activity {
             Uri d = in.getData();
             String nm = queryName(d);
             String last = d.getLastPathSegment() == null ? "" : d.getLastPathSegment();
+            String type = in.getType() != null ? in.getType() : getContentResolver().getType(d);
+            boolean isVideoType = type != null && type.startsWith("video/");
             if (nm.toLowerCase(Locale.ROOT).endsWith(".mamovideo")
-                    || last.toLowerCase(Locale.ROOT).endsWith(".mamovideo")) {
+                    || last.toLowerCase(Locale.ROOT).endsWith(".mamovideo") || !isVideoType) {
+                // anche i file ricevuti da WhatsApp & co. (senza estensione nel percorso) arrivano qui
                 importProject(d);
             } else {
                 loadVideo(d);
