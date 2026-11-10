@@ -37,6 +37,7 @@ public abstract class ProjectsActivity extends Activity {
     @Override
     protected void onResume() {
         super.onResume();
+        hideOpening();
         while (root.getChildCount() > 2) {
             root.removeViewAt(2);
         }
@@ -80,6 +81,7 @@ public abstract class ProjectsActivity extends Activity {
             card.setOnClickListener(new View.OnClickListener() {
                 @Override
                 public void onClick(View v) {
+                    showOpening("Apertura del progetto");
                     startActivity(new Intent(ProjectsActivity.this,
                             video() ? VideoEditorActivity.class : AudioEditorActivity.class)
                             .putExtra("project", e.id));
@@ -119,7 +121,60 @@ public abstract class ProjectsActivity extends Activity {
         Intent i = new Intent(Intent.ACTION_VIEW, uri);
         i.setClass(this, video() ? VideoEditorActivity.class : AudioEditorActivity.class);
         i.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        showOpening("Apertura del file");
         startActivity(i);
+    }
+
+    private android.app.Dialog openingDialog;
+
+    /** Indicatore di caricamento circolare mostrato mentre l'editor si apre. */
+    private void showOpening(String text) {
+        hideOpening();
+        android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        d.setCancelable(false);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        box.setBackground(Ui.round(this, Ui.CARD, 20));
+        box.setPadding(Ui.dp(this, 28), Ui.dp(this, 24), Ui.dp(this, 28), Ui.dp(this, 22));
+        android.widget.ProgressBar pb = new android.widget.ProgressBar(this);
+        pb.setIndeterminate(true);
+        pb.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+        box.addView(pb, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
+        TextView t = Ui.text(this, text + "...", 14, Ui.TEXT, false);
+        t.setPadding(0, Ui.dp(this, 14), 0, 0);
+        box.addView(t);
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+        }
+        d.show();
+        openingDialog = d;
+    }
+
+    private void hideOpening() {
+        if (openingDialog != null) {
+            try {
+                openingDialog.dismiss();
+            } catch (Exception ignored) {
+            }
+            openingDialog = null;
+        }
+    }
+
+    @Override
+    protected void onStop() {
+        super.onStop();
+        hideOpening();
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        hideOpening();
     }
 
     private void share(final ProjStore.Entry e) {

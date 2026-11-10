@@ -128,6 +128,8 @@ public class VideoEditorActivity extends Activity {
     private boolean prevSoundReady = false;
 
     // clip aggiunte al video: sequenza di tratti (il primo e' il video scelto)
+    private static final int C_BTN_ON_CARD = 0xFF3A4252;
+
     private static final class Piece {
         VideoComposer.Seg s;
         String name;
@@ -1582,10 +1584,10 @@ public class VideoEditorActivity extends Activity {
             tx.addView(text(fmt((cum + tr) / 1000) + " → " + fmt((cum + len) / 1000) + "  ("
                     + fmt((sg.endUs - sg.startUs) / 1000) + ")", 12, R.color.text_dim, false));
             row.addView(tx, lp(0, WRAP, 8, 0, 1f));
-            row.addView(btn("i", C_CARD2, C_ACCENT, v -> showClipInfo(pc)),
+            row.addView(btn("i", C_BTN_ON_CARD, C_ACCENT, v -> showClipInfo(pc)),
                     new LinearLayout.LayoutParams(dp(44), dp(40)));
             if (pieces.size() > 1) {
-                row.addView(btn("✕", C_CARD2, C_DANGER, v -> deleteClip(idx)),
+                row.addView(btn("✕", C_BTN_ON_CARD, C_DANGER, v -> deleteClip(idx)),
                         new LinearLayout.LayoutParams(dp(44), dp(40)));
             }
             final long seekTo = cum / 1000;
@@ -1607,12 +1609,13 @@ public class VideoEditorActivity extends Activity {
         timeline.setJoins(joins);
     }
 
-    /** Popup con le informazioni del file di una clip. */
+    /** Popup con le informazioni del file di una clip, in forma di tabella. */
     private void showClipInfo(Piece pc) {
         Uri u = pc.s.uri;
-        StringBuilder sb = new StringBuilder();
-        sb.append("Nome: ").append(queryName(u)).append('\n');
-        String path = null, rel = null, mime = null, added = null;
+        List<String[]> rows = new ArrayList<>();
+        rows.add(new String[]{"#File", null});
+        rows.add(new String[]{"Nome", queryName(u)});
+        String path = null, rel = null, mime = null;
         long size = -1, mod = 0;
         try (Cursor c = getContentResolver().query(u, null, null, null, null)) {
             if (c != null && c.moveToFirst()) {
@@ -1645,7 +1648,7 @@ public class VideoEditorActivity extends Activity {
         if (path == null && rel != null) {
             path = rel + queryName(u);
         }
-        sb.append("Percorso: ").append(path != null ? path : u.toString()).append('\n');
+        rows.add(new String[]{"Percorso", path != null ? path : u.toString()});
         if (size < 0) {
             try (android.content.res.AssetFileDescriptor afd = getContentResolver().openAssetFileDescriptor(u, "r")) {
                 if (afd != null) {
@@ -1655,18 +1658,19 @@ public class VideoEditorActivity extends Activity {
             }
         }
         if (size >= 0) {
-            sb.append("Dimensione: ").append(humanSize(size)).append('\n');
+            rows.add(new String[]{"Dimensione", humanSize(size)});
         }
         if (mime == null) {
             mime = getContentResolver().getType(u);
         }
         if (mime != null) {
-            sb.append("Tipo: ").append(mime).append('\n');
+            rows.add(new String[]{"Tipo", mime});
         }
         if (mod > 0) {
-            sb.append("Modificato: ").append(new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY)
-                    .format(new java.util.Date(mod))).append('\n');
+            rows.add(new String[]{"Modificato", new java.text.SimpleDateFormat("dd/MM/yyyy HH:mm", Locale.ITALY)
+                    .format(new java.util.Date(mod))});
         }
+        rows.add(new String[]{"#Video", null});
         MediaMetadataRetriever mr = new MediaMetadataRetriever();
         try {
             mr.setDataSource(this, u);
@@ -1675,28 +1679,21 @@ public class VideoEditorActivity extends Activity {
             String rot = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_ROTATION);
             String dur = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
             String br = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_BITRATE);
-            String fps = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_CAPTURE_FRAMERATE);
             String date = mr.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DATE);
             if (w != null && h != null) {
                 int rr = rot == null ? 0 : Integer.parseInt(rot);
-                sb.append("Risoluzione: ").append(rr % 180 == 0 ? w + " x " + h : h + " x " + w);
-                if (rr != 0) {
-                    sb.append(" (ruotato di ").append(rr).append("°)");
-                }
-                sb.append('\n');
+                rows.add(new String[]{"Risoluzione", (rr % 180 == 0 ? w + " x " + h : h + " x " + w)
+                        + (rr != 0 ? " (ruotato di " + rr + "°)" : "")});
             }
             if (dur != null) {
-                sb.append("Durata del file: ").append(fmt(Long.parseLong(dur))).append('\n');
+                rows.add(new String[]{"Durata del file", fmt(Long.parseLong(dur))});
             }
             if (br != null) {
-                sb.append("Bitrate totale: ")
-                        .append(String.format(Locale.US, "%.1f Mb/s", Long.parseLong(br) / 1e6)).append('\n');
-            }
-            if (fps != null) {
-                sb.append("Fotogrammi al secondo (dichiarati): ").append(fps).append('\n');
+                rows.add(new String[]{"Bitrate totale",
+                        String.format(Locale.US, "%.1f Mb/s", Long.parseLong(br) / 1e6)});
             }
             if (date != null) {
-                sb.append("Data di ripresa: ").append(date).append('\n');
+                rows.add(new String[]{"Data di ripresa", date});
             }
         } catch (Exception ignored) {
         } finally {
@@ -1705,10 +1702,10 @@ public class VideoEditorActivity extends Activity {
             } catch (Exception ignored) {
             }
         }
+        List<String[]> audioRows = new ArrayList<>();
         MediaExtractor ex = new MediaExtractor();
         try {
             ex.setDataSource(this, u, null);
-            boolean audio = false;
             for (int i = 0; i < ex.getTrackCount(); i++) {
                 MediaFormat f = ex.getTrackFormat(i);
                 String m = f.getString(MediaFormat.KEY_MIME);
@@ -1716,40 +1713,89 @@ public class VideoEditorActivity extends Activity {
                     continue;
                 }
                 if (m.startsWith("video/")) {
-                    sb.append("Codec video: ").append(m.substring(6));
+                    rows.add(new String[]{"Codec", m.substring(6)});
                     if (f.containsKey(MediaFormat.KEY_FRAME_RATE)) {
+                        String fr;
                         try {
-                            sb.append(" · ").append(Math.round(f.getFloat(MediaFormat.KEY_FRAME_RATE))).append(" fps");
+                            fr = Math.round(f.getFloat(MediaFormat.KEY_FRAME_RATE)) + " fps";
                         } catch (Exception e1) {
-                            sb.append(" · ").append(f.getInteger(MediaFormat.KEY_FRAME_RATE)).append(" fps");
+                            fr = f.getInteger(MediaFormat.KEY_FRAME_RATE) + " fps";
                         }
+                        rows.add(new String[]{"Fotogrammi", fr});
                     }
-                    sb.append('\n');
                 } else if (m.startsWith("audio/")) {
-                    audio = true;
-                    sb.append("Audio: ").append(m.substring(6));
+                    audioRows.add(new String[]{"Codec", m.substring(6)});
                     if (f.containsKey(MediaFormat.KEY_SAMPLE_RATE)) {
-                        sb.append(" · ").append(f.getInteger(MediaFormat.KEY_SAMPLE_RATE)).append(" Hz");
+                        audioRows.add(new String[]{"Frequenza", f.getInteger(MediaFormat.KEY_SAMPLE_RATE) + " Hz"});
                     }
                     if (f.containsKey(MediaFormat.KEY_CHANNEL_COUNT)) {
                         int ch = f.getInteger(MediaFormat.KEY_CHANNEL_COUNT);
-                        sb.append(" · ").append(ch == 1 ? "mono" : ch == 2 ? "stereo" : ch + " canali");
+                        audioRows.add(new String[]{"Canali", ch == 1 ? "mono" : ch == 2 ? "stereo" : ch + " canali"});
                     }
-                    sb.append('\n');
                 }
-            }
-            if (!audio) {
-                sb.append("Audio: assente\n");
             }
         } catch (Exception ignored) {
         } finally {
             ex.release();
         }
-        sb.append("\nNel montaggio\n");
-        sb.append("Parte usata: ").append(fmt(pc.s.startUs / 1000)).append(" → ").append(fmt(pc.s.endUs / 1000))
-                .append("  (").append(fmt((pc.s.endUs - pc.s.startUs) / 1000)).append(")\n");
-        sb.append("Ruolo: ").append(pc.s.uri.equals(origUri) ? "video principale" : "clip aggiunta");
-        Ui.infoDialog(this, pc.name, sb.toString());
+        rows.add(new String[]{"#Audio", null});
+        if (audioRows.isEmpty()) {
+            rows.add(new String[]{"Traccia audio", "assente"});
+        } else {
+            rows.addAll(audioRows);
+        }
+        rows.add(new String[]{"#Nel montaggio", null});
+        rows.add(new String[]{"Parte usata", fmt(pc.s.startUs / 1000) + " → " + fmt(pc.s.endUs / 1000)});
+        rows.add(new String[]{"Durata usata", fmt((pc.s.endUs - pc.s.startUs) / 1000)});
+        rows.add(new String[]{"Ruolo", pc.s.uri.equals(origUri) ? "video principale" : "clip aggiunta"});
+
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(round(C_CARD, 20));
+        box.setPadding(dp(18), dp(18), dp(18), dp(16));
+        TextView ttl = text(pc.name, 17, R.color.text, true);
+        ttl.setSingleLine(true);
+        ttl.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+        box.addView(ttl);
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        LinearLayout tbl = new LinearLayout(this);
+        tbl.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(tbl, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout cur = null;
+        for (String[] r : rows) {
+            if (r[1] == null) {
+                TextView hd = text(r[0].substring(1), 12, R.color.accent, true);
+                hd.setPadding(dp(4), dp(14), 0, dp(6));
+                tbl.addView(hd);
+                cur = new LinearLayout(this);
+                cur.setOrientation(LinearLayout.VERTICAL);
+                cur.setBackground(round(C_CARD2, 12));
+                cur.setPadding(dp(14), dp(8), dp(14), dp(8));
+                tbl.addView(cur, new LinearLayout.LayoutParams(MATCH, WRAP));
+                continue;
+            }
+            LinearLayout row = new LinearLayout(this);
+            row.setPadding(0, dp(5), 0, dp(5));
+            TextView k = text(r[0], 13, R.color.text_dim, false);
+            TextView v = text(r[1], 13, R.color.text, false);
+            v.setGravity(Gravity.END);
+            row.addView(k, new LinearLayout.LayoutParams(0, WRAP, 0.8f));
+            row.addView(v, new LinearLayout.LayoutParams(0, WRAP, 1.4f));
+            cur.addView(row, new LinearLayout.LayoutParams(MATCH, WRAP));
+        }
+        box.addView(sv, new LinearLayout.LayoutParams(MATCH, 0, 1f));
+        box.addView(btn("Chiudi", C_ACCENT, 0xFF000000, v -> d.dismiss()), lp(MATCH, dp(46), 0, 14));
+        d.setContentView(box);
+        android.view.Window win = d.getWindow();
+        if (win != null) {
+            win.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            win.setDimAmount(0.6f);
+            win.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.92f),
+                    (int) (getResources().getDisplayMetrics().heightPixels * 0.85f));
+        }
+        d.show();
     }
 
     private static String humanSize(long b) {
