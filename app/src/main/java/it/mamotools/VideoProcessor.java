@@ -50,6 +50,8 @@ final class VideoProcessor {
         int extraRot = 0; // rotazione aggiuntiva scelta dall'utente (0/90/180/270, in senso orario)
         int quality = 0; // 0 massima, 1 alta, 2 media, 3 bassa (ricodifica)
         java.util.List<VideoFx.Item> fx; // effetti e testi (tempi in microsecondi)
+        long soundFadeInUs = 0, soundFadeOutUs = 0; // dissolvenze della colonna sonora (0 = nessuna)
+        int soundFadeCurve = 1; // 0 lineare, 1 morbida
     }
 
     static final int RATE = 44100;
@@ -80,6 +82,9 @@ final class VideoProcessor {
                 o2.soundStartUs = o.soundStartUs;
                 o2.mix = o.mix;
                 o2.originalDb = o.originalDb;
+                o2.soundFadeInUs = o.soundFadeInUs;
+                o2.soundFadeOutUs = o.soundFadeOutUs;
+                o2.soundFadeCurve = o.soundFadeCurve;
                 o2.extraRot = 0; // gia' applicata nel file intermedio
                 export(ctx, o2, out, cacheDir, new Progress() {
                     @Override
@@ -126,6 +131,9 @@ final class VideoProcessor {
                 o3.soundStartUs = o.soundStartUs;
                 o3.mix = o.mix;
                 o3.originalDb = o.originalDb;
+                o3.soundFadeInUs = o.soundFadeInUs;
+                o3.soundFadeOutUs = o.soundFadeOutUs;
+                o3.soundFadeCurve = o.soundFadeCurve;
                 o3.extraRot = o.extraRot;
                 export(ctx, o3, out, cacheDir, new Progress() {
                     @Override
@@ -242,7 +250,8 @@ final class VideoProcessor {
                 }
                 p.onProgress("Mixaggio audio...", 30);
                 float g = (float) Math.pow(10.0, o.originalDb / 20.0);
-                encodeMix(needOrig ? pcmOrig : null, pcmSound, g, tmpM4a, p);
+                encodeMix(needOrig ? pcmOrig : null, pcmSound, g, tmpM4a, p,
+                        o.soundFadeInUs, o.soundFadeOutUs, o.soundFadeCurve, total);
             }
 
             // ---- muxing finale
@@ -619,6 +628,32 @@ final class VideoProcessor {
         private final byte[] bs = new byte[16384];
         private final byte[] bo = new byte[16384];
         long totalFrames = 0;
+        long fadeInF = 0, fadeOutF = 0, endF = 0;
+        int curve = 1;
+
+        void setFade(long inUs, long outUs, int curve, long totalUs) {
+            fadeInF = inUs * RATE / 1000000L;
+            fadeOutF = outUs * RATE / 1000000L;
+            endF = totalUs * RATE / 1000000L;
+            this.curve = curve;
+        }
+
+        private float shape(float x) {
+            x = Math.max(0f, Math.min(1f, x));
+            return curve == 0 ? x : x * x * (3 - 2 * x);
+        }
+
+        /** Guadagno della colonna sonora al fotogramma f (dissolvenza in entrata e in uscita). */
+        private float fadeGain(long f) {
+            float g = 1f;
+            if (fadeInF > 0 && f < fadeInF) {
+                g *= shape(f / (float) fadeInF);
+            }
+            if (fadeOutF > 0 && endF > 0 && f > endF - fadeOutF) {
+                g *= shape((endF - f) / (float) fadeOutF);
+            }
+            return g;
+        }
 
         MixSource(File orig, File sound, float gain) throws IOException {
             this.sound = new BufferedInputStream(new FileInputStream(sound), 64 * 1024);
@@ -638,6 +673,9 @@ final class VideoProcessor {
             }
             for (int i = 0; i < n; i += 2) {
                 int s = i < ns ? (short) ((bs[i] & 0xFF) | (bs[i + 1] << 8)) : 0;
+                if (s != 0 && (fadeInF > 0 || fadeOutF > 0)) {
+                    s = Math.round(s * fadeGain(totalFrames + (i >> 2)));
+                }
                 int ov = i < no ? (short) ((bo[i] & 0xFF) | (bo[i + 1] << 8)) : 0;
                 int v = orig == null ? s : Math.round(s + ov * gain);
                 if (v > 32767) {
@@ -677,7 +715,14 @@ final class VideoProcessor {
 
     static void encodeMix(File orig, File sound, float gain, File outM4a, Progress p)
             throws IOException {
+        encodeMix(orig, sound, gain, outM4a, p, 0, 0, 1, 0);
+    }
+
+    static void encodeMix(File orig, File sound, float gain, File outM4a, Progress p,
+                          long fadeInUs, long fadeOutUs, int curve, long totalUs)
+            throws IOException {
         MixSource src = new MixSource(orig, sound, gain);
+        src.setFade(fadeInUs, fadeOutUs, curve, totalUs);
         long totalBytes = Math.max(orig == null ? 0 : orig.length(), sound.length());
         MediaCodec enc = null;
         MediaMuxer mx = null;

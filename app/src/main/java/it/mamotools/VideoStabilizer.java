@@ -978,6 +978,19 @@ final class VideoStabilizer {
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
             }
 
+            // ---- programma per il nero finale (Appare/Sparisce al nero: sopra a tutto)
+            int progK = GLES20.glCreateProgram();
+            GLES20.glAttachShader(progK, shader(GLES20.GL_VERTEX_SHADER, VS_P));
+            GLES20.glAttachShader(progK, shader(GLES20.GL_FRAGMENT_SHADER,
+                    "precision mediump float;\nvoid main(){ gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0); }\n"));
+            GLES20.glLinkProgram(progK);
+            int[] lkk = new int[1];
+            GLES20.glGetProgramiv(progK, GLES20.GL_LINK_STATUS, lkk, 0);
+            if (lkk[0] == 0) {
+                throw new IOException("programma grafico del nero non valido");
+            }
+            int kPos = GLES20.glGetAttribLocation(progK, "aPos"), kTex = GLES20.glGetAttribLocation(progK, "aTex");
+
             // ---- programma per i testi
             int prog2 = GLES20.glCreateProgram();
             GLES20.glAttachShader(prog2, shader(GLES20.GL_VERTEX_SHADER, VS_T));
@@ -1123,6 +1136,9 @@ final class VideoStabilizer {
                         st.getTransformMatrix(stm);
                         long ptsUs = info.presentationTimeUs;
                         VideoFx.uniforms(items, ptsUs, fxu);
+                        // il nero di "Appare/Sparisce al nero" si applica per ultimo, sopra a tutto
+                        float topFade = fxu[VideoFx.U_FADE];
+                        fxu[VideoFx.U_FADE] = 1f;
                         float cCrt = fxu[VideoFx.U_CRT], cWarp = fxu[VideoFx.U_WARP],
                                 cBars = fxu[VideoFx.U_BARS], cBspd = fxu[VideoFx.U_BSPD];
                         if (usePost) {
@@ -1239,6 +1255,20 @@ final class VideoStabilizer {
                             GLES20.glUniform1f(pTime, (float) ((ptsUs % 600000000L) / 1e6));
                             GLES20.glUniform1f(pRotI, rotation == 90 ? 1f : rotation == 180 ? 2f : rotation == 270 ? 3f : 0f);
                             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                        }
+                        if (topFade < 0.999f) {
+                            GLES20.glUseProgram(progK);
+                            GLES20.glEnable(GLES20.GL_BLEND);
+                            GLES20.glBlendColor(0f, 0f, 0f, 1f - Math.max(0f, topFade));
+                            GLES20.glBlendFunc(GLES20.GL_CONSTANT_ALPHA, GLES20.GL_ONE_MINUS_CONSTANT_ALPHA);
+                            GLES20.glEnableVertexAttribArray(kPos);
+                            GLES20.glEnableVertexAttribArray(kTex);
+                            fb.position(0);
+                            GLES20.glVertexAttribPointer(kPos, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            fb.position(2);
+                            GLES20.glVertexAttribPointer(kTex, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                            GLES20.glDisable(GLES20.GL_BLEND);
                         }
                         EGLExt.eglPresentationTimeANDROID(dpy, esurf, info.presentationTimeUs * 1000L);
                         EGL14.eglSwapBuffers(dpy, esurf);

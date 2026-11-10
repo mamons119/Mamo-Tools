@@ -35,6 +35,7 @@ final class TextOverlayView extends View {
     private PreviewVideo video;
     private final float[] u = new float[VideoFx.U_COUNT];
     private final Paint fxPaint = new Paint(Paint.FILTER_BITMAP_FLAG);
+    private float topFade = 1f;
 
     void setVideo(PreviewVideo v) {
         video = v;
@@ -43,6 +44,9 @@ final class TextOverlayView extends View {
     /** Calcola gli effetti attivi alla posizione corrente e li applica al player. */
     private void applyFx() {
         VideoFx.uniforms(items, posMs * 1000, u);
+        // il nero di "Appare/Sparisce al nero" viene disegnato per ultimo, sopra a tutto
+        topFade = u[VideoFx.U_FADE];
+        u[VideoFx.U_FADE] = 1f;
         if (video != null) {
             if (VideoFx.isNeutral(u)) {
                 video.setFx(null, 1f);
@@ -100,6 +104,12 @@ final class TextOverlayView extends View {
         drawFx(c, l, t, rw, rh, s);
         if (!textsDone) {
             drawTexts(c, l, t, rw, rh);
+        }
+        if (topFade < 0.999f) {
+            Paint kp = new Paint();
+            kp.setColor(0xFF000000);
+            kp.setAlpha((int) (255 * (1f - Math.max(0f, topFade))));
+            c.drawRect(l, t, l + rw, t + rh, kp);
         }
     }
 

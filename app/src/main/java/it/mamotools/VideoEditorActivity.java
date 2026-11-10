@@ -75,7 +75,12 @@ public class VideoEditorActivity extends Activity {
     private final List<long[]> cuts = new ArrayList<>();   // ms
     private long markA = -1, markB = -1;
     private long soundDurMs = 0;
-    private long soundStartMs = 0;
+    private long soundStartMs = 0, soundPrevMs = 0;
+    private long soundFadeInMs = 0, soundFadeOutMs = 0;
+    private int soundFadeCurve = 1;
+    private TextView fadeInText, fadeOutText;
+    private SeekBar fadeInBar, fadeOutBar;
+    private TextView[] curveChips;
     private boolean keepAudio = true;
     private boolean mix = false;
     private int dbDown = 12;
@@ -344,11 +349,12 @@ public class VideoEditorActivity extends Activity {
             applyVolumes();
         });
         au.addView(sw, new LinearLayout.LayoutParams(MATCH, WRAP));
-        editorBox.addView(au, lp(MATCH, WRAP, 0, 12));
 
-        // ---- colonna sonora
-        LinearLayout so = card();
-        so.addView(sectionTitle("Colonna sonora"));
+        // ---- colonna sonora (nella stessa scheda dell'audio)
+        LinearLayout so = au;
+        TextView soTitle = text("Colonna sonora", 13, R.color.text_dim, true);
+        soTitle.setPadding(0, dp(18), 0, dp(8));
+        so.addView(soTitle);
         LinearLayout soundRow = new LinearLayout(this);
         soundRow.setGravity(Gravity.CENTER_VERTICAL);
         soundRow.addView(btn("♪  Scegli audio", C_CARD2, C_TEXT, v -> pickSound()),
@@ -376,20 +382,24 @@ public class VideoEditorActivity extends Activity {
                 if (soundBarSync) {
                     return;
                 }
-                soundStartMs = p * 100L;
-                updateTexts();
-                soundSeek(timeline == null ? 0 : timeline.pos);
+                soundPrevMs = p * 100L;
                 if (user && soundPlayer != null && soundTestReady) {
                     try {
-                        soundPlayer.seekTo((int) soundStartMs);
+                        soundPlayer.seekTo((int) soundPrevMs);
                     } catch (Exception ignored) {
                     }
                 }
+                updateTexts();
             }
         });
         soundBox.addView(soundStartBar, new LinearLayout.LayoutParams(MATCH, WRAP));
-        soundTestBtn = btn("▶  Ascolta da questo punto", C_CARD2, C_ACCENT, v -> toggleSoundTest());
-        soundBox.addView(soundTestBtn, new LinearLayout.LayoutParams(MATCH, dp(44)));
+        LinearLayout trRow = new LinearLayout(this);
+        trRow.setBaselineAligned(false);
+        soundTestBtn = btn("▶  Ascolta", C_CARD2, C_ACCENT, v -> toggleSoundTest());
+        trRow.addView(soundTestBtn, lp(0, dp(44), 0, 0, 1f));
+        trRow.addView(btn("⚑  Parti da qui", C_CARD2, C_TEXT, v -> setSoundStartHere()),
+                lp(0, dp(44), 8, 0, 1.3f));
+        soundBox.addView(trRow, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         TextView ml = text("Come usarla", 13, R.color.text_dim, false);
         ml.setPadding(0, dp(16), 0, dp(2));
@@ -421,7 +431,58 @@ public class VideoEditorActivity extends Activity {
         dbBar.setMax(27);          // 3..30 dB
         dbBar.setProgress(dbDown - 3);
         soundBox.addView(dbBar, new LinearLayout.LayoutParams(MATCH, WRAP));
-        editorBox.addView(so, lp(MATCH, WRAP, 0, 12));
+
+        // dissolvenze della colonna sonora
+        TextView fl = text("Dissolvenze della colonna sonora", 13, R.color.text_dim, false);
+        fl.setPadding(0, dp(18), 0, dp(2));
+        soundBox.addView(fl);
+        fadeInText = text("", 14, R.color.text, false);
+        fadeInText.setPadding(0, dp(6), 0, 0);
+        soundBox.addView(fadeInText);
+        fadeInBar = seek(new SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                soundFadeInMs = p * 100L;
+                updateTexts();
+                applyVolumes();
+            }
+        });
+        fadeInBar.setMax(150);       // 0..15 s
+        soundBox.addView(fadeInBar, new LinearLayout.LayoutParams(MATCH, WRAP));
+        fadeOutText = text("", 14, R.color.text, false);
+        fadeOutText.setPadding(0, dp(6), 0, 0);
+        soundBox.addView(fadeOutText);
+        fadeOutBar = seek(new SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                soundFadeOutMs = p * 100L;
+                updateTexts();
+                applyVolumes();
+            }
+        });
+        fadeOutBar.setMax(150);
+        soundBox.addView(fadeOutBar, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout curveRow = new LinearLayout(this);
+        curveChips = new TextView[2];
+        String[] cn = {"Lineare", "Morbida"};
+        for (int i = 0; i < 2; i++) {
+            final int ci = i;
+            curveChips[i] = Ui.chip(this, cn[i]);
+            curveChips[i].setTextSize(12);
+            curveChips[i].setOnClickListener(v -> {
+                soundFadeCurve = ci;
+                styleCurve();
+                applyVolumes();
+            });
+            curveRow.addView(curveChips[i], Ui.lp(this, 0, dp(40), i == 0 ? 0 : 6, 0, 1f));
+        }
+        soundBox.addView(curveRow, lp(MATCH, WRAP, 0, 10));
+        TextView fnote = text("Lineare: il volume sale e scende in modo costante. Morbida: parte e finisce piano. "
+                + "L'uscita finisce alla fine del video; 0 = nessuna dissolvenza.", 12, R.color.text_dim, false);
+        fnote.setPadding(0, dp(6), 0, 0);
+        soundBox.addView(fnote);
+        styleCurve();
+        editorBox.addView(au, lp(MATCH, WRAP, 0, 12));
 
         // ---- rotazione
         LinearLayout rc = card();
@@ -680,7 +741,15 @@ public class VideoEditorActivity extends Activity {
         if (in != null && in.getStringExtra("project") != null) {
             loadProject(in.getStringExtra("project"));
         } else if (in != null && in.getData() != null && Intent.ACTION_VIEW.equals(in.getAction())) {
-            loadVideo(in.getData());
+            Uri d = in.getData();
+            String nm = queryName(d);
+            String last = d.getLastPathSegment() == null ? "" : d.getLastPathSegment();
+            if (nm.toLowerCase(Locale.ROOT).endsWith(".mamovideo")
+                    || last.toLowerCase(Locale.ROOT).endsWith(".mamovideo")) {
+                importProject(d);
+            } else {
+                loadVideo(d);
+            }
         }
     }
 
@@ -906,6 +975,9 @@ public class VideoEditorActivity extends Activity {
                 o.put("soundUri", soundUri.toString());
                 ProjStore.keep(this, soundUri);
                 o.put("soundStartMs", soundStartMs);
+                o.put("soundFadeIn", soundFadeInMs);
+                o.put("soundFadeOut", soundFadeOutMs);
+                o.put("soundFadeCurve", soundFadeCurve);
             }
             o.put("stabOn", stabOn);
             o.put("stabRoll", stabRoll);
@@ -926,6 +998,33 @@ public class VideoEditorActivity extends Activity {
             Toast.makeText(this, "Progetto salvato: " + title, Toast.LENGTH_SHORT).show();
         } catch (Exception e) {
             Toast.makeText(this, "Salvataggio del progetto non riuscito.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Apre un file .mamovideo ricevuto da fuori (Apri con): lo copia tra i progetti e lo carica. */
+    private void importProject(Uri uri) {
+        try {
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            try (java.io.InputStream is = getContentResolver().openInputStream(uri)) {
+                if (is == null) {
+                    throw new java.io.IOException("file non leggibile");
+                }
+                byte[] b = new byte[16384];
+                int n;
+                while ((n = is.read(b)) > 0) {
+                    bo.write(b, 0, n);
+                }
+            }
+            org.json.JSONObject o = new org.json.JSONObject(bo.toString("UTF-8"));
+            if (!o.has("pieces") || !o.has("origUri")) {
+                throw new IllegalArgumentException("non e' un progetto del Video Editor");
+            }
+            String id = ProjStore.newId();
+            store.write(id, o);
+            loadProject(id);
+        } catch (Exception e) {
+            Ui.infoDialog(this, "Progetto non leggibile", "Non riesco ad aprire questo file"
+                    + (e.getMessage() != null ? ": " + e.getMessage() : "."));
         }
     }
 
@@ -979,8 +1078,15 @@ public class VideoEditorActivity extends Activity {
                 if (durationOf(sUri) > 0) {
                     loadSound(sUri);
                     long ss = o.optLong("soundStartMs", 0);
-                    soundStartBar.setProgress((int) (ss / 100));
                     soundStartMs = ss;
+                    soundPrevMs = ss;
+                    soundStartBar.setProgress((int) (ss / 100));
+                    soundFadeInMs = o.optLong("soundFadeIn", 0);
+                    soundFadeOutMs = o.optLong("soundFadeOut", 0);
+                    soundFadeCurve = o.optInt("soundFadeCurve", 1);
+                    fadeInBar.setProgress((int) (soundFadeInMs / 100));
+                    fadeOutBar.setProgress((int) (soundFadeOutMs / 100));
+                    styleCurve();
                 } else {
                     Toast.makeText(this, "La colonna sonora del progetto non e' piu' disponibile.",
                             Toast.LENGTH_LONG).show();
@@ -1478,11 +1584,18 @@ public class VideoEditorActivity extends Activity {
                 row.addView(btn("✕", C_CARD2, C_DANGER, v -> deleteClip(idx)),
                         new LinearLayout.LayoutParams(dp(44), dp(40)));
             }
-            final long seekTo = (cum + tr) / 1000;
+            final long seekTo = cum / 1000;
+            row.setClickable(true);
             row.setOnClickListener(v -> {
+                if (videoUri == null) {
+                    return;
+                }
                 seekExact(seekTo);
                 timeline.setPos(seekTo);
-                overlay.setPos(seekTo);
+                if (overlay != null) {
+                    overlay.setPos(seekTo);
+                }
+                updateTexts();
             });
             clipList.addView(row, lp(MATCH, WRAP, 0, 4));
             cum += len;
@@ -1906,6 +2019,7 @@ public class VideoEditorActivity extends Activity {
         soundUri = uri;
         soundDurMs = d;
         soundStartMs = 0;
+        soundPrevMs = 0;
         soundName.setText(queryName(uri) + " (" + fmt(d) + ")");
         soundStartBar.setMax((int) Math.max(1, (d - 1000) / 100));
         soundStartBar.setProgress(0);
@@ -1954,10 +2068,60 @@ public class VideoEditorActivity extends Activity {
                 videoPlayer.setVolume(g, g);
             }
             if (prevSound != null && prevSoundReady) {
-                prevSound.setVolume(1f, 1f);
+                float sg = soundGain(videoView != null && videoView.isPlaying()
+                        ? videoView.getCurrentPosition() : (timeline == null ? 0 : timeline.pos));
+                prevSound.setVolume(sg, sg);
             }
         } catch (Exception ignored) {
         }
+    }
+
+    /** Volume della colonna sonora nel punto videoMs, con dissolvenza in entrata e in uscita. */
+    private float soundGain(long videoMs) {
+        if (soundFadeInMs <= 0 && soundFadeOutMs <= 0) {
+            return 1f;
+        }
+        long t = keptBefore(videoMs), tot = keptTotal();
+        float g = 1f;
+        if (soundFadeInMs > 0 && t < soundFadeInMs) {
+            g *= fadeShape(t / (float) soundFadeInMs);
+        }
+        if (soundFadeOutMs > 0 && t > tot - soundFadeOutMs) {
+            g *= fadeShape((tot - t) / (float) soundFadeOutMs);
+        }
+        return g;
+    }
+
+    private float fadeShape(float x) {
+        x = Math.max(0f, Math.min(1f, x));
+        return soundFadeCurve == 0 ? x : x * x * (3 - 2 * x);
+    }
+
+    private void styleCurve() {
+        if (curveChips == null) {
+            return;
+        }
+        for (int i = 0; i < 2; i++) {
+            Ui.styleChip(this, curveChips[i], soundFadeCurve == i);
+        }
+    }
+
+    /** Il punto raggiunto dall'ascolto (o dalla barra) diventa l'inizio della colonna sonora. */
+    private void setSoundStartHere() {
+        if (soundUri == null) {
+            return;
+        }
+        long pos = soundPrevMs;
+        if (soundPlayer != null && soundTestReady) {
+            try {
+                pos = soundPlayer.getCurrentPosition();
+            } catch (Exception ignored) {
+            }
+        }
+        soundStartMs = Math.max(0, Math.min(pos, Math.max(0, soundDurMs - 1000)));
+        updateTexts();
+        soundSeek(timeline == null ? 0 : timeline.pos);
+        Toast.makeText(this, "La colonna sonora parte da " + fmt(soundStartMs), Toast.LENGTH_SHORT).show();
     }
 
     private void preparePrevSound() {
@@ -2114,6 +2278,10 @@ public class VideoEditorActivity extends Activity {
         if (videoUri != null && overlay != null) {
             overlay.setPos(timeline.pos);
         }
+        if ((soundFadeInMs > 0 || soundFadeOutMs > 0) && prevSoundReady && videoUri != null
+                && videoView.isPlaying()) {
+            applyVolumes();
+        }
         if (videoUri == null || !videoView.isPlaying() || skipping) {
             return;
         }
@@ -2175,36 +2343,36 @@ public class VideoEditorActivity extends Activity {
         }
         try {
             int pos = soundPlayer.getCurrentPosition();
+            soundPrevMs = pos;
             soundBarSync = true;
             soundStartBar.setProgress(pos / 100);
             soundBarSync = false;
-            soundStartText.setText("In ascolto: " + fmt(pos) + " (su " + fmt(soundDurMs) + ")");
+            updateTexts();
         } catch (Exception ignored) {
             soundBarSync = false;
         }
     }
 
+    /** Play / pausa dell'ascolto di prova della colonna sonora. */
     private void toggleSoundTest() {
-        if (soundPlayer != null) {
-            // fermando, il punto raggiunto diventa l'inizio della colonna sonora
-            long pos = -1;
-            if (soundTestReady) {
-                try {
-                    pos = soundPlayer.getCurrentPosition();
-                } catch (Exception ignored) {
-                }
-            }
-            stopSoundTest();
-            if (pos >= 0) {
-                soundStartMs = Math.min(pos, Math.max(0, soundDurMs - 1000));
-                soundBarSync = true;
-                soundStartBar.setProgress((int) (soundStartMs / 100));
-                soundBarSync = false;
-                updateTexts();
-            }
+        if (soundUri == null) {
             return;
         }
-        if (soundUri == null) {
+        if (soundPlayer != null) {
+            if (!soundTestReady) {
+                return;
+            }
+            try {
+                if (soundPlayer.isPlaying()) {
+                    soundPlayer.pause();
+                    soundPrevMs = soundPlayer.getCurrentPosition();
+                    soundTestBtn.setText("▶  Ascolta");
+                } else {
+                    soundPlayer.start();
+                    soundTestBtn.setText("❚❚  Pausa");
+                }
+            } catch (Exception ignored) {
+            }
             return;
         }
         if (videoUri != null && videoView.isPlaying()) {
@@ -2216,13 +2384,16 @@ public class VideoEditorActivity extends Activity {
             soundPlayer = new MediaPlayer();
             soundPlayer.setDataSource(this, soundUri);
             soundPlayer.setOnPreparedListener(mp -> {
-                mp.seekTo((int) soundStartMs);
+                mp.seekTo((int) soundPrevMs);
                 mp.start();
                 soundTestReady = true;
             });
-            soundPlayer.setOnCompletionListener(mp -> stopSoundTest());
+            soundPlayer.setOnCompletionListener(mp -> {
+                soundPrevMs = soundStartMs;
+                stopSoundTest();
+            });
             soundPlayer.prepareAsync();
-            soundTestBtn.setText("■  Ferma e usa questo punto");
+            soundTestBtn.setText("❚❚  Pausa");
         } catch (Exception e) {
             stopSoundTest();
             Toast.makeText(this, "Impossibile riprodurre l'audio.", Toast.LENGTH_SHORT).show();
@@ -2233,17 +2404,21 @@ public class VideoEditorActivity extends Activity {
         soundTestReady = false;
         if (soundPlayer != null) {
             try {
+                soundPrevMs = soundPlayer.getCurrentPosition();
+            } catch (Exception ignored) {
+            }
+            try {
                 soundPlayer.release();
             } catch (Exception ignored) {
             }
             soundPlayer = null;
         }
         if (soundTestBtn != null) {
-            soundTestBtn.setText("▶  Ascolta da questo punto");
+            soundTestBtn.setText("▶  Ascolta");
         }
         if (soundStartBar != null) {
             soundBarSync = true;
-            soundStartBar.setProgress((int) (soundStartMs / 100));
+            soundStartBar.setProgress((int) (soundPrevMs / 100));
             soundBarSync = false;
             updateTexts();
         }
@@ -2343,8 +2518,14 @@ public class VideoEditorActivity extends Activity {
         }
         timeText.setText(fmt(timeline == null ? 0 : timeline.pos) + " / " + fmt(durMs));
         if (soundStartText != null) {
-            soundStartText.setText("La colonna sonora parte da: " + fmt(soundStartMs)
-                    + " (su " + fmt(soundDurMs) + ")");
+            soundStartText.setText("Ascolto: " + fmt(soundPrevMs) + " (su " + fmt(soundDurMs)
+                    + ")\nLa colonna sonora parte da: " + fmt(soundStartMs));
+        }
+        if (fadeInText != null) {
+            fadeInText.setText(soundFadeInMs <= 0 ? "Dissolvenza in entrata: nessuna"
+                    : "Dissolvenza in entrata: " + String.format(Locale.US, "%.1f", soundFadeInMs / 1000.0) + " s");
+            fadeOutText.setText(soundFadeOutMs <= 0 ? "Dissolvenza in uscita: nessuna"
+                    : "Dissolvenza in uscita: " + String.format(Locale.US, "%.1f", soundFadeOutMs / 1000.0) + " s");
         }
         if (dbText != null) {
             dbText.setText("Audio originale abbassato di " + dbDown + " dB");
@@ -2402,6 +2583,9 @@ public class VideoEditorActivity extends Activity {
         o.keepAudio = keepAudio;
         o.sound = soundUri;
         o.soundStartUs = soundStartMs * 1000;
+        o.soundFadeInUs = soundFadeInMs * 1000;
+        o.soundFadeOutUs = soundFadeOutMs * 1000;
+        o.soundFadeCurve = soundFadeCurve;
         o.mix = mix && keepAudio;
         o.originalDb = -dbDown;
         if (stabOn) {
