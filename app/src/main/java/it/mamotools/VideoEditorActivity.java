@@ -2682,7 +2682,7 @@ public class VideoEditorActivity extends Activity {
             soundStartText.setText("Ascolto: " + fmt(soundPrevMs) + " (su " + fmt(soundDurMs)
                     + ")\nLa colonna sonora parte da: " + fmt(soundStartMs));
         }
-        if (fadeInText != null) {
+        if (fadeInText != null && fadeOutText != null) {
             fadeInText.setText(soundFadeInMs <= 0 ? "Dissolvenza in entrata: nessuna"
                     : "Dissolvenza in entrata: " + String.format(Locale.US, "%.1f", soundFadeInMs / 1000.0) + " s");
             fadeOutText.setText(soundFadeOutMs <= 0 ? "Dissolvenza in uscita: nessuna"
