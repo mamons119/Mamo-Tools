@@ -1,6 +1,7 @@
 package it.mamotools;
 
 import android.content.Context;
+import android.graphics.Bitmap;
 import android.graphics.SurfaceTexture;
 import android.media.MediaCodec;
 import android.media.MediaCodecInfo;
@@ -17,6 +18,7 @@ import android.opengl.EGLExt;
 import android.opengl.EGLSurface;
 import android.opengl.GLES11Ext;
 import android.opengl.GLES20;
+import android.opengl.GLUtils;
 import android.view.Surface;
 
 import java.io.File;
@@ -39,6 +41,26 @@ final class VideoComposer {
         int trans;       // transizione che precede questo tratto (0 = nessuna)
         long transUs;    // durata della transizione
         float[] tp = new float[4];   // parametri della transizione (vedi params())
+        // modifiche della singola clip
+        float speed = 1f;            // 0.1 .. 10 (2 = il doppio piu' veloce)
+        boolean reverse = false;     // la clip parte dalla fine e va verso l'inizio
+        float vol = 1f;              // volume dell'audio della clip (0 = muto)
+        boolean mirH = false, mirV = false;
+        int look = 0;                // vedi LOOK_NAMES
+
+        boolean isPlain() {
+            return speed == 1f && !reverse && vol == 1f && !mirH && !mirV && look == 0;
+        }
+
+        boolean sameMods(Seg o) {
+            return speed == o.speed && reverse == o.reverse && vol == o.vol && mirH == o.mirH
+                    && mirV == o.mirV && look == o.look;
+        }
+
+        /** Durata (us) che la parte usata della clip occupa nel video montato. */
+        long bodyUs() {
+            return Math.max(1, Math.round((endUs - startUs) / (double) speed));
+        }
 
         Seg(Uri uri, long startUs, long endUs) {
             this.uri = uri;
@@ -51,9 +73,17 @@ final class VideoComposer {
             s.trans = trans;
             s.transUs = transUs;
             s.tp = tp.clone();
+            s.speed = speed;
+            s.reverse = reverse;
+            s.vol = vol;
+            s.mirH = mirH;
+            s.mirV = mirV;
+            s.look = look;
             return s;
         }
     }
+
+    static final String[] LOOK_NAMES = {"Nessuno", "Bianco e nero", "Seppia", "Negativo", "Vivido", "Freddo", "Caldo"};
 
     static final String[] TRANS_NAMES = {"Nessuna", "Dissolvenza", "Dissolvenza al nero",
             "Scorrimento", "Tendina", "Zoom", "Pixel", "VHS noise glitch"};
@@ -137,7 +167,7 @@ final class VideoComposer {
 
     /** Durata (in us) che un tratto occupa nel video montato, transizione compresa. */
     static long lengthUs(Seg s, boolean first) {
-        return (s.endUs - s.startUs) + (!first && s.trans > 0 ? s.transUs : 0);
+        return s.bodyUs() + (!first && s.trans > 0 ? s.transUs : 0);
     }
 
     static int[] fitSize(int dw, int dh, int maxSide) {
@@ -161,11 +191,36 @@ final class VideoComposer {
             + "  vTc = (uST * vec4(s.x, 1.0 - s.y, 0.0, 1.0)).xy;\n"
             + "}\n";
 
+    private static final String LOOK_FN = "uniform float uLook;\n"
+            + "vec3 lookFx(vec3 c){\n"
+            + "  float l = dot(c, vec3(0.299, 0.587, 0.114));\n"
+            + "  if (uLook < 0.5) return c;\n"
+            + "  if (uLook < 1.5) return vec3(l);\n"
+            + "  if (uLook < 2.5) return vec3(l * 1.07, l * 0.74, l * 0.43);\n"
+            + "  if (uLook < 3.5) return vec3(1.0) - c;\n"
+            + "  if (uLook < 4.5) return clamp((mix(vec3(l), c, 1.7) - 0.5) * 1.1 + 0.5, 0.0, 1.0);\n"
+            + "  if (uLook < 5.5) return clamp(c * vec3(0.9, 0.97, 1.12) + vec3(-0.02, 0.0, 0.04), 0.0, 1.0);\n"
+            + "  return clamp(c * vec3(1.12, 1.0, 0.88) + vec3(0.03, 0.01, -0.03), 0.0, 1.0);\n"
+            + "}\n";
+
     private static final String FS_V = "#extension GL_OES_EGL_image_external : require\n"
             + "precision mediump float;\n"
             + "varying vec2 vTc;\n"
             + "uniform samplerExternalOES sTex;\n"
-            + "void main(){ gl_FragColor = texture2D(sTex, vTc); }\n";
+            + LOOK_FN
+            + "void main(){ vec4 c = texture2D(sTex, vTc); gl_FragColor = vec4(lookFx(c.rgb), 1.0); }\n";
+
+    /** Come VS_V/FS_V ma per un'immagine normale (fotogrammi letti all'indietro). */
+    private static final String VS_T = "attribute vec2 aPos;\n"
+            + "attribute vec2 aD;\n"
+            + "varying vec2 vTc;\n"
+            + "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); vTc = aD; }\n";
+
+    private static final String FS_T = "precision mediump float;\n"
+            + "varying vec2 vTc;\n"
+            + "uniform sampler2D sTex;\n"
+            + LOOK_FN
+            + "void main(){ vec4 c = texture2D(sTex, vTc); gl_FragColor = vec4(lookFx(c.rgb), 1.0); }\n";
 
     private static final String VS_X = "attribute vec2 aPos;\n"
             + "attribute vec2 aTex;\n"
@@ -352,6 +407,37 @@ final class VideoComposer {
      * @param w,h  dimensioni di uscita (pari), video dritto (nessuna rotazione nei metadati)
      * @param bitrate bit al secondo del video montato
      */
+    /** Accoda l'audio di un tratto applicando velocita', reverse e volume. */
+    private static void appendSegAudio(Context ctx, Seg s, VideoProcessor.PcmWriter pw, File cacheDir,
+                                       long targetFrames) throws IOException {
+        if (s.speed == 1f && !s.reverse && s.vol == 1f) {
+            try {
+                VideoProcessor.decodeRange(ctx, s.uri, s.startUs, s.endUs, pw);
+            } catch (IOException ignored) {
+            }
+            return;
+        }
+        if (s.vol == 0f) {
+            return;   // muto: ci pensa il silenzio di riempimento
+        }
+        File tmp = new File(cacheDir, "segaudio.pcm");
+        VideoProcessor.PcmWriter w = new VideoProcessor.PcmWriter(tmp);
+        try {
+            try {
+                VideoProcessor.decodeRange(ctx, s.uri, s.startUs, s.endUs, w);
+            } catch (IOException ignored) {
+            }
+        } finally {
+            w.close();
+        }
+        try {
+            pw.appendProcessed(tmp, tmp.length() / 4, s.speed, s.reverse, s.vol, targetFrames - pw.frames);
+        } finally {
+            //noinspection ResultOfMethodCallIgnored
+            tmp.delete();
+        }
+    }
+
     static void compose(Context ctx, List<Seg> segs, File out, File cacheDir, int w, int h,
                         int bitrate, VideoProcessor.Progress p) throws IOException {
         if (segs.isEmpty()) {
@@ -393,12 +479,9 @@ final class VideoComposer {
                             target += s.transUs * VideoProcessor.RATE / 1000000L;
                             pw.silence(target - pw.frames);
                         }
-                        target += (s.endUs - s.startUs) * VideoProcessor.RATE / 1000000L;
+                        target += s.bodyUs() * VideoProcessor.RATE / 1000000L;
                         if (segAudio[i]) {
-                            try {
-                                VideoProcessor.decodeRange(ctx, s.uri, s.startUs, s.endUs, pw);
-                            } catch (IOException ignored) {
-                            }
+                            appendSegAudio(ctx, s, pw, cacheDir, target);
                         }
                         pw.silence(target - pw.frames);
                         p.onProgress("Preparazione dell'audio...", 1 + 9 * (i + 1) / segs.size());
@@ -486,6 +569,17 @@ final class VideoComposer {
             int vPos = GLES20.glGetAttribLocation(progV, "aPos"), vD = GLES20.glGetAttribLocation(progV, "aD");
             int vST = GLES20.glGetUniformLocation(progV, "uST"), vA = GLES20.glGetUniformLocation(progV, "uA"),
                     vB = GLES20.glGetUniformLocation(progV, "uB");
+            int uLookV = GLES20.glGetUniformLocation(progV, "uLook");
+            int progT = program(VS_T, FS_T);
+            int tPos = GLES20.glGetAttribLocation(progT, "aPos"), tD = GLES20.glGetAttribLocation(progT, "aD");
+            int tS = GLES20.glGetUniformLocation(progT, "sTex"), tLook = GLES20.glGetUniformLocation(progT, "uLook");
+            int[] bmpTex = new int[1];
+            GLES20.glGenTextures(1, bmpTex, 0);
+            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bmpTex[0]);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+            GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
             int progX = program(VS_X, FS_X);
             int xPos = GLES20.glGetAttribLocation(progX, "aPos"), xTex = GLES20.glGetAttribLocation(progX, "aTex");
             int xA = GLES20.glGetUniformLocation(progX, "sA"), xB = GLES20.glGetUniformLocation(progX, "sB"),
@@ -562,7 +656,9 @@ final class VideoComposer {
                 float dw = swap ? sh : sw, dh = swap ? sw : sh;
                 float sc = Math.min(w / dw, h / dh);
                 float fx = dw * sc / w, fy = dh * sc / h;
-                float[] vq = {-fx, -fy, 0, 1, fx, -fy, 1, 1, -fx, fy, 0, 0, fx, fy, 1, 0};
+                float mxs = sg.mirH ? -1f : 1f, mys = sg.mirV ? -1f : 1f;
+                float[] vq = {-fx * mxs, -fy * mys, 0, 1, fx * mxs, -fy * mys, 1, 1,
+                        -fx * mxs, fy * mys, 0, 0, fx * mxs, fy * mys, 1, 0};
                 fbSeg.position(0);
                 fbSeg.put(vq);
                 fbSeg.position(0);
@@ -581,88 +677,146 @@ final class VideoComposer {
                     ua = new float[]{1, 0, 0, 1};
                     ub = new float[]{0, 0};
                 }
-                ex.seekTo(sg.startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
-                dec = MediaCodec.createDecoderByType(vf.getString(MediaFormat.KEY_MIME));
-                dec.configure(vf, decSurface, null, 0);
-                dec.start();
-                synchronized (lock) {
-                    avail[0] = false;
+                final boolean rev = sg.reverse;
+                MediaMetadataRetriever mrr = null;
+                int revN = 0, revK = 0;
+                int bw = Math.max(2, Math.round(fx * w)), bh = Math.max(2, Math.round(fy * h));
+                boolean haveBm = false;
+                if (rev) {
+                    mrr = new MediaMetadataRetriever();
+                    mrr.setDataSource(ctx, sg.uri);
+                    revN = (int) Math.max(1, sg.bodyUs() / FRAME_US);
+                } else {
+                    ex.seekTo(sg.startUs, MediaExtractor.SEEK_TO_PREVIOUS_SYNC);
+                    dec = MediaCodec.createDecoderByType(vf.getString(MediaFormat.KEY_MIME));
+                    dec.configure(vf, decSurface, null, 0);
+                    dec.start();
+                    synchronized (lock) {
+                        avail[0] = false;
+                    }
                 }
+                long lastDrawn = -1, prevPts = -1;
 
                 boolean doTrans = i > 0 && sg.trans > 0 && sg.transUs > 0;
                 boolean first = true;
                 boolean inDone = false, done = false;
                 MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
                 while (!done) {
-                    if (!inDone) {
-                        int ii = dec.dequeueInputBuffer(TIMEOUT);
-                        if (ii >= 0) {
-                            ByteBuffer ib = dec.getInputBuffer(ii);
-                            int size = ex.readSampleData(ib, 0);
-                            long stt = ex.getSampleTime();
-                            if (size < 0 || stt >= sg.endUs + 500000) {
-                                dec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
-                                inDone = true;
-                            } else {
-                                dec.queueInputBuffer(ii, 0, size, stt, 0);
-                                ex.advance();
+                    long pts = 0;
+                    if (rev) {
+                        if (revK >= revN) {
+                            break;
+                        }
+                        pts = sg.startUs + Math.round((double) revK * sg.bodyUs() / revN * sg.speed);
+                        long srcT = Math.max(sg.startUs, Math.min(sg.endUs - 1, sg.endUs - 1 - (pts - sg.startUs)));
+                        revK++;
+                        Bitmap bm = null;
+                        try {
+                            bm = mrr.getScaledFrameAtTime(srcT, MediaMetadataRetriever.OPTION_CLOSEST, bw, bh);
+                            if (bm == null) {
+                                bm = mrr.getFrameAtTime(srcT, MediaMetadataRetriever.OPTION_CLOSEST);
+                            }
+                        } catch (Exception ignored) {
+                        }
+                        if (bm != null) {
+                            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bmpTex[0]);
+                            GLUtils.texImage2D(GLES20.GL_TEXTURE_2D, 0, bm, 0);
+                            bm.recycle();
+                            haveBm = true;
+                        }
+                        if (!haveBm) {
+                            continue;
+                        }
+                        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
+                        GLES20.glViewport(0, 0, w, h);
+                        GLES20.glClearColor(0f, 0f, 0f, 1f);
+                        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                        GLES20.glDisable(GLES20.GL_BLEND);
+                        GLES20.glUseProgram(progT);
+                        GLES20.glEnableVertexAttribArray(tPos);
+                        GLES20.glEnableVertexAttribArray(tD);
+                        fbSeg.position(0);
+                        GLES20.glVertexAttribPointer(tPos, 2, GLES20.GL_FLOAT, false, 16, fbSeg);
+                        fbSeg.position(2);
+                        GLES20.glVertexAttribPointer(tD, 2, GLES20.GL_FLOAT, false, 16, fbSeg);
+                        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, bmpTex[0]);
+                        GLES20.glUniform1i(tS, 0);
+                        GLES20.glUniform1f(tLook, sg.look);
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+                    } else {
+                        if (!inDone) {
+                            int ii = dec.dequeueInputBuffer(TIMEOUT);
+                            if (ii >= 0) {
+                                ByteBuffer ib = dec.getInputBuffer(ii);
+                                int size = ex.readSampleData(ib, 0);
+                                long stt = ex.getSampleTime();
+                                if (size < 0 || stt >= sg.endUs + 500000) {
+                                    dec.queueInputBuffer(ii, 0, 0, 0, MediaCodec.BUFFER_FLAG_END_OF_STREAM);
+                                    inDone = true;
+                                } else {
+                                    dec.queueInputBuffer(ii, 0, size, stt, 0);
+                                    ex.advance();
+                                }
                             }
                         }
-                    }
-                    int oi = dec.dequeueOutputBuffer(info, TIMEOUT);
-                    if (oi < 0) {
-                        continue;
-                    }
-                    long pts = info.presentationTimeUs;
-                    boolean real = info.size > 0 && (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0;
-                    boolean use = real && pts >= sg.startUs && pts < sg.endUs;
-                    if (real && pts >= sg.endUs) {
-                        done = true;
-                    }
-                    dec.releaseOutputBuffer(oi, use);
-                    if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
-                        done = true;
-                    }
-                    if (!use) {
-                        continue;
-                    }
-                    synchronized (lock) {
-                        long t0 = System.currentTimeMillis();
-                        while (!avail[0]) {
-                            try {
-                                lock.wait(500);
-                            } catch (InterruptedException ignored) {
-                            }
-                            if (!avail[0] && System.currentTimeMillis() - t0 > 5000) {
-                                throw new IOException("il decoder non fornisce fotogrammi");
-                            }
+                        int oi = dec.dequeueOutputBuffer(info, TIMEOUT);
+                        if (oi < 0) {
+                            continue;
                         }
-                        avail[0] = false;
+                        pts = info.presentationTimeUs;
+                        boolean real = info.size > 0 && (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0;
+                        boolean use = real && pts >= sg.startUs && pts < sg.endUs;
+                        if (real && pts >= sg.endUs) {
+                            done = true;
+                        }
+                        dec.releaseOutputBuffer(oi, use);
+                        if ((info.flags & MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) {
+                            done = true;
+                        }
+                        if (!use) {
+                            continue;
+                        }
+                        synchronized (lock) {
+                            long t0 = System.currentTimeMillis();
+                            while (!avail[0]) {
+                                try {
+                                    lock.wait(500);
+                                } catch (InterruptedException ignored) {
+                                }
+                                if (!avail[0] && System.currentTimeMillis() - t0 > 5000) {
+                                    throw new IOException("il decoder non fornisce fotogrammi");
+                                }
+                            }
+                            avail[0] = false;
+                        }
+                        st.updateTexImage();
+                        st.getTransformMatrix(stm);
+
+                        // fotogramma -> immagine intermedia (adattata, con bande nere)
+                        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
+                        GLES20.glViewport(0, 0, w, h);
+                        GLES20.glClearColor(0f, 0f, 0f, 1f);
+                        GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
+                        GLES20.glDisable(GLES20.GL_BLEND);
+                        GLES20.glUseProgram(progV);
+                        GLES20.glEnableVertexAttribArray(vPos);
+                        GLES20.glEnableVertexAttribArray(vD);
+                        fbSeg.position(0);
+                        GLES20.glVertexAttribPointer(vPos, 2, GLES20.GL_FLOAT, false, 16, fbSeg);
+                        fbSeg.position(2);
+                        GLES20.glVertexAttribPointer(vD, 2, GLES20.GL_FLOAT, false, 16, fbSeg);
+                        GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                        GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oes[0]);
+                        GLES20.glUniformMatrix4fv(vST, 1, false, stm, 0);
+                        GLES20.glUniform4f(vA, ua[0], ua[1], ua[2], ua[3]);
+                        GLES20.glUniform2f(vB, ub[0], ub[1]);
+                        GLES20.glUniform1f(uLookV, sg.look);
+                        GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+
                     }
-                    st.updateTexImage();
-                    st.getTransformMatrix(stm);
-
-                    // fotogramma -> immagine intermedia (adattata, con bande nere)
-                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
-                    GLES20.glViewport(0, 0, w, h);
-                    GLES20.glClearColor(0f, 0f, 0f, 1f);
-                    GLES20.glClear(GLES20.GL_COLOR_BUFFER_BIT);
-                    GLES20.glDisable(GLES20.GL_BLEND);
-                    GLES20.glUseProgram(progV);
-                    GLES20.glEnableVertexAttribArray(vPos);
-                    GLES20.glEnableVertexAttribArray(vD);
-                    fbSeg.position(0);
-                    GLES20.glVertexAttribPointer(vPos, 2, GLES20.GL_FLOAT, false, 16, fbSeg);
-                    fbSeg.position(2);
-                    GLES20.glVertexAttribPointer(vD, 2, GLES20.GL_FLOAT, false, 16, fbSeg);
-                    GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-                    GLES20.glBindTexture(GLES11Ext.GL_TEXTURE_EXTERNAL_OES, oes[0]);
-                    GLES20.glUniformMatrix4fv(vST, 1, false, stm, 0);
-                    GLES20.glUniform4f(vA, ua[0], ua[1], ua[2], ua[3]);
-                    GLES20.glUniform2f(vB, ub[0], ub[1]);
-                    GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-                    GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
-
                     // transizione (una sola volta, sul primo fotogramma del tratto)
                     if (first && doTrans) {
                         int n = (int) Math.max(1, sg.transUs / FRAME_US);
@@ -683,7 +837,10 @@ final class VideoComposer {
                     }
                     first = false;
 
-                    long tp = outOffset + Math.max(0, pts - sg.startUs);
+                    long tp = outOffset + Math.max(0, Math.round((pts - sg.startUs) / (double) sg.speed));
+                    if (sg.speed > 1.01f && lastDrawn >= 0 && tp - lastDrawn < 25000) {
+                        continue;   // velocita' alta: si scartano i fotogrammi che non servono
+                    }
                     if (tp <= lastOut) {
                         tp = lastOut + 1000;
                     }
@@ -692,25 +849,51 @@ final class VideoComposer {
                     EGL14.eglSwapBuffers(dpy, esurf);
                     lastOut = tp;
                     VideoStabilizer.drain(enc, mx, einfo, af, muxTracks, started, false);
+                    if (sg.speed < 0.99f && prevPts >= 0) {
+                        // rallentatore: il fotogramma resta in onda piu' a lungo (copie a 30 al secondo)
+                        long gap = Math.round((pts - prevPts) / (double) sg.speed);
+                        int rep = (int) Math.min(40, Math.round(gap / (double) FRAME_US));
+                        for (int kk = 1; kk < rep; kk++) {
+                            long tk = tp + kk * gap / rep;
+                            if (tk <= lastOut) {
+                                tk = lastOut + 1000;
+                            }
+                            drawX(progX, xPos, xTex, xA, xB, xType, xP, xU, sg.tp, fbFull, texPrev, texCur, 0, 0f, w, h);
+                            EGLExt.eglPresentationTimeANDROID(dpy, esurf, tk * 1000L);
+                            EGL14.eglSwapBuffers(dpy, esurf);
+                            lastOut = tk;
+                            VideoStabilizer.drain(enc, mx, einfo, af, muxTracks, started, false);
+                        }
+                    }
+                    lastDrawn = tp;
+                    prevPts = pts;
                     int pct = (int) (12 + 83 * Math.min(1.0, (double) tp / Math.max(1, totalUs)));
                     if (pct != lastPct) {
                         lastPct = pct;
                         p.onProgress("Montaggio delle clip...", pct);
                     }
                 }
-                try {
-                    dec.stop();
-                } catch (Exception ignored) {
+                if (dec != null) {
+                    try {
+                        dec.stop();
+                    } catch (Exception ignored) {
+                    }
+                    dec.release();
+                    dec = null;
                 }
-                dec.release();
-                dec = null;
+                if (mrr != null) {
+                    try {
+                        mrr.release();
+                    } catch (Exception ignored) {
+                    }
+                }
                 ex.release();
                 ex = null;
                 if (first && doTrans) {
                     // nessun fotogramma decodificato: la transizione non e' stata disegnata
                     outOffset += sg.transUs;
                 }
-                outOffset += sg.endUs - sg.startUs;
+                outOffset += sg.bodyUs();
                 // ultimo fotogramma di questo tratto -> servira' alla transizione successiva
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texPrev);

@@ -547,7 +547,7 @@ final class VideoStabilizer {
             + "uniform float uGray, uSepia, uInv, uVig, uBlur, uPix, uSat, uCon, uFade, uSplit;\n"
             + "uniform float uCrt, uWarp, uSwap, uTime;\n"
             + "uniform vec4 uLin;\n"
-            + "uniform float uBars, uBspd, uVhs, uRotI;\n"
+            + "uniform float uBars, uBspd, uVhs, uRotI, uRw, uRwDir;\n"
             + "vec4 s(vec2 uv){ return texture2D(sTex, uv); }\n"
             + "float hsh(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n"
             + "vec2 dpos(vec2 p){\n"
@@ -687,6 +687,31 @@ final class VideoStabilizer {
             + "    }\n"
             + "    float hb = smoothstep(0.94, 1.0, dp.y);\n"
             + "    col = mix(col, vec3(hsh(vec2(floor(dp.x * sz.x / (cs * 1.5)), pp.y + tt))), hb * 0.5 * uVhs);\n"
+            + "  }\n"
+            + "  if (uRw > 0.0) {\n"
+            + "    vec2 dp = dpos(vPos);\n"
+            + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    float cs = max(1.0, sz.y / 240.0);\n"
+            + "    vec2 pp = floor(dp * sz / cs);\n"
+            + "    float tt = mod(floor(uTime * 25.0), 997.0);\n"
+            + "    float h1 = hsh(pp + vec2(tt * 11.0, tt * 3.0));\n"
+            + "    vec3 c2 = vec3(0.01, 0.02, 0.10) + vec3(0.02, 0.05, 0.30) * hsh(pp * 0.37 + tt);\n"
+            + "    float sg = floor(dp.x * sz.x / (cs * 7.0) + hsh(vec2(pp.y, tt)) * 31.0);\n"
+            + "    float dash = step(0.90, hsh(vec2(sg, pp.y * 1.7 + tt)));\n"
+            + "    c2 += vec3(0.80, 0.85, 1.0) * dash;\n"
+            + "    c2 += vec3(0.5) * step(0.992, h1);\n"
+            + "    float ly = fract(uTime * 0.18 * (uRwDir > 0.0 ? 1.0 : -1.0) + 0.7);\n"
+            + "    float ln = 1.0 - smoothstep(0.0, 0.006, abs(dp.y - ly));\n"
+            + "    c2 = mix(c2, vec3(0.25, 0.30, 1.0), ln * 0.85);\n"
+            + "    c2 += vec3(0.0, 0.0, 0.3) * (1.0 - smoothstep(0.0, 0.05, abs(dp.y - ly)));\n"
+            + "    float by = fract(uTime * 0.07 * (uRwDir > 0.0 ? 1.0 : -1.0) + 0.55);\n"
+            + "    float blk = step(dp.x, 0.03) * step(abs(dp.y - by), 0.06);\n"
+            + "    c2 = mix(c2, vec3(0.1, 0.3, 0.95), blk);\n"
+            + "    float topn = 1.0 - smoothstep(0.0, 0.07, dp.y);\n"
+            + "    c2 = mix(c2, vec3(hsh(vec2(floor(dp.x * sz.x / (cs * 3.0)), pp.y + tt))) * vec3(0.8, 0.85, 1.0), topn * 0.6);\n"
+            + "    float lm2 = dot(col, vec3(0.299, 0.587, 0.114));\n"
+            + "    vec3 vid = vec3(lm2 * 0.25, lm2 * 0.35, lm2 * 0.9);\n"
+            + "    col = mix(vid, c2, clamp(uRw, 0.0, 1.0));\n"
             + "  }\n"
             + "  float dd = distance(vPos, vec2(0.5));\n"
             + "  col *= 1.0 - uVig * smoothstep(0.3, 0.85, dd) * 1.1;\n"
@@ -901,7 +926,7 @@ final class VideoStabilizer {
             int uSwapL = GLES20.glGetUniformLocation(prog, "uSwap"), uTimeL = GLES20.glGetUniformLocation(prog, "uTime");
             int uLinL = GLES20.glGetUniformLocation(prog, "uLin");
             int uRotIL = GLES20.glGetUniformLocation(prog, "uRotI");
-            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs"};
+            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir"};
             int[] uFx = new int[un.length];
             for (int i = 0; i < un.length; i++) {
                 uFx[i] = GLES20.glGetUniformLocation(prog, un[i]);

@@ -63,6 +63,12 @@ final class VideoFx {
         int align = -1;           // -1 = a sinistra, 1 = a destra
         float ay = 0f;            // 0 = in alto, 1 = in basso
         int salt = 0;
+        boolean blink = false;    // la scritta lampeggia (usato da Rewind / Fast forward)
+        // VHS: 0 = normale, 1 = Rewind, 2 = Fast forward
+        int vhsMode = 0;
+        boolean vhsBlink = true;  // scritta REWIND / FAST FORWARD lampeggiante
+        boolean vhsPlay = true;   // alla fine compare "PLAY"
+        long vhsPlayUs = 2000000L; // per quanto resta visibile "PLAY"
 
         Item copy() {
             Item i = new Item();
@@ -95,6 +101,11 @@ final class VideoFx {
             i.align = align;
             i.ay = ay;
             i.salt = salt;
+            i.blink = blink;
+            i.vhsMode = vhsMode;
+            i.vhsBlink = vhsBlink;
+            i.vhsPlay = vhsPlay;
+            i.vhsPlayUs = vhsPlayUs;
             return i;
         }
 
@@ -128,6 +139,10 @@ final class VideoFx {
             o.put("vhsTxt", a);
             o.put("vhsSize", vhsSize);
             o.put("vhsColor", vhsColor);
+            o.put("vhsMode", vhsMode);
+            o.put("vhsBlink", vhsBlink);
+            o.put("vhsPlay", vhsPlay);
+            o.put("vhsPlayUs", vhsPlayUs);
             return o;
         }
 
@@ -162,11 +177,19 @@ final class VideoFx {
             }
             i.vhsSize = (float) o.optDouble("vhsSize", i.vhsSize);
             i.vhsColor = o.optInt("vhsColor", i.vhsColor);
+            i.vhsMode = o.optInt("vhsMode", 0);
+            i.vhsBlink = o.optBoolean("vhsBlink", true);
+            i.vhsPlay = o.optBoolean("vhsPlay", true);
+            i.vhsPlayUs = o.optLong("vhsPlayUs", 2000000L);
             return i;
         }
 
         boolean activeAt(long us) {
-            return us >= startUs && us < endUs;
+            if (us < startUs || us >= endUs) {
+                return false;
+            }
+            // scritta lampeggiante: visibile 0,4 s, spenta 0,4 s
+            return !blink || ((us - startUs) / 400000L) % 2 == 0;
         }
 
         String label() {
@@ -183,7 +206,7 @@ final class VideoFx {
     // ------------------------------------------------------------------ parametri degli effetti
 
     static final int U_GRAY = 0, U_SEPIA = 1, U_INV = 2, U_VIG = 3, U_BLUR = 4, U_PIX = 5, U_SAT = 6, U_CON = 7,
-            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_COUNT = 16;
+            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_COUNT = 18;
 
     /** Calcola i parametri dello shader per l'istante t combinando gli effetti attivi. */
     static void uniforms(List<Item> items, long tUs, float[] u) {
@@ -203,6 +226,8 @@ final class VideoFx {
         u[U_BARS] = 0;
         u[U_BSPD] = 0;
         u[U_VHS] = 0;
+        u[U_RW] = 0;
+        u[U_RWDIR] = 0;
         if (items == null) {
             return;
         }
@@ -264,6 +289,10 @@ final class VideoFx {
                     if (it.vhsDist) {
                         u[U_VHS] = Math.max(u[U_VHS], k);
                     }
+                    if (it.vhsMode != 0) {
+                        u[U_RW] = Math.max(u[U_RW], k);
+                        u[U_RWDIR] = it.vhsMode == 1 ? -1f : 1f;
+                    }
                     break;
                 default:
                     break;
@@ -280,7 +309,7 @@ final class VideoFx {
         }
         boolean any = false;
         for (Item i : in) {
-            if (!i.isText && i.effect == EFFECT_VHS && i.vhsText) {
+            if (!i.isText && i.effect == EFFECT_VHS && (i.vhsText || (i.vhsMode != 0 && i.vhsPlay))) {
                 any = true;
             }
         }
@@ -289,7 +318,44 @@ final class VideoFx {
         }
         List<Item> out = new java.util.ArrayList<>(in);
         for (Item i : in) {
-            if (i.isText || i.effect != EFFECT_VHS || !i.vhsText) {
+            if (i.isText || i.effect != EFFECT_VHS) {
+                continue;
+            }
+            if (i.vhsMode != 0) {
+                if (i.vhsText) {
+                    Item t = new Item();
+                    t.isText = true;
+                    t.vhs = true;
+                    t.vhsJit = i.vhsDist;
+                    t.blink = i.vhsBlink;
+                    t.startUs = i.startUs;
+                    t.endUs = i.endUs;
+                    t.text = i.vhsMode == 1 ? "REWIND ◀◀" : "FAST FORWARD ▶▶";
+                    t.sizeFrac = i.vhsSize;
+                    t.color = i.vhsColor;
+                    t.align = -1;
+                    t.ay = 0f;
+                    t.salt = 1;
+                    out.add(t);
+                }
+                if (i.vhsPlay && i.vhsPlayUs > 0) {
+                    Item t = new Item();
+                    t.isText = true;
+                    t.vhs = true;
+                    t.vhsJit = false;
+                    t.startUs = i.endUs;
+                    t.endUs = i.endUs + i.vhsPlayUs;
+                    t.text = "PLAY ▶";
+                    t.sizeFrac = i.vhsSize;
+                    t.color = i.vhsColor;
+                    t.align = -1;
+                    t.ay = 0f;
+                    t.salt = 2;
+                    out.add(t);
+                }
+                continue;
+            }
+            if (!i.vhsText) {
                 continue;
             }
             for (int k = 0; k < 4; k++) {

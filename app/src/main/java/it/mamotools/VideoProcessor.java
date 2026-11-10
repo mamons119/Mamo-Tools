@@ -499,6 +499,55 @@ final class VideoProcessor {
         void close() throws IOException {
             os.close();
         }
+
+        /**
+         * Accoda l'audio di un file PCM (stereo 16 bit) cambiando velocita' (con il tono), al contrario
+         * o con un altro volume. Non scrive piu' di maxFrames fotogrammi.
+         */
+        void appendProcessed(File f, long srcFrames, float speed, boolean reverse, float vol, long maxFrames)
+                throws IOException {
+            if (srcFrames < 2) {
+                return;
+            }
+            long n = Math.min(Math.max(0, maxFrames), Math.round(srcFrames / (double) speed));
+            java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "r");
+            try {
+                java.nio.channels.FileChannel ch = raf.getChannel();
+                java.nio.MappedByteBuffer mb = ch.map(java.nio.channels.FileChannel.MapMode.READ_ONLY, 0,
+                        srcFrames * 4);
+                mb.order(java.nio.ByteOrder.LITTLE_ENDIAN);
+                byte[] out = new byte[4 * 4096];
+                int o = 0;
+                for (long i = 0; i < n; i++) {
+                    double sp = i * (double) speed;
+                    if (reverse) {
+                        sp = (srcFrames - 1) - sp;
+                    }
+                    sp = Math.max(0, Math.min(srcFrames - 1, sp));
+                    long i0 = (long) Math.floor(sp);
+                    long i1 = Math.min(srcFrames - 1, i0 + 1);
+                    float fr = (float) (sp - i0);
+                    float l = (mb.getShort((int) (i0 * 4)) * (1 - fr) + mb.getShort((int) (i1 * 4)) * fr) * vol;
+                    float r = (mb.getShort((int) (i0 * 4 + 2)) * (1 - fr) + mb.getShort((int) (i1 * 4 + 2)) * fr) * vol;
+                    int li = Math.max(-32768, Math.min(32767, Math.round(l)));
+                    int ri = Math.max(-32768, Math.min(32767, Math.round(r)));
+                    out[o++] = (byte) li;
+                    out[o++] = (byte) (li >> 8);
+                    out[o++] = (byte) ri;
+                    out[o++] = (byte) (ri >> 8);
+                    if (o == out.length) {
+                        os.write(out, 0, o);
+                        o = 0;
+                    }
+                }
+                if (o > 0) {
+                    os.write(out, 0, o);
+                }
+                frames += n;
+            } finally {
+                raf.close();
+            }
+        }
     }
 
     /** Decodifica l'audio di uri tra startUs e endUs nel writer (che lo converte). */

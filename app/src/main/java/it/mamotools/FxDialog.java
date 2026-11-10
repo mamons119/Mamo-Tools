@@ -190,6 +190,10 @@ final class FxDialog {
     private TextView crtChip, barsText, barSpeedText, vhsDistChip, vhsTextChip, vhsSizeText;
     private LinearLayout kBox, crtBox, vhsBox;
     private LinearLayout[] vhsSw;
+    private TextView[] vhsModeChips;
+    private LinearLayout vhsRwBox, vhsCorners;
+    private TextView vhsBlinkChip, vhsPlayChip, vhsPlayText;
+    private SeekBar vhsPlayBar;
     private TextView kText;
 
     private void buildEffect(LinearLayout root) {
@@ -299,13 +303,63 @@ final class FxDialog {
     private void buildVhs(LinearLayout root) {
         vhsBox = new LinearLayout(ctx);
         vhsBox.setOrientation(LinearLayout.VERTICAL);
+        vhsBox.addView(Ui.text(ctx, "Tipo di effetto VHS", 13, Ui.DIM, false));
+        vhsModeChips = new TextView[3];
+        String[] mn = {"Normale", "Rewind ◀◀", "Fast forward ▶▶"};
+        LinearLayout mrow = new LinearLayout(ctx);
+        for (int i = 0; i < 3; i++) {
+            final int mi = i;
+            vhsModeChips[i] = Ui.chip(ctx, mn[i]);
+            vhsModeChips[i].setTextSize(12);
+            vhsModeChips[i].setOnClickListener(v -> {
+                it.vhsMode = mi;
+                styleFx();
+            });
+            mrow.addView(vhsModeChips[i], Ui.lp(ctx, 0, dp(42), i == 0 ? 0 : 6, 0, 1f));
+        }
+        vhsBox.addView(mrow, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 6));
+        vhsRwBox = new LinearLayout(ctx);
+        vhsRwBox.setOrientation(LinearLayout.VERTICAL);
+        vhsBlinkChip = Ui.chip(ctx, "");
+        vhsBlinkChip.setTextSize(13);
+        vhsBlinkChip.setOnClickListener(v -> {
+            it.vhsBlink = !it.vhsBlink;
+            styleFx();
+        });
+        vhsRwBox.addView(vhsBlinkChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsPlayChip = Ui.chip(ctx, "");
+        vhsPlayChip.setTextSize(13);
+        vhsPlayChip.setOnClickListener(v -> {
+            it.vhsPlay = !it.vhsPlay;
+            styleFx();
+        });
+        vhsRwBox.addView(vhsPlayChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsPlayText = Ui.text(ctx, "", 14, Ui.TEXT, false);
+        vhsRwBox.addView(vhsPlayText, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
+        vhsPlayBar = Ui.seek(ctx, new Ui.SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
+                it.vhsPlayUs = (p + 1) * 500000L;
+                styleFx();
+            }
+        });
+        vhsPlayBar.setMax(19);   // 0,5 .. 10 s
+        vhsRwBox.addView(vhsPlayBar);
+        vhsRwBox.addView(Ui.text(ctx, "Neve blu, trattini bianchi e riga di tracking come in un videoregistratore "
+                + "che riavvolge o manda avanti veloce. La scritta compare in alto a sinistra; "
+                + "alla fine dell'effetto puo' comparire PLAY. L'intensita' regola quanto la neve copre il video.",
+                12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
+        vhsBox.addView(vhsRwBox, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
         vhsDistChip = Ui.chip(ctx, "");
         vhsDistChip.setTextSize(13);
         vhsDistChip.setOnClickListener(v -> {
             it.vhsDist = !it.vhsDist;
             styleFx();
         });
-        vhsBox.addView(vhsDistChip, new LinearLayout.LayoutParams(Ui.MATCH, dp(44)));
+        vhsBox.addView(vhsDistChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 12));
         vhsTextChip = Ui.chip(ctx, "");
         vhsTextChip.setTextSize(13);
         vhsTextChip.setOnClickListener(v -> {
@@ -319,9 +373,12 @@ final class FxDialog {
                 + "Lascia vuota una scritta per non mostrarla.", 12, Ui.DIM, false),
                 Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
         String[] labels = {"In alto a sinistra", "In alto a destra", "In basso a sinistra", "In basso a destra"};
+        vhsCorners = new LinearLayout(ctx);
+        vhsCorners.setOrientation(LinearLayout.VERTICAL);
+        vhsBox.addView(vhsCorners, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
         for (int i = 0; i < 4; i++) {
             final int idx = i;
-            vhsBox.addView(Ui.text(ctx, labels[i], 12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 10));
+            vhsCorners.addView(Ui.text(ctx, labels[i], 12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 10));
             EditText e = new EditText(ctx);
             e.setText(it.vhsTxt[i]);
             e.setTextColor(Ui.TEXT);
@@ -345,7 +402,7 @@ final class FxDialog {
                     it.vhsTxt[idx] = ed.toString();
                 }
             });
-            vhsBox.addView(e, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
+            vhsCorners.addView(e, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
         }
         vhsSizeText = Ui.text(ctx, "", 14, Ui.TEXT, false);
         vhsBox.addView(vhsSizeText, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
@@ -396,7 +453,25 @@ final class FxDialog {
         vhsBox.setVisibility(it.effect == VideoFx.EFFECT_VHS ? View.VISIBLE : View.GONE);
         vhsDistChip.setText(it.vhsDist ? "Distorsione immagine: attiva" : "Distorsione immagine: disattivata");
         Ui.styleChip(ctx, vhsDistChip, it.vhsDist);
-        vhsTextChip.setText(it.vhsText ? "Scritte VHS: attive" : "Scritte VHS: disattivate");
+        for (int i = 0; i < 3; i++) {
+            Ui.styleChip(ctx, vhsModeChips[i], it.vhsMode == i);
+        }
+        vhsRwBox.setVisibility(it.vhsMode != 0 ? View.VISIBLE : View.GONE);
+        vhsCorners.setVisibility(it.vhsMode == 0 ? View.VISIBLE : View.GONE);
+        vhsBlinkChip.setText(it.vhsBlink ? "Scritta lampeggiante: si" : "Scritta lampeggiante: no (fissa)");
+        Ui.styleChip(ctx, vhsBlinkChip, it.vhsBlink);
+        vhsPlayChip.setText(it.vhsPlay ? "Mostra PLAY alla fine: si" : "Mostra PLAY alla fine: no");
+        Ui.styleChip(ctx, vhsPlayChip, it.vhsPlay);
+        vhsPlayText.setText("PLAY visibile per " + String.format(java.util.Locale.US, "%.1f", it.vhsPlayUs / 1e6)
+                + " s");
+        vhsPlayText.setVisibility(it.vhsPlay ? View.VISIBLE : View.GONE);
+        vhsPlayBar.setVisibility(it.vhsPlay ? View.VISIBLE : View.GONE);
+        if (vhsPlayBar.getProgress() != (int) Math.max(0, Math.min(19, it.vhsPlayUs / 500000L - 1))) {
+            vhsPlayBar.setProgress((int) Math.max(0, Math.min(19, it.vhsPlayUs / 500000L - 1)));
+        }
+        vhsTextChip.setText(it.vhsMode != 0 ? (it.vhsText ? "Scritta REWIND/FAST FORWARD: attiva"
+                : "Scritta REWIND/FAST FORWARD: disattivata")
+                : (it.vhsText ? "Scritte VHS: attive" : "Scritte VHS: disattivate"));
         Ui.styleChip(ctx, vhsTextChip, it.vhsText);
         vhsSizeText.setText("Dimensione scritte: " + Math.round(it.vhsSize * 100) + "% dell'altezza del video");
         for (int i = 0; i < vhsSw.length; i++) {
