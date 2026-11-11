@@ -47,14 +47,15 @@ final class VideoComposer {
         float vol = 1f;              // volume dell'audio della clip (0 = muto)
         boolean mirH = false, mirV = false;
         int look = 0;                // vedi LOOK_NAMES
+        int rot = 0;                 // rotazione extra in passi di 90 gradi, in senso orario (0..3)
 
         boolean isPlain() {
-            return speed == 1f && !reverse && vol == 1f && !mirH && !mirV && look == 0;
+            return speed == 1f && !reverse && vol == 1f && !mirH && !mirV && look == 0 && rot == 0;
         }
 
         boolean sameMods(Seg o) {
             return speed == o.speed && reverse == o.reverse && vol == o.vol && mirH == o.mirH
-                    && mirV == o.mirV && look == o.look;
+                    && mirV == o.mirV && look == o.look && rot == o.rot;
         }
 
         /** Durata (us) che la parte usata della clip occupa nel video montato. */
@@ -79,6 +80,7 @@ final class VideoComposer {
             s.mirH = mirH;
             s.mirV = mirV;
             s.look = look;
+            s.rot = rot;
             return s;
         }
     }
@@ -652,13 +654,33 @@ final class VideoComposer {
                 MediaFormat vf = ex.getTrackFormat(vt);
                 vf.setInteger("rotation-degrees", 0);
                 int sw = vf.getInteger(MediaFormat.KEY_WIDTH), sh = vf.getInteger(MediaFormat.KEY_HEIGHT);
+                int urot = ((sg.rot % 4) + 4) % 4;
                 boolean swap = rot == 90 || rot == 270;
                 float dw = swap ? sh : sw, dh = swap ? sw : sh;
+                if (urot % 2 == 1) {
+                    float tmp = dw;
+                    dw = dh;
+                    dh = tmp;
+                }
                 float sc = Math.min(w / dw, h / dh);
                 float fx = dw * sc / w, fy = dh * sc / h;
                 float mxs = sg.mirH ? -1f : 1f, mys = sg.mirV ? -1f : 1f;
-                float[] vq = {-fx * mxs, -fy * mys, 0, 1, fx * mxs, -fy * mys, 1, 1,
-                        -fx * mxs, fy * mys, 0, 0, fx * mxs, fy * mys, 1, 0};
+                // coordinate immagine "dritta" per ogni angolo (BL, BR, TL, TR) dopo la rotazione dell'utente
+                float[][] uvc = {{0, 1}, {1, 1}, {0, 0}, {1, 0}};
+                int[] cyc = {0, 1, 3, 2};   // angoli in senso orario: BL, BR, TR, TL
+                float[][] uvr = new float[4][];
+                for (int c = 0; c < 4; c++) {
+                    int pos = 0;
+                    for (int q = 0; q < 4; q++) {
+                        if (cyc[q] == c) {
+                            pos = q;
+                        }
+                    }
+                    // con la clip ruotata in senso orario, l'angolo c mostra quello che era nel successivo
+                    uvr[c] = uvc[cyc[(pos + urot) % 4]];
+                }
+                float[] vq = {-fx * mxs, -fy * mys, uvr[0][0], uvr[0][1], fx * mxs, -fy * mys, uvr[1][0], uvr[1][1],
+                        -fx * mxs, fy * mys, uvr[2][0], uvr[2][1], fx * mxs, fy * mys, uvr[3][0], uvr[3][1]};
                 fbSeg.position(0);
                 fbSeg.put(vq);
                 fbSeg.position(0);
@@ -680,7 +702,8 @@ final class VideoComposer {
                 final boolean rev = sg.reverse;
                 MediaMetadataRetriever mrr = null;
                 int revN = 0, revK = 0;
-                int bw = Math.max(2, Math.round(fx * w)), bh = Math.max(2, Math.round(fy * h));
+                int bw = Math.max(2, Math.round((urot % 2 == 1 ? fy * h : fx * w))),
+                        bh = Math.max(2, Math.round((urot % 2 == 1 ? fx * w : fy * h)));
                 boolean haveBm = false;
                 if (rev) {
                     mrr = new MediaMetadataRetriever();

@@ -68,6 +68,7 @@ final class VideoFx {
         int vhsMode = 0;
         boolean vhsBlink = true;  // scritta REWIND / FAST FORWARD lampeggiante
         boolean vhsPlay = true;   // alla fine compare "PLAY"
+        boolean vhsBlue = true;   // rewind/fast forward con dominante blu
         long vhsPlayUs = 2000000L; // per quanto resta visibile "PLAY"
 
         Item copy() {
@@ -106,6 +107,7 @@ final class VideoFx {
             i.vhsBlink = vhsBlink;
             i.vhsPlay = vhsPlay;
             i.vhsPlayUs = vhsPlayUs;
+            i.vhsBlue = vhsBlue;
             return i;
         }
 
@@ -143,6 +145,7 @@ final class VideoFx {
             o.put("vhsBlink", vhsBlink);
             o.put("vhsPlay", vhsPlay);
             o.put("vhsPlayUs", vhsPlayUs);
+            o.put("vhsBlue", vhsBlue);
             return o;
         }
 
@@ -181,6 +184,7 @@ final class VideoFx {
             i.vhsBlink = o.optBoolean("vhsBlink", true);
             i.vhsPlay = o.optBoolean("vhsPlay", true);
             i.vhsPlayUs = o.optLong("vhsPlayUs", 2000000L);
+            i.vhsBlue = o.optBoolean("vhsBlue", true);
             return i;
         }
 
@@ -206,7 +210,7 @@ final class VideoFx {
     // ------------------------------------------------------------------ parametri degli effetti
 
     static final int U_GRAY = 0, U_SEPIA = 1, U_INV = 2, U_VIG = 3, U_BLUR = 4, U_PIX = 5, U_SAT = 6, U_CON = 7,
-            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_COUNT = 18;
+            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_COUNT = 19;
 
     /** Calcola i parametri dello shader per l'istante t combinando gli effetti attivi. */
     static void uniforms(List<Item> items, long tUs, float[] u) {
@@ -228,6 +232,7 @@ final class VideoFx {
         u[U_VHS] = 0;
         u[U_RW] = 0;
         u[U_RWDIR] = 0;
+        u[U_RWBLUE] = 0;
         if (items == null) {
             return;
         }
@@ -292,6 +297,7 @@ final class VideoFx {
                     if (it.vhsMode != 0) {
                         u[U_RW] = Math.max(u[U_RW], k);
                         u[U_RWDIR] = it.vhsMode == 1 ? -1f : 1f;
+                        u[U_RWBLUE] = it.vhsBlue ? 1f : 0f;
                     }
                     break;
                 default:

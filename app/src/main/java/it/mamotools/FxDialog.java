@@ -192,7 +192,7 @@ final class FxDialog {
     private LinearLayout[] vhsSw;
     private TextView[] vhsModeChips;
     private LinearLayout vhsRwBox, vhsCorners;
-    private TextView vhsBlinkChip, vhsPlayChip, vhsPlayText;
+    private TextView vhsBlinkChip, vhsPlayChip, vhsPlayText, vhsBlueChip;
     private SeekBar vhsPlayBar;
     private TextView kText;
 
@@ -327,6 +327,13 @@ final class FxDialog {
             styleFx();
         });
         vhsRwBox.addView(vhsBlinkChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsBlueChip = Ui.chip(ctx, "");
+        vhsBlueChip.setTextSize(13);
+        vhsBlueChip.setOnClickListener(v -> {
+            it.vhsBlue = !it.vhsBlue;
+            styleFx();
+        });
+        vhsRwBox.addView(vhsBlueChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
         vhsPlayChip = Ui.chip(ctx, "");
         vhsPlayChip.setTextSize(13);
         vhsPlayChip.setOnClickListener(v -> {
@@ -348,9 +355,10 @@ final class FxDialog {
         });
         vhsPlayBar.setMax(19);   // 0,5 .. 10 s
         vhsRwBox.addView(vhsPlayBar);
-        vhsRwBox.addView(Ui.text(ctx, "Neve blu, trattini bianchi e riga di tracking come in un videoregistratore "
-                + "che riavvolge o manda avanti veloce. La scritta compare in alto a sinistra; "
-                + "alla fine dell'effetto puo' comparire PLAY. L'intensita' regola quanto la neve copre il video.",
+        vhsRwBox.addView(Ui.text(ctx, "Fasce di tracking con righe spostate e strisce di disturbo che scendono "
+                + "sul video, come in un videoregistratore che riavvolge o manda avanti veloce. La scritta "
+                + "compare in alto a sinistra; alla fine dell'effetto puo' comparire PLAY. "
+                + "L'intensita' regola numero e forza delle fasce.",
                 12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
         vhsBox.addView(vhsRwBox, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
         vhsDistChip = Ui.chip(ctx, "");
@@ -458,6 +466,8 @@ final class FxDialog {
         }
         vhsRwBox.setVisibility(it.vhsMode != 0 ? View.VISIBLE : View.GONE);
         vhsCorners.setVisibility(it.vhsMode == 0 ? View.VISIBLE : View.GONE);
+        vhsBlueChip.setText(it.vhsBlue ? "Dominante blu: attiva" : "Dominante blu: disattivata (colori naturali)");
+        Ui.styleChip(ctx, vhsBlueChip, it.vhsBlue);
         vhsBlinkChip.setText(it.vhsBlink ? "Scritta lampeggiante: si" : "Scritta lampeggiante: no (fissa)");
         Ui.styleChip(ctx, vhsBlinkChip, it.vhsBlink);
         vhsPlayChip.setText(it.vhsPlay ? "Mostra PLAY alla fine: si" : "Mostra PLAY alla fine: no");

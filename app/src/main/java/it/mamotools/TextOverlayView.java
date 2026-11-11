@@ -198,6 +198,8 @@ final class TextOverlayView extends View {
                     textsDone = true;
                     drawCrtMesh(c, g, dst, l, t, rw, rh);
                     frameDone = true;
+                } else if (u[VideoFx.U_RW] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
+                    drawRewindMesh(c, g, dst, l, t, rw, rh);
                 } else if (u[VideoFx.U_VHS] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
                     drawVhsMesh(c, g, dst, l, t, rw, rh);
                 } else {
@@ -419,63 +421,116 @@ final class TextOverlayView extends View {
         fxPaint.setColorFilter(null);
     }
 
-    /** Rewind / Fast forward del videoregistratore: neve blu scuro, trattini bianchi, riga di tracking. */
+    private static float rwBandY(int i, float tm, float spd) {
+        return frac(tm * spd * (0.8f + 0.25f * i) + 0.27f * i + 0.1f);
+    }
+
+    private static float rwBand(float y, int i, float tm, float spd) {
+        float hw = 0.07f + 0.03f * (i % 2);
+        return 1f - sstep(hw * 0.55f, hw, Math.abs(y - rwBandY(i, tm, spd)));
+    }
+
+    private static int rwBands(float k) {
+        return Math.min(4, 2 + Math.round(2 * k));
+    }
+
+    /** Fotogramma con le righe spostate nelle fasce di tracking che scendono, come in un rewind VHS. */
+    private void drawRewindMesh(Canvas c, Bitmap g, RectF dst, float l, float t, float rw, float rh) {
+        float k = Math.max(0f, Math.min(1f, u[VideoFx.U_RW]));
+        float spd = u[VideoFx.U_RWDIR] > 0 ? 0.55f : 0.38f;
+        float tm = posMs / 1000f;
+        long step = posMs / 40;
+        int nb = rwBands(k);
+        final int n = 120;
+        float[] v = new float[2 * (n + 1) * 2];
+        int q = 0;
+        for (int j = 0; j <= n; j++) {
+            float fy = j / (float) n;
+            float off = (VideoFx.hash1(j * 131L + step * 7) - 0.5f) * 0.006f * k
+                    + (float) Math.sin(fy * 7f + tm * 2.5f) * 0.003f * k;
+            for (int i = 0; i < nb; i++) {
+                off += rwBand(fy, i, tm, spd) * (VideoFx.hash1(j * 71L + step * 11 + i * 5) - 0.5f) * 0.30f * k;
+            }
+            off += sstep(0.93f, 1f, fy) * (0.01f + 0.05f * VideoFx.hash1(j * 17L + step)) * k;
+            float y = dst.top + dst.height() * fy;
+            v[q++] = dst.left + off * rw;
+            v[q++] = y;
+            v[q++] = dst.right + off * rw;
+            v[q++] = y;
+        }
+        ColorMatrix cm = new ColorMatrix(VideoFx.colorMatrix(u));
+        ColorMatrix sat = new ColorMatrix();
+        sat.setSaturation(1f - 0.35f * k);
+        cm.postConcat(sat);
+        fxPaint.setFilterBitmap(true);
+        fxPaint.setColorFilter(new ColorMatrixColorFilter(cm));
+        c.drawBitmapMesh(g, 1, n, v, 0, null, 0, fxPaint);
+        fxPaint.setColorFilter(null);
+    }
+
+    /** Righe di disturbo nelle fasce di tracking, rumore leggero e dominante blu opzionale. */
     private void drawRewindOverlay(Canvas c, float l, float t, float rw, float rh) {
         float k = Math.max(0f, Math.min(1f, u[VideoFx.U_RW]));
-        float dir = u[VideoFx.U_RWDIR] >= 0 ? 1f : -1f;
+        boolean blue = u[VideoFx.U_RWBLUE] > 0.5f;
+        float spd = u[VideoFx.U_RWDIR] > 0 ? 0.55f : 0.38f;
         float tm = posMs / 1000f;
-        java.util.Random r = new java.util.Random((posMs / 40) * 104729L + 7);
+        long step = posMs / 40;
+        java.util.Random r = new java.util.Random(step * 104729L + 7);
         float cell = Math.max(1f, rh / 240f);
+        int nb = rwBands(k);
         c.save();
         c.clipRect(l, t, l + rw, t + rh);
         Paint p = new Paint();
-        // fondo blu scuro che copre il video (ne resta una traccia debole)
-        p.setColor(android.graphics.Color.argb(Math.round(255 * 0.94f * k), 3, 6, 38));
-        c.drawRect(l, t, l + rw, t + rh, p);
-        // rumore blu
-        int nb = Math.round(600 * k);
-        for (int i = 0; i < nb; i++) {
-            float x = l + r.nextFloat() * rw, y = t + r.nextFloat() * rh;
-            float w = cell * (2 + r.nextInt(8));
-            p.setColor(android.graphics.Color.argb(60 + r.nextInt(110), 18, 40, 160 + r.nextInt(70)));
-            c.drawRect(x, y, x + w, y + cell, p);
+        if (blue) {
+            p.setColor(android.graphics.Color.argb(Math.round(255 * 0.30f * k), 16, 34, 170));
+            c.drawRect(l, t, l + rw, t + rh, p);
         }
-        // trattini bianchi
-        int nd = Math.round(800 * k);
-        for (int i = 0; i < nd; i++) {
-            float x = l + r.nextFloat() * rw, y = t + r.nextFloat() * rh;
-            float w = cell * (3 + r.nextInt(14));
-            p.setColor(android.graphics.Color.argb(170 + r.nextInt(85), 214, 224, 255));
-            c.drawRect(x, y, x + w, y + cell, p);
-        }
-        // puntini
-        int ns = Math.round(400 * k);
+        // rumore leggero su tutto il fotogramma
+        int ns = Math.round(260 * k);
         float[] pts = new float[ns * 2];
         for (int i = 0; i < ns; i++) {
             pts[2 * i] = l + r.nextFloat() * rw;
             pts[2 * i + 1] = t + r.nextFloat() * rh;
         }
-        p.setColor(0xCCFFFFFF);
+        p.setColor(0x66FFFFFF);
         p.setStrokeWidth(cell);
         p.setStrokeCap(Paint.Cap.SQUARE);
         c.drawPoints(pts, p);
-        // fascia di disturbo in alto
-        for (int i = 0; i < Math.round(260 * k); i++) {
-            float x = l + r.nextFloat() * rw, y = t + r.nextFloat() * 0.07f * rh;
-            int g = 120 + r.nextInt(135);
-            p.setColor(android.graphics.Color.argb(200, g, g, 255));
-            c.drawRect(x, y, x + cell * (2 + r.nextInt(20)), y + cell, p);
+        int rows = 240;
+        float rowH = rh / rows;
+        int[] pal = {0xFF37E1E8, 0xFFE83CD2, 0xFF6BE04A, 0xFFF2E24A, 0xFFEFEFEF, 0xFF3A55E8, 0xFF2A2A2A};
+        for (int j = 0; j < rows; j++) {
+            float fy = (j + 0.5f) / rows;
+            float m = sstep(0.93f, 1f, fy);
+            for (int i = 0; i < nb; i++) {
+                m = Math.max(m, rwBand(fy, i, tm, spd));
+            }
+            if (m < 0.15f) {
+                continue;
+            }
+            float y = t + j * rowH;
+            // fondo piu' scuro e sporco nella fascia
+            p.setColor(android.graphics.Color.argb(Math.round(110 * m * k), 0, 0, 10));
+            c.drawRect(l, y, l + rw, y + rowH + 0.5f, p);
+            if (r.nextFloat() < 0.08f * m) {
+                int g2 = 150 + r.nextInt(105);
+                p.setColor(android.graphics.Color.argb(Math.round(180 * m * k), g2, g2, blue ? 255 : g2));
+                c.drawRect(l, y, l + rw, y + rowH + 0.5f, p);
+            }
+            int nd = Math.round((6 + r.nextInt(10)) * m * k);
+            for (int d = 0; d < nd; d++) {
+                float x = l + r.nextFloat() * rw;
+                float w = cell * (4 + r.nextInt(26));
+                int col;
+                if (blue) {
+                    col = r.nextFloat() < 0.18f ? 0xFFDCE6FF : android.graphics.Color.rgb(12, 24 + r.nextInt(30), 120 + r.nextInt(120));
+                } else {
+                    col = pal[r.nextInt(pal.length)];
+                }
+                p.setColor((col & 0x00FFFFFF) | (Math.round(255 * Math.min(1f, 0.95f * m)) << 24));
+                c.drawRect(x, y, x + w, y + rowH + 0.5f, p);
+            }
         }
-        // riga di tracking blu che scorre
-        float ly = t + frac(tm * 0.18f * dir + 0.7f) * rh;
-        p.setColor(android.graphics.Color.argb(Math.round(70 * k), 40, 60, 255));
-        c.drawRect(l, ly - 0.03f * rh, l + rw, ly + 0.03f * rh, p);
-        p.setColor(android.graphics.Color.argb(Math.round(230 * k), 64, 80, 255));
-        c.drawRect(l, ly - cell, l + rw, ly + cell, p);
-        // tacca blu sul bordo sinistro
-        float by = t + frac(tm * 0.07f * dir + 0.55f) * rh;
-        p.setColor(android.graphics.Color.argb(Math.round(255 * k), 26, 77, 242));
-        c.drawRect(l, by - 0.06f * rh, l + 0.03f * rw, by + 0.06f * rh, p);
         c.restore();
     }
 

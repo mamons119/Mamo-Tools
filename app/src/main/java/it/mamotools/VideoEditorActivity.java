@@ -964,6 +964,7 @@ public class VideoEditorActivity extends Activity {
                 p.put("mirH", pc.s.mirH);
                 p.put("mirV", pc.s.mirV);
                 p.put("look", pc.s.look);
+                p.put("rot", pc.s.rot);
                 pa.put(p);
             }
             o.put("pieces", pa);
@@ -1143,6 +1144,7 @@ public class VideoEditorActivity extends Activity {
                 sg.mirH = p.optBoolean("mirH", false);
                 sg.mirV = p.optBoolean("mirV", false);
                 sg.look = p.optInt("look", 0);
+                sg.rot = ((p.optInt("rot", 0) % 4) + 4) % 4;
                 pieces.add(new Piece(sg, p.optString("name", "")));
             }
             long pos = o.optLong("pos", 0);
@@ -1869,6 +1871,9 @@ public class VideoEditorActivity extends Activity {
         if (sg.look != 0) {
             sb.append(sb.length() > 0 ? " · " : "").append(VideoComposer.LOOK_NAMES[sg.look]);
         }
+        if (sg.rot != 0) {
+            sb.append(sb.length() > 0 ? " · " : "").append("Ruota ").append(sg.rot * 90).append("°");
+        }
         if (sg.mirH || sg.mirV) {
             sb.append(sb.length() > 0 ? " · " : "").append("Specchio");
         }
@@ -1877,6 +1882,18 @@ public class VideoEditorActivity extends Activity {
                     : "Volume " + Math.round(sg.vol * 100) + "%");
         }
         return sb.toString();
+    }
+
+    private LinearLayout section(LinearLayout parent, String title) {
+        LinearLayout sec = new LinearLayout(this);
+        sec.setOrientation(LinearLayout.VERTICAL);
+        sec.setBackground(round(C_CARD2, 14));
+        sec.setPadding(dp(14), dp(12), dp(14), dp(14));
+        TextView h = text(title, 14, R.color.text, true);
+        h.setPadding(0, 0, 0, dp(6));
+        sec.addView(h);
+        parent.addView(sec, lp(MATCH, WRAP, 0, 10));
+        return sec;
     }
 
     private static final float[] SPEEDS = {0.1f, 0.25f, 0.5f, 0.75f, 1f, 1.5f, 2f, 3f, 4f, 6f, 8f, 10f};
@@ -1889,8 +1906,9 @@ public class VideoEditorActivity extends Activity {
         final VideoComposer.Seg sg = pieces.get(idx).s;
         final float[] speed = {sg.speed};
         final boolean[] rev = {sg.reverse}, mh = {sg.mirH}, mv = {sg.mirV};
-        final int[] look = {sg.look};
+        final int[] look = {sg.look}, rot = {sg.rot};
         final float[] vol = {sg.vol};
+        final Runnable[] upd = new Runnable[1];
         final android.app.Dialog d = new android.app.Dialog(this);
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         LinearLayout box = new LinearLayout(this);
@@ -1911,61 +1929,60 @@ public class VideoEditorActivity extends Activity {
 
         final TextView sumText = text("", 13, R.color.accent, true);
 
-        // ---- velocita'
-        TextView t1 = text("Velocita'", 13, R.color.text_dim, false);
-        t1.setPadding(0, dp(14), 0, dp(2));
-        body.addView(t1);
-        final TextView[] sc = new TextView[SPEEDS.length];
-        final Runnable[] upd = new Runnable[1];
-        LinearLayout line = null;
-        for (int i = 0; i < SPEEDS.length; i++) {
-            final int si = i;
-            if (i % 4 == 0) {
-                line = new LinearLayout(this);
-                body.addView(line, lp(MATCH, WRAP, 0, 6));
+        // ---- velocita': slider a scatti
+        LinearLayout secV = section(body, "Velocita'");
+        final TextView speedText = text("", 22, R.color.accent, true);
+        speedText.setGravity(Gravity.CENTER);
+        secV.addView(speedText, new LinearLayout.LayoutParams(MATCH, WRAP));
+        final SeekBar speedBar = seek(new SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                speed[0] = SPEEDS[Math.max(0, Math.min(SPEEDS.length - 1, p))];
+                if (upd[0] != null) {
+                    upd[0].run();
+                }
             }
-            sc[i] = Ui.chip(this, speedLabel(SPEEDS[i]));
-            sc[i].setTextSize(13);
-            sc[i].setOnClickListener(v -> {
-                speed[0] = SPEEDS[si];
-                upd[0].run();
-            });
-            line.addView(sc[i], lp(0, dp(40), i % 4 == 0 ? 0 : 6, 0, 1f));
+        });
+        speedBar.setMax(SPEEDS.length - 1);
+        int sIdx = 0;
+        for (int i = 0; i < SPEEDS.length; i++) {
+            if (Math.abs(SPEEDS[i] - sg.speed) < Math.abs(SPEEDS[sIdx] - sg.speed)) {
+                sIdx = i;
+            }
         }
+        speedBar.setProgress(sIdx);
+        secV.addView(speedBar, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout ends = new LinearLayout(this);
+        TextView e1 = text("×0.1 lento", 11, R.color.text_dim, false);
+        TextView e2 = text("normale ×1", 11, R.color.text_dim, false);
+        TextView e3 = text("veloce ×10", 11, R.color.text_dim, false);
+        e2.setGravity(Gravity.CENTER);
+        e3.setGravity(Gravity.END);
+        ends.addView(e1, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        ends.addView(e2, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        ends.addView(e3, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        secV.addView(ends, new LinearLayout.LayoutParams(MATCH, WRAP));
 
-        // ---- direzione
-        TextView t2 = text("Direzione", 13, R.color.text_dim, false);
-        t2.setPadding(0, dp(16), 0, 0);
-        body.addView(t2);
-        final TextView revChip = Ui.chip(this, "");
-        revChip.setTextSize(13);
-        revChip.setOnClickListener(v -> {
-            rev[0] = !rev[0];
+        // ---- orientamento e direzione
+        LinearLayout secO = section(body, "Orientamento e direzione");
+        final TextView rotText = text("", 12, R.color.text_dim, false);
+        secO.addView(rotText);
+        final TextView rotL = Ui.chip(this, "↶  90° sinistra"), rotR = Ui.chip(this, "90° destra  ↷");
+        rotL.setTextSize(13);
+        rotR.setTextSize(13);
+        rotL.setOnClickListener(v -> {
+            rot[0] = (rot[0] + 3) % 4;
             upd[0].run();
         });
-        body.addView(revChip, lp(MATCH, dp(42), 0, 6));
-
-        // ---- aspetto
-        TextView t3 = text("Aspetto", 13, R.color.text_dim, false);
-        t3.setPadding(0, dp(16), 0, 0);
-        body.addView(t3);
-        final TextView[] lc = new TextView[VideoComposer.LOOK_NAMES.length];
-        LinearLayout ll = null;
-        for (int i = 0; i < lc.length; i++) {
-            final int li = i;
-            if (i % 2 == 0) {
-                ll = new LinearLayout(this);
-                body.addView(ll, lp(MATCH, WRAP, 0, 6));
-            }
-            lc[i] = Ui.chip(this, VideoComposer.LOOK_NAMES[i]);
-            lc[i].setTextSize(13);
-            lc[i].setOnClickListener(v -> {
-                look[0] = li;
-                upd[0].run();
-            });
-            ll.addView(lc[i], lp(0, dp(40), i % 2 == 0 ? 0 : 6, 0, 1f));
-        }
-        final TextView mhChip = Ui.chip(this, ""), mvChip = Ui.chip(this, "");
+        rotR.setOnClickListener(v -> {
+            rot[0] = (rot[0] + 1) % 4;
+            upd[0].run();
+        });
+        LinearLayout rr = new LinearLayout(this);
+        rr.addView(rotL, lp(0, dp(40), 0, 0, 1f));
+        rr.addView(rotR, lp(0, dp(40), 6, 0, 1f));
+        secO.addView(rr, lp(MATCH, WRAP, 0, 6));
+        final TextView mhChip = Ui.chip(this, "⇄  Specchio orizz."), mvChip = Ui.chip(this, "⇅  Specchio vert.");
         mhChip.setTextSize(13);
         mvChip.setTextSize(13);
         mhChip.setOnClickListener(v -> {
@@ -1979,12 +1996,47 @@ public class VideoEditorActivity extends Activity {
         LinearLayout mr = new LinearLayout(this);
         mr.addView(mhChip, lp(0, dp(40), 0, 0, 1f));
         mr.addView(mvChip, lp(0, dp(40), 6, 0, 1f));
-        body.addView(mr, lp(MATCH, WRAP, 0, 6));
+        secO.addView(mr, lp(MATCH, WRAP, 0, 6));
+        final TextView dirF = Ui.chip(this, "▶  Normale"), dirB = Ui.chip(this, "◀  Reverse");
+        dirF.setTextSize(13);
+        dirB.setTextSize(13);
+        dirF.setOnClickListener(v -> {
+            rev[0] = false;
+            upd[0].run();
+        });
+        dirB.setOnClickListener(v -> {
+            rev[0] = true;
+            upd[0].run();
+        });
+        LinearLayout dr = new LinearLayout(this);
+        dr.addView(dirF, lp(0, dp(40), 0, 0, 1f));
+        dr.addView(dirB, lp(0, dp(40), 6, 0, 1f));
+        secO.addView(dr, lp(MATCH, WRAP, 0, 6));
+
+        // ---- aspetto: una sola riga scorrevole
+        LinearLayout secA = section(body, "Aspetto");
+        android.widget.HorizontalScrollView hs = new android.widget.HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout lrow = new LinearLayout(this);
+        hs.addView(lrow, new ViewGroup.LayoutParams(WRAP, WRAP));
+        final TextView[] lc = new TextView[VideoComposer.LOOK_NAMES.length];
+        for (int i = 0; i < lc.length; i++) {
+            final int li = i;
+            lc[i] = Ui.chip(this, VideoComposer.LOOK_NAMES[i]);
+            lc[i].setTextSize(13);
+            lc[i].setPadding(dp(14), 0, dp(14), 0);
+            lc[i].setOnClickListener(v -> {
+                look[0] = li;
+                upd[0].run();
+            });
+            lrow.addView(lc[i], lp(WRAP, dp(40), i == 0 ? 0 : 6, 0));
+        }
+        secA.addView(hs, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         // ---- audio
+        LinearLayout secS = section(body, "Audio");
         final TextView volText = text("", 14, R.color.text, false);
-        volText.setPadding(0, dp(16), 0, 0);
-        body.addView(volText);
+        secS.addView(volText);
         final SeekBar volBar = seek(new SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar sb, int p, boolean user) {
@@ -1996,7 +2048,7 @@ public class VideoEditorActivity extends Activity {
         });
         volBar.setMax(20);
         volBar.setProgress(Math.round(sg.vol * 10));
-        body.addView(volBar, new LinearLayout.LayoutParams(MATCH, WRAP));
+        secS.addView(volBar, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         body.addView(sumText, lp(MATCH, WRAP, 0, 14));
         TextView hint = text("Con velocita' diversa da ×1 anche il tono dell'audio cambia. Il reverse e' piu' lento "
@@ -2005,17 +2057,15 @@ public class VideoEditorActivity extends Activity {
         body.addView(hint, lp(MATCH, WRAP, 0, 8));
 
         upd[0] = () -> {
-            for (int i = 0; i < SPEEDS.length; i++) {
-                Ui.styleChip(this, sc[i], Math.abs(SPEEDS[i] - speed[0]) < 0.001f);
-            }
-            revChip.setText(rev[0] ? "Reverse: attivo (la clip va dalla fine all'inizio)"
-                    : "Reverse: disattivato");
-            Ui.styleChip(this, revChip, rev[0]);
+            speedText.setText(speedLabel(speed[0]) + (speed[0] < 1f ? "  rallentatore" : speed[0] > 1f ? "  accelerato" : "  normale"));
+            rotText.setText("Rotazione: " + (rot[0] * 90) + "° in senso orario");
+            Ui.styleChip(this, rotL, false);
+            Ui.styleChip(this, rotR, false);
+            Ui.styleChip(this, dirF, !rev[0]);
+            Ui.styleChip(this, dirB, rev[0]);
             for (int i = 0; i < lc.length; i++) {
                 Ui.styleChip(this, lc[i], look[0] == i);
             }
-            mhChip.setText(mh[0] ? "Specchio orizzontale: si" : "Specchio orizzontale");
-            mvChip.setText(mv[0] ? "Specchio verticale: si" : "Specchio verticale");
             Ui.styleChip(this, mhChip, mh[0]);
             Ui.styleChip(this, mvChip, mv[0]);
             volText.setText(vol[0] == 0f ? "Audio della clip: muto"
@@ -2033,14 +2083,20 @@ public class VideoEditorActivity extends Activity {
             mh[0] = false;
             mv[0] = false;
             look[0] = 0;
+            rot[0] = 0;
             vol[0] = 1f;
             volBar.setProgress(10);
+            for (int i = 0; i < SPEEDS.length; i++) {
+                if (SPEEDS[i] == 1f) {
+                    speedBar.setProgress(i);
+                }
+            }
             upd[0].run();
         }), lp(0, dp(46), 0, 0, 1f));
         br.addView(btn("Annulla", C_CARD2, C_TEXT, v -> d.dismiss()), lp(0, dp(46), 6, 0, 1f));
         br.addView(btn("Applica", C_ACCENT, Color.BLACK, v -> {
             d.dismiss();
-            setClipMods(idx, speed[0], rev[0], vol[0], mh[0], mv[0], look[0]);
+            setClipMods(idx, speed[0], rev[0], vol[0], mh[0], mv[0], look[0], rot[0]);
         }), lp(0, dp(46), 6, 0, 1f));
         box.addView(br, lp(MATCH, WRAP, 0, 14));
         d.setContentView(box);
@@ -2054,13 +2110,14 @@ public class VideoEditorActivity extends Activity {
         d.show();
     }
 
-    private void setClipMods(int idx, float speed, boolean reverse, float vol, boolean mh, boolean mv, int look) {
+    private void setClipMods(int idx, float speed, boolean reverse, float vol, boolean mh, boolean mv, int look,
+                             int rot) {
         if (busy || idx < 0 || idx >= pieces.size()) {
             return;
         }
         VideoComposer.Seg sg = pieces.get(idx).s;
         if (sg.speed == speed && sg.reverse == reverse && sg.vol == vol && sg.mirH == mh && sg.mirV == mv
-                && sg.look == look) {
+                && sg.look == look && sg.rot == rot) {
             return;
         }
         Snap sn = snap();
@@ -2075,6 +2132,7 @@ public class VideoEditorActivity extends Activity {
         sg.mirH = mh;
         sg.mirV = mv;
         sg.look = look;
+        sg.rot = rot;
         long newLen = VideoComposer.lengthUs(sg, idx == 0);
         if (newLen > oldLen) {
             remapInsert((cum + oldLen) / 1000, (newLen - oldLen) / 1000);
