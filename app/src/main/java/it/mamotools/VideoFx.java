@@ -321,7 +321,7 @@ final class VideoFx {
                     u[U_FISH] = Math.max(u[U_FISH], k);
                     break;
                 case 14:
-                    u[U_ZOOM] *= ZoomBox.at(it.zoom[0], it.zoom[1], 0, it.zoom[4] >= 0.5f, p);
+                    u[U_ZOOM] *= zoomAt(it.zoom[0], it.zoom[1], it.zoom[4] >= 0.5f, p);
                     u[U_ZX] = it.zoom[2];
                     u[U_ZY] = it.zoom[3];
                     break;
@@ -623,6 +623,15 @@ final class VideoFx {
         cm.postConcat(new android.graphics.ColorMatrix(new float[]{
                 c * f, 0, 0, 0, off * f, 0, c * f, 0, 0, off * f, 0, 0, c * f, 0, off * f, 0, 0, 0, 1, 0}));
         return cm;
+    }
+
+    /** Zoom al progresso p (0..1) tra a e b, con curva lineare o morbida. */
+    static float zoomAt(float a, float b, boolean soft, double p) {
+        float e = (float) Math.max(0, Math.min(1, p));
+        if (soft) {
+            e = e * e * (3 - 2 * e);
+        }
+        return a + (b - a) * e;
     }
 
     static boolean needsGrab(float[] u) {

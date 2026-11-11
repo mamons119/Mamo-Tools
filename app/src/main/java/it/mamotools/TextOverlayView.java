@@ -94,23 +94,53 @@ final class TextOverlayView extends View {
 
     @Override
     protected void onDraw(Canvas c) {
-        if (items == null || items.isEmpty() || vw <= 0 || vh <= 0) {
+        if (vw <= 0 || vh <= 0) {
             return;
         }
         float s = Math.min(getWidth() / (float) vw, getHeight() / (float) vh);
         float rw = vw * s, rh = vh * s;
         float l = (getWidth() - rw) / 2f, t = (getHeight() - rh) / 2f;
-        textsDone = false;
-        drawFx(c, l, t, rw, rh, s);
-        if (!textsDone) {
-            drawTexts(c, l, t, rw, rh);
+        if (items != null && !items.isEmpty()) {
+            textsDone = false;
+            drawFx(c, l, t, rw, rh, s);
+            if (!textsDone) {
+                drawTexts(c, l, t, rw, rh);
+            }
+            if (topFade < 0.999f) {
+                Paint kp = new Paint();
+                kp.setColor(0xFF000000);
+                kp.setAlpha((int) (255 * (1f - Math.max(0f, topFade))));
+                c.drawRect(l, t, l + rw, t + rh, kp);
+            }
         }
-        if (topFade < 0.999f) {
-            Paint kp = new Paint();
-            kp.setColor(0xFF000000);
-            kp.setAlpha((int) (255 * (1f - Math.max(0f, topFade))));
-            c.drawRect(l, t, l + rw, t + rh, kp);
+        drawCropMask(c, l, t, rw, rh);
+    }
+
+    private float[] crop;
+
+    /** Zona che verra' tenuta dal ritaglio (frazioni x, y, larghezza, altezza); null = nessun ritaglio. */
+    void setCrop(float[] c) {
+        crop = c == null ? null : c.clone();
+        invalidate();
+    }
+
+    /** Oscura la parte che verra' tagliata e disegna la cornice del ritaglio. */
+    private void drawCropMask(Canvas c, float l, float t, float rw, float rh) {
+        if (crop == null || crop.length != 4) {
+            return;
         }
+        float x0 = l + crop[0] * rw, y0 = t + crop[1] * rh, x1 = x0 + crop[2] * rw, y1 = y0 + crop[3] * rh;
+        Paint dim = new Paint();
+        dim.setColor(0xB3000000);
+        c.drawRect(l, t, l + rw, y0, dim);
+        c.drawRect(l, y1, l + rw, t + rh, dim);
+        c.drawRect(l, y0, x0, y1, dim);
+        c.drawRect(x1, y0, l + rw, y1, dim);
+        Paint st = new Paint(Paint.ANTI_ALIAS_FLAG);
+        st.setStyle(Paint.Style.STROKE);
+        st.setStrokeWidth(2f * getResources().getDisplayMetrics().density);
+        st.setColor(0xFFFFFFFF);
+        c.drawRect(x0, y0, x1, y1, st);
     }
 
     private boolean textsDone = false;

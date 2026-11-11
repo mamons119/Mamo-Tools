@@ -47,6 +47,7 @@ final class VideoProcessor {
         boolean mix = false;     // true = aggiunge all'originale, false = sostituisce
         float originalDb = -12f; // abbassamento dell'originale quando mix (negativo)
         VideoStabilizer.Params stab; // null = nessuna stabilizzazione
+        float[] crop; // ritaglio {x, y, larghezza, altezza} in frazioni dello schermo mostrato (null = nessuno)
         int extraRot = 0; // rotazione aggiuntiva scelta dall'utente (0/90/180/270, in senso orario)
         int quality = 0; // 0 massima, 1 alta, 2 media, 3 bassa (ricodifica)
         java.util.List<VideoFx.Item> fx; // effetti e testi (tempi in microsecondi)
@@ -64,11 +65,11 @@ final class VideoProcessor {
 
     static void export(Context ctx, Options o, FileDescriptor out, File cacheDir, Progress p)
             throws IOException {
-        if (o.stab != null || VideoFx.hasAny(o.fx)) {
+        if (o.stab != null || VideoFx.hasAny(o.fx) || o.crop != null) {
             File tmp = new File(cacheDir, "stab.mp4");
             try {
                 final Progress outer = p;
-                VideoStabilizer.run(ctx, o.video, tmp, o.stab, o.fx, o.quality, o.extraRot, new Progress() {
+                VideoStabilizer.run(ctx, o.video, tmp, o.stab, o.fx, o.quality, o.extraRot, o.crop, new Progress() {
                     @Override
                     public void onProgress(String stage, int pct) {
                         outer.onProgress(stage, pct * 70 / 100);

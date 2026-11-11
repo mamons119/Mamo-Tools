@@ -53,7 +53,7 @@ final class VideoStabilizer {
 
     /** prm null = nessuna stabilizzazione (solo effetti e testi). */
     static void run(Context ctx, Uri src, File out, Params prm, java.util.List<VideoFx.Item> items,
-                    int quality, int extraRot, VideoProcessor.Progress p) throws IOException {
+                    int quality, int extraRot, float[] crop, VideoProcessor.Progress p) throws IOException {
         MediaExtractor ex = new MediaExtractor();
         ex.setDataSource(ctx, src, null);
         int vt = -1, at = -1;
@@ -124,7 +124,7 @@ final class VideoStabilizer {
         double[] qf = {2.0, 1.2, 0.7, 0.4};
         int bitrate = (int) Math.max(1_000_000L, Math.min(400_000_000L,
                 (long) (baseRate * qf[Math.max(0, Math.min(3, quality))])));
-        render(ctx, src, vf, at, out, rotation, w, h, fps, bitrate, corr, est, items, base, durUs, p);
+        render(ctx, src, vf, at, out, rotation, w, h, fps, bitrate, corr, est, items, base, durUs, crop, p);
     }
 
     // =========================================================================== analisi
@@ -782,6 +782,39 @@ final class VideoStabilizer {
             + "varying vec2 vPos;\n"
             + "void main(){ gl_Position = vec4(aPos, 0.0, 1.0); vPos = aTex; }\n";
 
+    /** Ritaglio finale: campiona un rettangolo (sx, sy, sw, sh) dell'immagine intermedia. */
+    private static final String FS_C = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
+            + "precision highp float;\n"
+            + "#else\n"
+            + "precision mediump float;\n"
+            + "#endif\n"
+            + "varying vec2 vPos;\n"
+            + "uniform sampler2D sP;\n"
+            + "uniform vec4 uR;\n"
+            + "void main(){\n"
+            + "  vec2 t = vec2(uR.x + vPos.x * uR.z, uR.y + vPos.y * uR.w);\n"
+            + "  gl_FragColor = texture2D(sP, vec2(t.x, 1.0 - t.y));\n"
+            + "}\n";
+
+    private static void makeFbo(int w, int h, int[] fbo, int[] tex) throws IOException {
+        GLES20.glGenTextures(1, tex, 0);
+        GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, tex[0]);
+        GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA,
+                GLES20.GL_UNSIGNED_BYTE, null);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
+        GLES20.glGenFramebuffers(1, fbo, 0);
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
+        GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
+                GLES20.GL_TEXTURE_2D, tex[0], 0);
+        if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) != GLES20.GL_FRAMEBUFFER_COMPLETE) {
+            throw new IOException("buffer grafico intermedio non disponibile");
+        }
+        GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+    }
+
     private static final String FS_P = "#ifdef GL_FRAGMENT_PRECISION_HIGH\n"
             + "precision highp float;\n"
             + "#else\n"
@@ -888,7 +921,7 @@ final class VideoStabilizer {
 
     private static void render(Context ctx, Uri src, MediaFormat vf, int audioTrackIdx, File out,
                                int rotation, int w, int h, int fps, int bitrate, float[][] corr,
-                               Est est, java.util.List<VideoFx.Item> items, int base, long durUs,
+                               Est est, java.util.List<VideoFx.Item> items, int base, long durUs, float[] crop,
                                VideoProcessor.Progress p) throws IOException {
         MediaCodec enc = null, dec = null;
         MediaMuxer mx = null;
@@ -900,6 +933,38 @@ final class VideoStabilizer {
         SurfaceTexture st = null;
         Surface decSurface = null, encSurface = null;
         try {
+            // ritaglio: rettangolo (frazioni dello schermo mostrato) -> rettangolo nel video non ruotato
+            final boolean cropOn = crop != null && crop.length == 4 && (crop[2] < 0.999f || crop[3] < 0.999f);
+            float sx = 0, sy = 0, sw = 1, sh = 1;
+            if (cropOn) {
+                float cx0 = crop[0], cy0 = crop[1], cw0 = crop[2], ch0 = crop[3];
+                if (rotation == 90) {
+                    sx = cy0;
+                    sw = ch0;
+                    sy = 1 - cx0 - cw0;
+                    sh = cw0;
+                } else if (rotation == 270) {
+                    sx = 1 - cy0 - ch0;
+                    sw = ch0;
+                    sy = cx0;
+                    sh = cw0;
+                } else if (rotation == 180) {
+                    sx = 1 - cx0 - cw0;
+                    sy = 1 - cy0 - ch0;
+                    sw = cw0;
+                    sh = ch0;
+                } else {
+                    sx = cx0;
+                    sy = cy0;
+                    sw = cw0;
+                    sh = ch0;
+                }
+            }
+            final int ow = cropOn ? Math.max(16, Math.round(sw * w) & ~1) : w;
+            final int oh = cropOn ? Math.max(16, Math.round(sh * h) & ~1) : h;
+            if (cropOn) {
+                bitrate = (int) Math.max(1_000_000L, (long) bitrate * ow * oh / ((long) w * h));
+            }
             // encoder
             // alcuni telefoni rifiutano certi bitrate/parametri (errore 0x80001001): si riprova con
             // valori via via piu' prudenti, ricreando ogni volta il codificatore
@@ -908,7 +973,7 @@ final class VideoStabilizer {
             for (int t = 0; t < tries.length && enc == null; t++) {
                 MediaCodec e2 = null;
                 try {
-                    MediaFormat ef = MediaFormat.createVideoFormat("video/avc", w, h);
+                    MediaFormat ef = MediaFormat.createVideoFormat("video/avc", ow, oh);
                     ef.setInteger(MediaFormat.KEY_COLOR_FORMAT,
                             MediaCodecInfo.CodecCapabilities.COLOR_FormatSurface);
                     e2 = MediaCodec.createEncoderByType("video/avc");
@@ -962,7 +1027,7 @@ final class VideoStabilizer {
             if (!EGL14.eglMakeCurrent(dpy, esurf, esurf, ectx)) {
                 throw new IOException("contesto grafico non attivabile");
             }
-            GLES20.glViewport(0, 0, w, h);
+            GLES20.glViewport(0, 0, ow, oh);
 
             int vs = shader(GLES20.GL_VERTEX_SHADER, VS), fs = shader(GLES20.GL_FRAGMENT_SHADER, FS);
             int prog = GLES20.glCreateProgram();
@@ -1019,9 +1084,10 @@ final class VideoStabilizer {
                     }
                 }
             }
+            final boolean needFbo = usePost || cropOn;
             int progP = 0, pPos = 0, pTex = 0, pSampler = 0, pTexel = 0, pCrt = 0, pWarp = 0, pBars = 0,
                     pBspd = 0, pSwap = 0, pTime = 0, pRotI = 0;
-            int[] fbo = new int[1], ftex = new int[1];
+            int[] fbo = new int[1], ftex = new int[1], fbo2 = new int[1], ftex2 = new int[1];
             if (usePost) {
                 progP = GLES20.glCreateProgram();
                 GLES20.glAttachShader(progP, shader(GLES20.GL_VERTEX_SHADER, VS_P));
@@ -1043,22 +1109,28 @@ final class VideoStabilizer {
                 pSwap = GLES20.glGetUniformLocation(progP, "uSwap");
                 pTime = GLES20.glGetUniformLocation(progP, "uTime");
                 pRotI = GLES20.glGetUniformLocation(progP, "uRotI");
-                GLES20.glGenTextures(1, ftex, 0);
-                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ftex[0]);
-                GLES20.glTexImage2D(GLES20.GL_TEXTURE_2D, 0, GLES20.GL_RGBA, w, h, 0, GLES20.GL_RGBA,
-                        GLES20.GL_UNSIGNED_BYTE, null);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MIN_FILTER, GLES20.GL_LINEAR);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_MAG_FILTER, GLES20.GL_LINEAR);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_S, GLES20.GL_CLAMP_TO_EDGE);
-                GLES20.glTexParameteri(GLES20.GL_TEXTURE_2D, GLES20.GL_TEXTURE_WRAP_T, GLES20.GL_CLAMP_TO_EDGE);
-                GLES20.glGenFramebuffers(1, fbo, 0);
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
-                GLES20.glFramebufferTexture2D(GLES20.GL_FRAMEBUFFER, GLES20.GL_COLOR_ATTACHMENT0,
-                        GLES20.GL_TEXTURE_2D, ftex[0], 0);
-                if (GLES20.glCheckFramebufferStatus(GLES20.GL_FRAMEBUFFER) != GLES20.GL_FRAMEBUFFER_COMPLETE) {
-                    throw new IOException("buffer grafico intermedio non disponibile");
+            }
+            if (needFbo) {
+                makeFbo(w, h, fbo, ftex);
+                if (usePost && cropOn) {
+                    makeFbo(w, h, fbo2, ftex2);
                 }
-                GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+            }
+            int progC = 0, cPos = 0, cTex = 0, cSampler = 0, cRect = 0;
+            if (cropOn) {
+                progC = GLES20.glCreateProgram();
+                GLES20.glAttachShader(progC, shader(GLES20.GL_VERTEX_SHADER, VS_P));
+                GLES20.glAttachShader(progC, shader(GLES20.GL_FRAGMENT_SHADER, FS_C));
+                GLES20.glLinkProgram(progC);
+                int[] lkc = new int[1];
+                GLES20.glGetProgramiv(progC, GLES20.GL_LINK_STATUS, lkc, 0);
+                if (lkc[0] == 0) {
+                    throw new IOException("programma grafico del ritaglio non valido");
+                }
+                cPos = GLES20.glGetAttribLocation(progC, "aPos");
+                cTex = GLES20.glGetAttribLocation(progC, "aTex");
+                cSampler = GLES20.glGetUniformLocation(progC, "sP");
+                cRect = GLES20.glGetUniformLocation(progC, "uR");
             }
 
             // ---- programma per il nero finale (Appare/Sparisce al nero: sopra a tutto)
@@ -1229,6 +1301,8 @@ final class VideoStabilizer {
                             fxu[VideoFx.U_CRT] = 0;
                             fxu[VideoFx.U_WARP] = 0;
                             fxu[VideoFx.U_BARS] = 0;
+                        }
+                        if (needFbo) {
                             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
                             GLES20.glViewport(0, 0, w, h);
                         }
@@ -1317,7 +1391,7 @@ final class VideoStabilizer {
                             GLES20.glDisable(GLES20.GL_BLEND);
                         }
                         if (usePost) {
-                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, cropOn ? fbo2[0] : 0);
                             GLES20.glViewport(0, 0, w, h);
                             GLES20.glDisable(GLES20.GL_BLEND);
                             GLES20.glUseProgram(progP);
@@ -1340,7 +1414,25 @@ final class VideoStabilizer {
                             GLES20.glUniform1f(pRotI, rotation == 90 ? 1f : rotation == 180 ? 2f : rotation == 270 ? 3f : 0f);
                             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                         }
+                        if (cropOn) {
+                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+                            GLES20.glViewport(0, 0, ow, oh);
+                            GLES20.glDisable(GLES20.GL_BLEND);
+                            GLES20.glUseProgram(progC);
+                            GLES20.glEnableVertexAttribArray(cPos);
+                            GLES20.glEnableVertexAttribArray(cTex);
+                            fb.position(0);
+                            GLES20.glVertexAttribPointer(cPos, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            fb.position(2);
+                            GLES20.glVertexAttribPointer(cTex, 2, GLES20.GL_FLOAT, false, 16, fb);
+                            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
+                            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, usePost ? ftex2[0] : ftex[0]);
+                            GLES20.glUniform1i(cSampler, 0);
+                            GLES20.glUniform4f(cRect, sx, sy, sw, sh);
+                            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
+                        }
                         if (topFade < 0.999f) {
+                            GLES20.glViewport(0, 0, ow, oh);
                             GLES20.glUseProgram(progK);
                             GLES20.glEnable(GLES20.GL_BLEND);
                             GLES20.glBlendColor(0f, 0f, 0f, 1f - Math.max(0f, topFade));

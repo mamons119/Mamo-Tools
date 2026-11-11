@@ -136,10 +136,6 @@ final class ZoomBox extends LinearLayout {
 
     /** Zoom al progresso p (0..1) con la curva scelta. */
     static float at(float a, float b, float x, boolean soft, double p) {
-        float e = (float) Math.max(0, Math.min(1, p));
-        if (soft) {
-            e = e * e * (3 - 2 * e);
-        }
-        return a + (b - a) * e;
+        return VideoFx.zoomAt(a, b, soft, p);
     }
 }

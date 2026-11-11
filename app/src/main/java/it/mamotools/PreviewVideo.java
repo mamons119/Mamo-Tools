@@ -229,22 +229,15 @@ final class PreviewVideo extends FrameLayout {
             layerPaint.setColorFilter(cm == null ? null : new ColorMatrixColorFilter(cm));
             tv.setLayerType(LAYER_TYPE_HARDWARE, layerPaint);
         }
-        // il punto e' dato sull'immagine mostrata: se la vista e' ruotata lo porto nelle sue coordinate
-        float lx = px, ly = py;
-        if (extraRot == 90) {
-            lx = py;
-            ly = 1f - px;
-        } else if (extraRot == 180) {
-            lx = 1f - px;
-            ly = 1f - py;
-        } else if (extraRot == 270) {
-            lx = 1f - py;
-            ly = px;
+        if (Float.isNaN(zoom) || zoom <= 0f) {
+            zoom = 1f;
         }
-        tv.setPivotX(tv.getWidth() * lx);
-        tv.setPivotY(tv.getHeight() * ly);
+        // zoom attorno a un punto senza toccare il perno: scala dal centro e sposta di (1-z)*(punto-centro).
+        // La traslazione e' nel sistema della vista madre, quindi vale anche con il video ruotato.
         tv.setScaleX(zoom);
         tv.setScaleY(zoom);
+        tv.setTranslationX((1f - zoom) * (px - 0.5f) * rect.width());
+        tv.setTranslationY((1f - zoom) * (py - 0.5f) * rect.height());
     }
 
     /** Fotogramma corrente ridotto (senza filtri), oppure null. */

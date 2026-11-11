@@ -37,6 +37,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.CompoundButton;
 import android.widget.FrameLayout;
+import android.widget.HorizontalScrollView;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.RadioButton;
@@ -108,7 +109,9 @@ public class VideoEditorActivity extends Activity {
     private int dispVw = 0, dispVh = 0;      // dimensioni mostrate (con rotazione utente)
     private int baseVw = 0, baseVh = 0;      // dimensioni mostrate dal file originale
     private int extraRot = 0;                // rotazione scelta dall'utente (0/90/180/270)
+    private float[] crop = null;             // ritaglio {x, y, larghezza, altezza} in frazioni, null = nessuno
     private TextView rotText;
+    private Button cropBtn;
     private TextView[] stabChips;
     private TextView stabZoomText;
 
@@ -260,15 +263,8 @@ public class VideoEditorActivity extends Activity {
         ctl.addView(roundBtn("▶|", C_BTN_ON_CARD, C_TEXT, 40, 12, v -> seekRel(33)), lp(dp(40), dp(40), 12, 0));
         prev.addView(ctl, new LinearLayout.LayoutParams(MATCH, WRAP));
 
-        LinearLayout rotRow = new LinearLayout(this);
-        rotRow.setGravity(Gravity.CENTER_VERTICAL);
-        rotRow.setPadding(0, dp(14), 0, 0);
-        rotRow.addView(text("Ruota video", 14, R.color.text, true), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        rotRow.addView(btn("↺", C_BTN_ON_CARD, C_ACCENT, v -> rotate(-90)),
-                new LinearLayout.LayoutParams(dp(Ui.ICON_W + 8), dp(Ui.ICON_H)));
-        rotRow.addView(btn("↻", C_BTN_ON_CARD, C_ACCENT, v -> rotate(90)),
-                lp(dp(Ui.ICON_W + 8), dp(Ui.ICON_H), 8, 0));
-        prev.addView(rotRow, new LinearLayout.LayoutParams(MATCH, WRAP));
+        cropBtn = btn("✂  Ruota e ritaglia", C_BTN_ON_CARD, C_ACCENT, v -> cropDialog());
+        prev.addView(cropBtn, lp(MATCH, dp(Ui.H_BTN), 0, 14));
         editorBox.addView(prev, lp(MATCH, WRAP, 0, 12));
 
         // ---- timeline e tagli
@@ -988,6 +984,13 @@ public class VideoEditorActivity extends Activity {
             o.put("pieces", pa);
             o.put("videoName", videoName);
             o.put("extraRot", extraRot);
+            if (crop != null) {
+                org.json.JSONArray cj = new org.json.JSONArray();
+                for (float cv : crop) {
+                    cj.put((double) cv);
+                }
+                o.put("crop", cj);
+            }
             org.json.JSONArray ca = new org.json.JSONArray();
             for (long[] c : cuts) {
                 ca.put(new org.json.JSONArray().put(c[0]).put(c[1]));
@@ -1086,6 +1089,12 @@ public class VideoEditorActivity extends Activity {
             }
             Snap plain = snap();
             extraRot = o.optInt("extraRot", 0);
+            crop = null;
+            org.json.JSONArray cja = o.optJSONArray("crop");
+            if (cja != null && cja.length() == 4) {
+                crop = new float[]{(float) cja.optDouble(0), (float) cja.optDouble(1),
+                        (float) cja.optDouble(2), (float) cja.optDouble(3)};
+            }
             applyRotation();
             cuts.clear();
             org.json.JSONArray ca = o.optJSONArray("cuts");
@@ -2463,6 +2472,244 @@ public class VideoEditorActivity extends Activity {
     }
 
 
+
+    // ------------------------------------------------------------------ ruota e ritaglia
+
+    private static final String[] CROP_NAMES = {"Originale", "1:1", "4:3", "3:4", "16:9", "9:16", "3:2", "2:3",
+            "4:5", "5:4", "21:9"};
+    private static final float[] CROP_RATIOS = {0f, 1f, 4f / 3f, 3f / 4f, 16f / 9f, 9f / 16f, 3f / 2f, 2f / 3f,
+            4f / 5f, 5f / 4f, 21f / 9f};
+
+    private void cropDialog() {
+        if (busy || videoUri == null || dispVw <= 0 || dispVh <= 0) {
+            return;
+        }
+        final int rot0 = extraRot;
+        final int[] rr = {extraRot};
+        final android.graphics.Bitmap[] base = {null};   // fotogramma come appare ora (rotazione rot0)
+        final long at = timeline.pos;
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(round(C_CARD, 20));
+        box.setPadding(dp(20), dp(20), dp(20), dp(16));
+        box.addView(text("Ruota e ritaglia", 18, R.color.text, true));
+
+        ScrollView sv = new ScrollView(this);
+        LinearLayout body = new LinearLayout(this);
+        body.setOrientation(LinearLayout.VERTICAL);
+        sv.addView(body, new ViewGroup.LayoutParams(MATCH, WRAP));
+        box.addView(sv, new LinearLayout.LayoutParams(MATCH, 0, 1f));
+
+        final CropView cv = new CropView(this);
+        cv.setAspect(dispVw / (float) dispVh);
+        TextView fl = text("Fotogramma corrente  " + FxDialog.fmt(at), 12, R.color.text_dim, false);
+        fl.setPadding(0, dp(10), 0, dp(6));
+        body.addView(fl);
+        body.addView(cv, new LinearLayout.LayoutParams(MATCH, WRAP));
+        final TextView info = text("", 12, R.color.accent, true);
+        info.setGravity(Gravity.CENTER);
+        info.setPadding(0, dp(8), 0, 0);
+        body.addView(info, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        // frame: prima da quello che si vede, altrimenti dal file
+        int gw = dispVw >= dispVh ? 720 : Math.max(2, Math.round(720f * dispVw / dispVh));
+        int gh = dispVw >= dispVh ? Math.max(2, Math.round(720f * dispVh / dispVw)) : 720;
+        android.graphics.Bitmap g0 = videoView.grab(gw, gh);
+        if (g0 != null) {
+            base[0] = g0;
+            cv.setBitmap(g0);
+        } else {
+            final Uri vu = videoUri;
+            new Thread(() -> {
+                android.graphics.Bitmap b = null;
+                MediaMetadataRetriever mr = new MediaMetadataRetriever();
+                try {
+                    mr.setDataSource(this, vu);
+                    b = mr.getScaledFrameAtTime(Math.max(0, at * 1000), MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                            720, 720);
+                } catch (Exception ignored) {
+                } finally {
+                    try {
+                        mr.release();
+                    } catch (Exception ignored) {
+                    }
+                }
+                if (b != null && rot0 != 0) {
+                    android.graphics.Matrix m = new android.graphics.Matrix();
+                    m.postRotate(rot0);
+                    b = android.graphics.Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
+                }
+                final android.graphics.Bitmap fb2 = b;
+                runOnUiThread(() -> {
+                    if (fb2 != null && d.isShowing()) {
+                        base[0] = fb2;
+                        cv.setBitmap(fb2);
+                    }
+                });
+            }).start();
+        }
+
+        // ---- formato
+        LinearLayout secF = section(body, "Formato del ritaglio");
+        HorizontalScrollView hs = new HorizontalScrollView(this);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout chipRow = new LinearLayout(this);
+        hs.addView(chipRow);
+        secF.addView(hs, new LinearLayout.LayoutParams(MATCH, WRAP));
+        final TextView[] chips = new TextView[CROP_NAMES.length];
+        final int[] sel = {0};
+        final Runnable[] upd = new Runnable[1];
+        // formato attuale: se corrisponde a uno dei formati lo si seleziona
+        float[] initRect = (crop != null) ? crop.clone() : null;
+        if (initRect != null) {
+            float pr = (initRect[2] * dispVw) / (initRect[3] * dispVh);
+            float best = 0.02f;
+            for (int i = 1; i < CROP_RATIOS.length; i++) {
+                float dd = Math.abs(pr / CROP_RATIOS[i] - 1f);
+                if (dd < best) {
+                    best = dd;
+                    sel[0] = i;
+                }
+            }
+            if (sel[0] == 0) {
+                initRect = null; // formato non standard: si riparte da Originale
+            }
+        }
+        for (int i = 0; i < CROP_NAMES.length; i++) {
+            final int ci = i;
+            TextView t = optChip(CROP_NAMES[i]);
+            chips[i] = t;
+            t.setOnClickListener(v -> {
+                sel[0] = ci;
+                cv.setRatio(CROP_RATIOS[ci]);
+                cv.recenter();
+                if (upd[0] != null) {
+                    upd[0].run();
+                }
+            });
+            chipRow.addView(t, lp(WRAP, WRAP, i == 0 ? 0 : 6, 0));
+        }
+        final SeekBar sizeBar = seek(new SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                if (user) {
+                    cv.setFrac(0.1f + p / 100f);
+                    if (upd[0] != null) {
+                        upd[0].run();
+                    }
+                }
+            }
+        });
+        sizeBar.setMax(90);
+        sizeBar.setProgress(90);
+        secF.addView(text("Dimensione della cornice", 12, R.color.text_dim, false), lp(MATCH, WRAP, 0, 10));
+        secF.addView(sizeBar, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        // ---- rotazione
+        LinearLayout secR = section(body, "Rotazione");
+        LinearLayout rr1 = new LinearLayout(this);
+        final TextView rotL = text("", 14, R.color.accent, true);
+        rotL.setGravity(Gravity.CENTER_VERTICAL);
+        rr1.setGravity(Gravity.CENTER_VERTICAL);
+        rr1.addView(rotL, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        final Runnable[] turn = new Runnable[1];
+        final int[] dir = {0};
+        rr1.addView(btn("↺", C_BTN_ON_CARD, C_ACCENT, v -> {
+            dir[0] = -90;
+            turn[0].run();
+        }), new LinearLayout.LayoutParams(dp(Ui.ICON_W + 8), dp(Ui.ICON_H)));
+        rr1.addView(btn("↻", C_BTN_ON_CARD, C_ACCENT, v -> {
+            dir[0] = 90;
+            turn[0].run();
+        }), lp(dp(Ui.ICON_W + 8), dp(Ui.ICON_H), 8, 0));
+        secR.addView(rr1, new LinearLayout.LayoutParams(MATCH, WRAP));
+
+        upd[0] = () -> {
+            for (int i = 0; i < chips.length; i++) {
+                styleOpt(chips[i], i == sel[0]);
+            }
+            boolean sw = ((rr[0] - rot0 + 360) % 180) != 0;
+            int bw = sw ? dispVh : dispVw, bh = sw ? dispVw : dispVh;
+            float[] r = cv.rect();
+            if (r == null) {
+                info.setText("Nessun ritaglio  ·  " + bw + "×" + bh + " px");
+            } else {
+                info.setText("Risultato  " + CROP_NAMES[sel[0]] + "  ·  " + (Math.round(r[2] * bw) & ~1) + "×"
+                        + (Math.round(r[3] * bh) & ~1) + " px");
+            }
+            rotL.setText(rr[0] + "° in senso orario");
+            sizeBar.setEnabled(r != null);
+            sizeBar.setAlpha(r != null ? 1f : 0.4f);
+        };
+        turn[0] = () -> {
+            android.graphics.Bitmap b = base[0];
+            rr[0] = ((rr[0] + dir[0]) % 360 + 360) % 360;
+            int delta = ((rr[0] - rot0) % 360 + 360) % 360;
+            if (b != null) {
+                if (delta != 0) {
+                    android.graphics.Matrix m = new android.graphics.Matrix();
+                    m.postRotate(delta);
+                    cv.setBitmap(android.graphics.Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true));
+                } else {
+                    cv.setBitmap(b);
+                }
+            } else {
+                boolean sw = delta == 90 || delta == 270;
+                cv.setAspect(sw ? dispVh / (float) dispVw : dispVw / (float) dispVh);
+            }
+            cv.recenter();
+            upd[0].run();
+        };
+        cv.setOnChange(() -> {
+            if (upd[0] != null) {
+                upd[0].run();
+            }
+        });
+        cv.setRatio(CROP_RATIOS[sel[0]]);
+        if (initRect != null) {
+            cv.setRect(initRect);
+            sizeBar.setProgress(Math.round((cv.getFrac() - 0.1f) * 100));
+        }
+        upd[0].run();
+
+        LinearLayout br = new LinearLayout(this);
+        br.addView(btn("Ripristina", C_CARD2, C_TEXT, v -> {
+            rr[0] = rot0;
+            sel[0] = 0;
+            dir[0] = 0;
+            if (base[0] != null) {
+                cv.setBitmap(base[0]);
+            } else {
+                cv.setAspect(dispVw / (float) dispVh);
+            }
+            cv.setRatio(0f);
+            cv.setFrac(1f);
+            sizeBar.setProgress(90);
+            cv.recenter();
+            upd[0].run();
+        }), lp(0, dp(46), 0, 0, 1f));
+        br.addView(btn("Annulla", C_CARD2, C_TEXT, v -> d.dismiss()), lp(0, dp(46), 6, 0, 1f));
+        br.addView(btn("Applica", C_ACCENT, Color.BLACK, v -> {
+            float[] r = cv.rect();
+            d.dismiss();
+            extraRot = rr[0];
+            crop = r;
+            applyRotation();
+        }), lp(0, dp(46), 6, 0, 1f));
+        box.addView(br, lp(MATCH, WRAP, 0, 14));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.92f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.94f), maxH);
+        }
+        d.show();
+    }
+
     private void rotate(int delta) {
         if (videoUri == null) {
             return;
@@ -2479,6 +2726,10 @@ public class VideoEditorActivity extends Activity {
         videoView.setDisplaySize(dispVw, dispVh);
         videoView.setExtraRotation(extraRot);
         timeline.setExtraRot(extraRot);
+        overlay.setCrop(crop);
+        if (cropBtn != null) {
+            cropBtn.setText(crop != null || extraRot != 0 ? "✂  Ruota e ritaglia  •" : "✂  Ruota e ritaglia");
+        }
         if (rotText != null) {
             rotText.setText(extraRot + "°");
         }
@@ -2588,6 +2839,8 @@ public class VideoEditorActivity extends Activity {
         durMs = 0;
         dispVw = dispVh = baseVw = baseVh = 0;
         extraRot = 0;
+        crop = null;
+        overlay.setCrop(null);
         MediaMetadataRetriever mr = new MediaMetadataRetriever();
         try {
             mr.setDataSource(this, uri);
@@ -3243,6 +3496,7 @@ public class VideoEditorActivity extends Activity {
         o.fx = new java.util.ArrayList<>(fxItems);
         o.quality = quality;
         o.extraRot = extraRot;
+        o.crop = crop == null ? null : crop.clone();
         o.keepAudio = keepAudio;
         o.sound = soundUri;
         o.soundStartUs = soundStartMs * 1000;
