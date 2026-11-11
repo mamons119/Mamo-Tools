@@ -48,14 +48,21 @@ final class VideoComposer {
         boolean mirH = false, mirV = false;
         int look = 0;                // vedi LOOK_NAMES
         int rot = 0;                 // rotazione extra in passi di 90 gradi, in senso orario (0..3)
+        // zoom dinamico durante la clip: {zoom iniziale, zoom finale, punto x, punto y, morbido}
+        float[] zoom = {1f, 1f, 0.5f, 0.5f, 1f};
+
+        boolean zoomOn() {
+            return zoom[0] != 1f || zoom[1] != 1f;
+        }
 
         boolean isPlain() {
-            return speed == 1f && !reverse && vol == 1f && !mirH && !mirV && look == 0 && rot == 0;
+            return speed == 1f && !reverse && vol == 1f && !mirH && !mirV && look == 0 && rot == 0 && !zoomOn();
         }
 
         boolean sameMods(Seg o) {
             return speed == o.speed && reverse == o.reverse && vol == o.vol && mirH == o.mirH
-                    && mirV == o.mirV && look == o.look && rot == o.rot;
+                    && mirV == o.mirV && look == o.look && rot == o.rot
+                    && java.util.Arrays.equals(zoom, o.zoom);
         }
 
         /** Durata (us) che la parte usata della clip occupa nel video montato. */
@@ -81,6 +88,7 @@ final class VideoComposer {
             s.mirV = mirV;
             s.look = look;
             s.rot = rot;
+            s.zoom = zoom.clone();
             return s;
         }
     }
@@ -88,7 +96,7 @@ final class VideoComposer {
     static final String[] LOOK_NAMES = {"Nessuno", "Bianco e nero", "Seppia", "Negativo", "Vivido", "Freddo", "Caldo"};
 
     static final String[] TRANS_NAMES = {"Nessuna", "Dissolvenza", "Dissolvenza al nero",
-            "Scorrimento", "Tendina", "Zoom", "Pixel", "VHS noise glitch"};
+            "Scorrimento", "Tendina", "Zoom", "Pixel", "VHS noise glitch", "Rotazione"};
 
     /** Un parametro regolabile di una transizione. */
     static final class Param {
@@ -147,6 +155,10 @@ final class VideoComposer {
                         pc("Livello di interferenza", "disturbi, rumore, colori sfalsati", 0.7f),
                         tm("Inizio scomparsa clip precedente", "da qui la clip precedente comincia a sparire", 0.25f),
                         tm("Inizio comparsa clip successiva", "da qui la clip successiva comincia ad apparire", 0.5f)};
+            case 8:
+                return new Param[]{ch("Verso", 0, "Orario", "Antiorario"),
+                        pc("Angolo", "0% = piccolo, 100% = giro completo", 0.4f),
+                        pc("Dissolvenza", "0% = cambio netto a meta', 100% = dissolvenza", 0.6f)};
             default:
                 return new Param[0];
         }
@@ -288,7 +300,7 @@ final class VideoComposer {
             + "    float cells = mix(2000.0, mix(200.0, 6.0, uQ.x), env);\n"
             + "    vec2 g = (floor(u * cells) + 0.5) / cells;\n"
             + "    c = uP > s ? B(g) : A(g);\n"
-            + "  } else {\n"
+            + "  } else if (uType < 7.5) {\n"
             + "    float p = uP;\n"
             + "    float N = max(2.0, floor(uQ.x + 0.5));\n"
             + "    float I = uQ.y;\n"
@@ -331,6 +343,24 @@ final class VideoComposer {
             + "    col3 += vec3(0.5) * step(0.985, h21(vec2(band, ts + 55.0))) * e;\n"
             + "    col3 *= 1.0 + 0.3 * e * (h11(ts) - 0.5);\n"
             + "    c = vec4(col3, 1.0);\n"
+            + "  } else {\n"
+            + "    float asp = uRes.x / uRes.y;\n"
+            + "    float sgn = uQ.x < 0.5 ? 1.0 : -1.0;\n"
+            + "    float q = ease(uP, 0.7);\n"
+            + "    float maxA = mix(0.8, 6.2832, uQ.y);\n"
+            + "    float aa = sgn * q * maxA;\n"
+            + "    float ab = sgn * (q - 1.0) * maxA;\n"
+            + "    float za = 1.0 + q * 0.9;\n"
+            + "    float zb = 1.0 + (1.0 - q) * 0.9;\n"
+            + "    vec2 d = (u - 0.5) * vec2(asp, 1.0);\n"
+            + "    vec2 da = vec2(cos(aa) * d.x + sin(aa) * d.y, -sin(aa) * d.x + cos(aa) * d.y) / za;\n"
+            + "    vec2 db = vec2(cos(ab) * d.x + sin(ab) * d.y, -sin(ab) * d.x + cos(ab) * d.y) / zb;\n"
+            + "    vec2 ua = da / vec2(asp, 1.0) + 0.5;\n"
+            + "    vec2 ub = db / vec2(asp, 1.0) + 0.5;\n"
+            + "    float ma = step(0.0, ua.x) * step(ua.x, 1.0) * step(0.0, ua.y) * step(ua.y, 1.0);\n"
+            + "    float mb = step(0.0, ub.x) * step(ub.x, 1.0) * step(0.0, ub.y) * step(ub.y, 1.0);\n"
+            + "    float w = mix(step(0.5, q), smoothstep(0.3, 0.7, q), uQ.z);\n"
+            + "    c = vec4(mix(A(ua).rgb * ma, B(ub).rgb * mb, w), 1.0);\n"
             + "  }\n"
             + "  gl_FragColor = vec4(c.rgb, 1.0);\n"
             + "}\n";
@@ -750,6 +780,10 @@ final class VideoComposer {
                         if (!haveBm) {
                             continue;
                         }
+                        if (sg.zoomOn()) {
+                            fillQuad(fbSeg, fx, fy, mxs, mys, uvr, sg,
+                                    (pts - sg.startUs) / (double) Math.max(1, sg.endUs - sg.startUs));
+                        }
                         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
                         GLES20.glViewport(0, 0, w, h);
                         GLES20.glClearColor(0f, 0f, 0f, 1f);
@@ -818,6 +852,10 @@ final class VideoComposer {
                         st.getTransformMatrix(stm);
 
                         // fotogramma -> immagine intermedia (adattata, con bande nere)
+                        if (sg.zoomOn()) {
+                            fillQuad(fbSeg, fx, fy, mxs, mys, uvr, sg,
+                                    (pts - sg.startUs) / (double) Math.max(1, sg.endUs - sg.startUs));
+                        }
                         GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
                         GLES20.glViewport(0, 0, w, h);
                         GLES20.glClearColor(0f, 0f, 0f, 1f);
@@ -996,6 +1034,24 @@ final class VideoComposer {
             //noinspection ResultOfMethodCallIgnored
             m4a.delete();
         }
+    }
+
+    /** Riempie il rettangolo del tratto, con lo zoom al progresso p attorno al punto scelto. */
+    private static void fillQuad(FloatBuffer fb, float fx, float fy, float mxs, float mys, float[][] uvr, Seg sg,
+                                 double p) {
+        float z = ZoomBox.at(sg.zoom[0], sg.zoom[1], 0, sg.zoom[4] >= 0.5f, p);
+        float px = sg.zoom[2], py = sg.zoom[3];
+        float[] q = new float[16];
+        float[][] pos = {{-fx * mxs, -fy * mys}, {fx * mxs, -fy * mys}, {-fx * mxs, fy * mys}, {fx * mxs, fy * mys}};
+        for (int c = 0; c < 4; c++) {
+            q[c * 4] = pos[c][0];
+            q[c * 4 + 1] = pos[c][1];
+            q[c * 4 + 2] = px + (uvr[c][0] - px) / z;
+            q[c * 4 + 3] = py + (uvr[c][1] - py) / z;
+        }
+        fb.position(0);
+        fb.put(q);
+        fb.position(0);
     }
 
     private static void drawX(int prog, int aPos, int aTex, int uA, int uB, int uType, int uP, int[] uExtra,

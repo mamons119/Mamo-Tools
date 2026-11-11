@@ -216,6 +216,11 @@ final class PreviewVideo extends FrameLayout {
 
     /** Applica filtro di colore e zoom (null/1 = nessuno). */
     void setFx(ColorMatrix cm, float zoom) {
+        setFx(cm, zoom, 0.5f, 0.5f);
+    }
+
+    /** Come sopra, con lo zoom attorno a un punto (frazioni della larghezza e dell'altezza della vista). */
+    void setFx(ColorMatrix cm, float zoom, float px, float py) {
         float[] arr = cm == null ? null : cm.getArray().clone();
         boolean same = (arr == null && lastCm == null) || (arr != null && lastCm != null
                 && java.util.Arrays.equals(arr, lastCm));
@@ -224,6 +229,20 @@ final class PreviewVideo extends FrameLayout {
             layerPaint.setColorFilter(cm == null ? null : new ColorMatrixColorFilter(cm));
             tv.setLayerType(LAYER_TYPE_HARDWARE, layerPaint);
         }
+        // il punto e' dato sull'immagine mostrata: se la vista e' ruotata lo porto nelle sue coordinate
+        float lx = px, ly = py;
+        if (extraRot == 90) {
+            lx = py;
+            ly = 1f - px;
+        } else if (extraRot == 180) {
+            lx = 1f - px;
+            ly = 1f - py;
+        } else if (extraRot == 270) {
+            lx = 1f - py;
+            ly = px;
+        }
+        tv.setPivotX(tv.getWidth() * lx);
+        tv.setPivotY(tv.getHeight() * ly);
         tv.setScaleX(zoom);
         tv.setScaleY(zoom);
     }

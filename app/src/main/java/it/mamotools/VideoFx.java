@@ -19,12 +19,12 @@ final class VideoFx {
     }
 
     static final String[] EFFECT_NAMES = {"Bianco e nero", "Seppia", "Negativo", "Vintage", "Vignettatura",
-            "Sfocatura", "Pixel", "Vivido", "Appare dal nero", "Sparisce al nero", "Zoom avanti", "Glitch RGB", "Schermo CRT", "VHS"};
-    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺", "🖥", "📼"};
+            "Sfocatura", "Pixel", "Vivido", "Appare dal nero", "Sparisce al nero", "Zoom avanti", "Glitch RGB", "Schermo CRT", "VHS", "Zoom dinamico", "Fisheye"};
+    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺", "🖥", "📼", "⤢", "🐟"};
     /** Se l'effetto ha un'intensita' regolabile. */
-    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true, true, true};
+    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true, true, true, false, true};
 
-    static final int EFFECT_CRT = 12, EFFECT_VHS = 13;
+    static final int EFFECT_CRT = 12, EFFECT_VHS = 13, EFFECT_ZOOM = 14;
     static final String[] VHS_DEFAULT = {"PLAY ▶", "VHS", "01:35\nSEP. 03 1985", ""};
 
     static final String[] FONT_NAMES = {"Normale", "Condensato", "Sottile", "Nero", "Serif", "Macchina",
@@ -69,6 +69,8 @@ final class VideoFx {
         boolean vhsBlink = true;  // scritta REWIND / FAST FORWARD lampeggiante
         boolean vhsPlay = true;   // alla fine compare "PLAY"
         boolean vhsBlue = true;   // rewind/fast forward con dominante blu
+        // zoom dinamico: {zoom iniziale, zoom finale, punto x, punto y, morbido}
+        float[] zoom = {1f, 1.5f, 0.5f, 0.5f, 1f};
         long vhsPlayUs = 2000000L; // per quanto resta visibile "PLAY"
 
         Item copy() {
@@ -108,6 +110,7 @@ final class VideoFx {
             i.vhsPlay = vhsPlay;
             i.vhsPlayUs = vhsPlayUs;
             i.vhsBlue = vhsBlue;
+            i.zoom = zoom.clone();
             return i;
         }
 
@@ -146,6 +149,11 @@ final class VideoFx {
             o.put("vhsPlay", vhsPlay);
             o.put("vhsPlayUs", vhsPlayUs);
             o.put("vhsBlue", vhsBlue);
+            org.json.JSONArray za = new org.json.JSONArray();
+            for (float f : zoom) {
+                za.put((double) f);
+            }
+            o.put("zoom", za);
             return o;
         }
 
@@ -185,6 +193,12 @@ final class VideoFx {
             i.vhsPlay = o.optBoolean("vhsPlay", true);
             i.vhsPlayUs = o.optLong("vhsPlayUs", 2000000L);
             i.vhsBlue = o.optBoolean("vhsBlue", true);
+            org.json.JSONArray za = o.optJSONArray("zoom");
+            if (za != null && za.length() >= 5) {
+                for (int k = 0; k < 5; k++) {
+                    i.zoom[k] = (float) za.optDouble(k, i.zoom[k]);
+                }
+            }
             return i;
         }
 
@@ -210,7 +224,7 @@ final class VideoFx {
     // ------------------------------------------------------------------ parametri degli effetti
 
     static final int U_GRAY = 0, U_SEPIA = 1, U_INV = 2, U_VIG = 3, U_BLUR = 4, U_PIX = 5, U_SAT = 6, U_CON = 7,
-            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_COUNT = 19;
+            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_ZX = 19, U_ZY = 20, U_FISH = 21, U_COUNT = 22;
 
     /** Calcola i parametri dello shader per l'istante t combinando gli effetti attivi. */
     static void uniforms(List<Item> items, long tUs, float[] u) {
@@ -233,6 +247,9 @@ final class VideoFx {
         u[U_RW] = 0;
         u[U_RWDIR] = 0;
         u[U_RWBLUE] = 0;
+        u[U_FISH] = 0;
+        u[U_ZX] = 0.5f;
+        u[U_ZY] = 0.5f;
         if (items == null) {
             return;
         }
@@ -299,6 +316,14 @@ final class VideoFx {
                         u[U_RWDIR] = it.vhsMode == 1 ? -1f : 1f;
                         u[U_RWBLUE] = it.vhsBlue ? 1f : 0f;
                     }
+                    break;
+                case 15:
+                    u[U_FISH] = Math.max(u[U_FISH], k);
+                    break;
+                case 14:
+                    u[U_ZOOM] *= ZoomBox.at(it.zoom[0], it.zoom[1], 0, it.zoom[4] >= 0.5f, p);
+                    u[U_ZX] = it.zoom[2];
+                    u[U_ZY] = it.zoom[3];
                     break;
                 default:
                     break;
@@ -601,12 +626,12 @@ final class VideoFx {
     }
 
     static boolean needsGrab(float[] u) {
-        return u[U_PIX] > 0 || u[U_BLUR] > 0 || u[U_SPLIT] > 0 || (u[U_CRT] > 0 && u[U_WARP] > 0) || u[U_VHS] > 0;
+        return u[U_PIX] > 0 || u[U_BLUR] > 0 || u[U_SPLIT] > 0 || (u[U_CRT] > 0 && u[U_WARP] > 0) || u[U_VHS] > 0 || u[U_FISH] > 0;
     }
 
     static boolean isNeutral(float[] u) {
         return u[U_GRAY] == 0 && u[U_SEPIA] == 0 && u[U_INV] == 0 && u[U_VIG] == 0 && u[U_BLUR] == 0
                 && u[U_PIX] == 0 && u[U_SAT] == 1 && u[U_CON] == 1 && u[U_FADE] == 1 && u[U_SPLIT] == 0
-                && u[U_ZOOM] == 1 && u[U_CRT] == 0 && u[U_VHS] == 0;
+                && u[U_ZOOM] == 1 && u[U_CRT] == 0 && u[U_VHS] == 0 && u[U_FISH] == 0;
     }
 }

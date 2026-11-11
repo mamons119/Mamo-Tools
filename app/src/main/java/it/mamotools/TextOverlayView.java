@@ -49,9 +49,9 @@ final class TextOverlayView extends View {
         u[VideoFx.U_FADE] = 1f;
         if (video != null) {
             if (VideoFx.isNeutral(u)) {
-                video.setFx(null, 1f);
+                video.setFx(null, 1f, 0.5f, 0.5f);
             } else {
-                video.setFx(VideoFx.colorMatrix(u), u[VideoFx.U_ZOOM]);
+                video.setFx(VideoFx.colorMatrix(u), u[VideoFx.U_ZOOM], u[VideoFx.U_ZX], u[VideoFx.U_ZY]);
             }
         }
     }
@@ -163,7 +163,9 @@ final class TextOverlayView extends View {
                 c.save();
                 c.clipRect(l - 2, t - 2, l + rw + 2, t + rh + 2);
                 float cx = l + rw / 2, cy = t + rh / 2;
-                RectF dst = new RectF(cx - rw * z / 2, cy - rh * z / 2, cx + rw * z / 2, cy + rh * z / 2);
+                float pvx = l + rw * u[VideoFx.U_ZX], pvy = t + rh * u[VideoFx.U_ZY];
+                RectF dst = new RectF(pvx + (l - pvx) * z, pvy + (t - pvy) * z,
+                        pvx + (l + rw - pvx) * z, pvy + (t + rh - pvy) * z);
                 boolean frameDone = false;
                 if (u[VideoFx.U_SPLIT] > 0) {
                     Paint bk = new Paint();
@@ -197,6 +199,9 @@ final class TextOverlayView extends View {
                     drawTexts(gc, 0, 0, rw, rh);
                     textsDone = true;
                     drawCrtMesh(c, g, dst, l, t, rw, rh);
+                    frameDone = true;
+                } else if (u[VideoFx.U_FISH] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
+                    drawFishMesh(c, g, l, t, rw, rh);
                     frameDone = true;
                 } else if (u[VideoFx.U_RW] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
                     drawRewindMesh(c, g, dst, l, t, rw, rh);
@@ -419,6 +424,41 @@ final class TextOverlayView extends View {
         fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
         c.drawBitmapMesh(g, 1, n, v, 0, null, 0, fxPaint);
         fxPaint.setColorFilter(null);
+    }
+
+    /** Obiettivo fisheye: il fotogramma si gonfia al centro, si comprime ai bordi, fuori dal cerchio e' nero. */
+    private void drawFishMesh(Canvas c, Bitmap g, float l, float t, float rw, float rh) {
+        float th = 0.12f + 0.93f * Math.max(0f, Math.min(1f, u[VideoFx.U_FISH]));
+        float tanT = (float) Math.tan(th * 1.02f);
+        float asp = rw / rh;
+        float cx = l + rw / 2, cy = t + rh / 2, half = rh / 2;
+        Paint bk = new Paint();
+        bk.setColor(0xFF000000);
+        c.drawRect(l - 2, t - 2, l + rw + 2, t + rh + 2, bk);
+        final int nx = 48, ny = 28;
+        float[] v = new float[(nx + 1) * (ny + 1) * 2];
+        int k = 0;
+        for (int j = 0; j <= ny; j++) {
+            for (int i = 0; i <= nx; i++) {
+                float px = (i / (float) nx - 0.5f) * 2f * asp, py = (j / (float) ny - 0.5f) * 2f;
+                float rs = (float) Math.sqrt(px * px + py * py);
+                float f = 1f;
+                if (rs > 1e-5f) {
+                    f = (float) (Math.atan(rs * tanT) / th) / rs;
+                }
+                v[k++] = cx + px * f * half;
+                v[k++] = cy + py * f * half;
+            }
+        }
+        fxPaint.setFilterBitmap(true);
+        fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
+        c.drawBitmapMesh(g, nx, ny, v, 0, null, 0, fxPaint);
+        fxPaint.setColorFilter(null);
+        // vignettatura della lente e bordo morbido, senza stacco netto
+        Paint vp = new Paint();
+        vp.setShader(new RadialGradient(cx, cy, half, new int[]{0, 0, 0xA6000000, 0xFF000000},
+                new float[]{0f, 0.45f, 0.93f, 1f}, Shader.TileMode.CLAMP));
+        c.drawRect(l - 2, t - 2, l + rw + 2, t + rh + 2, vp);
     }
 
     private static float rwBandY(int i, float tm, float spd) {

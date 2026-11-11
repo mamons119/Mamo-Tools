@@ -195,6 +195,7 @@ final class FxDialog {
     private TextView vhsBlinkChip, vhsPlayChip, vhsPlayText, vhsBlueChip;
     private SeekBar vhsPlayBar;
     private TextView kText;
+    private ZoomBox zoomBox;
 
     private void buildEffect(LinearLayout root) {
         root.addView(Ui.section(ctx, "Tipo di effetto"), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
@@ -234,6 +235,8 @@ final class FxDialog {
         settle(k, Math.round(it.intensity * 100));
         kBox.addView(k);
         root.addView(kBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
+        zoomBox = new ZoomBox(ctx, it.zoom, Ui.CARD2, () -> { });
+        root.addView(zoomBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
         crtBox = new LinearLayout(ctx);
         crtBox.setOrientation(LinearLayout.VERTICAL);
         crtChip = Ui.chip(ctx, "");
@@ -451,6 +454,7 @@ final class FxDialog {
             Ui.styleChip(ctx, fxChips[i], i == it.effect);
         }
         kBox.setVisibility(VideoFx.EFFECT_HAS_K[it.effect] ? View.VISIBLE : View.GONE);
+        zoomBox.setVisibility(it.effect == VideoFx.EFFECT_ZOOM ? View.VISIBLE : View.GONE);
         kText.setText("Intensita': " + Math.round(it.intensity * 100) + "%");
         crtBox.setVisibility(it.effect == VideoFx.EFFECT_CRT ? View.VISIBLE : View.GONE);
         crtChip.setText(it.crtWarp ? "Distorsioni CRT: attive" : "Distorsioni CRT: disattivate");

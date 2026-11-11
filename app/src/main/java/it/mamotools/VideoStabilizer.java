@@ -519,6 +519,7 @@ final class VideoStabilizer {
             + "attribute vec2 aTex;\n"
             + "uniform float asp;\n"
             + "uniform float zoom;\n"
+            + "uniform vec2 zc;\n"
             + "uniform vec2 d;\n"
             + "uniform vec2 rot;\n"
             + "uniform mat4 uST;\n"
@@ -528,7 +529,7 @@ final class VideoStabilizer {
             + "  gl_Position = vec4(aPos, 0.0, 1.0);\n"
             + "  vPos = aTex;\n"
             + "  vec2 p = aTex - 0.5; p.x *= asp;\n"
-            + "  vec2 u = p / zoom - d;\n"
+            + "  vec2 u = (p - zc) / zoom + zc - d;\n"
             + "  vec2 q = vec2(rot.x*u.x + rot.y*u.y, -rot.y*u.x + rot.x*u.y);\n"
             + "  q.x /= asp; q += 0.5;\n"
             + "  vTc = (uST * vec4(q.x, 1.0 - q.y, 0.0, 1.0)).xy;\n"
@@ -547,7 +548,7 @@ final class VideoStabilizer {
             + "uniform float uGray, uSepia, uInv, uVig, uBlur, uPix, uSat, uCon, uFade, uSplit;\n"
             + "uniform float uCrt, uWarp, uSwap, uTime;\n"
             + "uniform vec4 uLin;\n"
-            + "uniform float uBars, uBspd, uVhs, uRotI, uRw, uRwDir, uRwBlue;\n"
+            + "uniform float uBars, uBspd, uVhs, uRotI, uRw, uRwDir, uRwBlue, uFish;\n"
             + "vec4 s(vec2 uv){ return texture2D(sTex, uv); }\n"
             + "float hsh(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n"
             + "vec2 dpos(vec2 p){\n"
@@ -568,6 +569,17 @@ final class VideoStabilizer {
             + "vec2 toTc(vec2 o){\n"
             + "  vec2 st = uSwap > 0.5 ? o.yx : o;\n"
             + "  return vec2(uLin.x * st.x - uLin.z * st.y, uLin.y * st.x - uLin.w * st.y);\n"
+            + "}\n"
+            + "vec2 fishSrc(vec2 pd, float ca){\n"
+            + "  vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "  float asp = sz.x / sz.y;\n"
+            + "  vec2 p = (pd - 0.5) * vec2(asp, 1.0) * 2.0;\n"
+            + "  float r = length(p);\n"
+            + "  float th = mix(0.12, 1.05, uFish);\n"
+            + "  float rr = min(r, 1.05);\n"
+            + "  float g = tan(rr * th * (1.0 + ca * r)) / tan(th * 1.02);\n"
+            + "  vec2 sp = p / max(r, 0.0001) * g;\n"
+            + "  return 0.5 + sp / (2.0 * vec2(asp, 1.0));\n"
             + "}\n"
             + "void main(){\n"
             + "  vec2 uv = vTc;\n"
@@ -648,6 +660,12 @@ final class VideoStabilizer {
             + "    vec3 a = vec3(s(uv + cs).r, s(uv).g, s(uv - cs).b);\n"
             + "    vec3 nb = s(uv - tx * 2.0).rgb + s(uv + tx * 2.0).rgb;\n"
             + "    c = vec4(mix(a, a * 0.5 + nb * 0.25, 0.6 * uVhs), 1.0);\n"
+            + "  } else if (uFish > 0.0) {\n"
+            + "    vec2 pdf = uSwap > 0.5 ? vPos.yx : vPos;\n"
+            + "    vec2 dr = fishSrc(pdf, 0.02) - pdf;\n"
+            + "    vec2 dg = fishSrc(pdf, 0.0) - pdf;\n"
+            + "    vec2 db = fishSrc(pdf, -0.02) - pdf;\n"
+            + "    c = vec4(s(uv + toTc(dr)).r, s(uv + toTc(dg)).g, s(uv + toTc(db)).b, 1.0);\n"
             + "  } else { c = s(uv); }\n"
             + "  vec3 col = c.rgb;\n"
             + "  float l = dot(col, vec3(0.299, 0.587, 0.114));\n"
@@ -659,6 +677,14 @@ final class VideoStabilizer {
             + "  float l2 = dot(col, vec3(0.299, 0.587, 0.114));\n"
             + "  col = mix(vec3(l2), col, uSat);\n"
             + "  col = (col - 0.5) * uCon + 0.5;\n"
+            + "  if (uFish > 0.0) {\n"
+            + "    vec2 pdf = uSwap > 0.5 ? vPos.yx : vPos;\n"
+            + "    vec2 szf = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    float rf = length((pdf - 0.5) * vec2(szf.x / szf.y, 1.0) * 2.0);\n"
+            + "    float vg = 1.0 - 0.65 * pow(smoothstep(0.45, 1.0, rf), 1.4);\n"
+            + "    float mk = 1.0 - smoothstep(0.93, 1.0, rf);\n"
+            + "    col *= vg * mk;\n"
+            + "  }\n"
             + "  if (uCrt > 0.0) {\n"
             + "    vec2 pd = uSwap > 0.5 ? vPos.yx : vPos;\n"
             + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
@@ -950,14 +976,15 @@ final class VideoStabilizer {
             }
             GLES20.glUseProgram(prog);
             int aPos = GLES20.glGetAttribLocation(prog, "aPos"), aTex = GLES20.glGetAttribLocation(prog, "aTex");
-            int uAsp = GLES20.glGetUniformLocation(prog, "asp"), uZoom = GLES20.glGetUniformLocation(prog, "zoom");
+            int uAsp = GLES20.glGetUniformLocation(prog, "asp"), uZoom = GLES20.glGetUniformLocation(prog, "zoom"),
+                    uZc = GLES20.glGetUniformLocation(prog, "zc");
             int uD = GLES20.glGetUniformLocation(prog, "d"), uRot = GLES20.glGetUniformLocation(prog, "rot");
             int uST = GLES20.glGetUniformLocation(prog, "uST");
             int uTexel = GLES20.glGetUniformLocation(prog, "texel");
             int uSwapL = GLES20.glGetUniformLocation(prog, "uSwap"), uTimeL = GLES20.glGetUniformLocation(prog, "uTime");
             int uLinL = GLES20.glGetUniformLocation(prog, "uLin");
             int uRotIL = GLES20.glGetUniformLocation(prog, "uRotI");
-            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue"};
+            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue", "uZxUnused", "uZyUnused", "uFish"};
             int[] uFx = new int[un.length];
             for (int i = 0; i < un.length; i++) {
                 uFx[i] = GLES20.glGetUniformLocation(prog, un[i]);
@@ -1225,6 +1252,7 @@ final class VideoStabilizer {
                         }
                         GLES20.glUniform1f(uAsp, asp);
                         GLES20.glUniform1f(uZoom, cz * fxu[VideoFx.U_ZOOM]);
+                        GLES20.glUniform2f(uZc, (fxu[VideoFx.U_ZX] - 0.5f) * asp, 0.5f - fxu[VideoFx.U_ZY]);
                         GLES20.glUniform2f(uD, cdx, cdy);
                         GLES20.glUniform2f(uRot, (float) Math.cos(cr), (float) Math.sin(cr));
                         GLES20.glUniform2f(uTexel, 1f / w, 1f / h);

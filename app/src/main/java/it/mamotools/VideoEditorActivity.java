@@ -978,6 +978,11 @@ public class VideoEditorActivity extends Activity {
                 p.put("mirV", pc.s.mirV);
                 p.put("look", pc.s.look);
                 p.put("rot", pc.s.rot);
+                org.json.JSONArray za = new org.json.JSONArray();
+                for (float f : pc.s.zoom) {
+                    za.put((double) f);
+                }
+                p.put("zoom", za);
                 pa.put(p);
             }
             o.put("pieces", pa);
@@ -1158,6 +1163,12 @@ public class VideoEditorActivity extends Activity {
                 sg.mirV = p.optBoolean("mirV", false);
                 sg.look = p.optInt("look", 0);
                 sg.rot = ((p.optInt("rot", 0) % 4) + 4) % 4;
+                org.json.JSONArray za = p.optJSONArray("zoom");
+                if (za != null && za.length() >= 5) {
+                    for (int k = 0; k < 5; k++) {
+                        sg.zoom[k] = (float) za.optDouble(k, sg.zoom[k]);
+                    }
+                }
                 pieces.add(new Piece(sg, p.optString("name", "")));
             }
             long pos = o.optLong("pos", 0);
@@ -1941,6 +1952,10 @@ public class VideoEditorActivity extends Activity {
         if (sg.look != 0) {
             sb.append(sb.length() > 0 ? " · " : "").append(VideoComposer.LOOK_NAMES[sg.look]);
         }
+        if (sg.zoomOn()) {
+            sb.append(sb.length() > 0 ? " · " : "").append(String.format(Locale.US, "Zoom %.1f→%.1f×",
+                    sg.zoom[0], sg.zoom[1]));
+        }
         if (sg.rot != 0) {
             sb.append(sb.length() > 0 ? " · " : "").append("Ruota ").append(sg.rot * 90).append("°");
         }
@@ -1996,6 +2011,7 @@ public class VideoEditorActivity extends Activity {
         final boolean[] rev = {sg.reverse}, mh = {sg.mirH}, mv = {sg.mirV};
         final int[] look = {sg.look}, rot = {sg.rot};
         final float[] vol = {sg.vol};
+        final float[] zm = sg.zoom.clone();
         final Runnable[] upd = new Runnable[1];
         final android.app.Dialog d = new android.app.Dialog(this);
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
@@ -2130,6 +2146,11 @@ public class VideoEditorActivity extends Activity {
             lrow.addView(new View(this), lp(0, dp(Ui.H_CHIP), 8, 0, 1f));
         }
 
+        // ---- zoom dinamico
+        LinearLayout secZ = section(body, "Zoom dinamico");
+        final ZoomBox zoomBox = new ZoomBox(this, zm, C_BTN_ON_CARD, () -> upd[0].run());
+        secZ.addView(zoomBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+
         // ---- audio
         LinearLayout secS = section(body, "Audio");
         final TextView volText = text("", 14, R.color.text, false);
@@ -2182,6 +2203,12 @@ public class VideoEditorActivity extends Activity {
             look[0] = 0;
             rot[0] = 0;
             vol[0] = 1f;
+            zm[0] = 1f;
+            zm[1] = 1f;
+            zm[2] = 0.5f;
+            zm[3] = 0.5f;
+            zm[4] = 1f;
+            zoomBox.refresh();
             volBar.setProgress(10);
             for (int i = 0; i < SPEEDS.length; i++) {
                 if (SPEEDS[i] == 1f) {
@@ -2193,7 +2220,7 @@ public class VideoEditorActivity extends Activity {
         br.addView(btn("Annulla", C_CARD2, C_TEXT, v -> d.dismiss()), lp(0, dp(46), 6, 0, 1f));
         br.addView(btn("Applica", C_ACCENT, Color.BLACK, v -> {
             d.dismiss();
-            setClipMods(idx, speed[0], rev[0], vol[0], mh[0], mv[0], look[0], rot[0]);
+            setClipMods(idx, speed[0], rev[0], vol[0], mh[0], mv[0], look[0], rot[0], zm);
         }), lp(0, dp(46), 6, 0, 1f));
         box.addView(br, lp(MATCH, WRAP, 0, 14));
         d.setContentView(box);
@@ -2208,13 +2235,13 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void setClipMods(int idx, float speed, boolean reverse, float vol, boolean mh, boolean mv, int look,
-                             int rot) {
+                             int rot, float[] zoom) {
         if (busy || idx < 0 || idx >= pieces.size()) {
             return;
         }
         VideoComposer.Seg sg = pieces.get(idx).s;
         if (sg.speed == speed && sg.reverse == reverse && sg.vol == vol && sg.mirH == mh && sg.mirV == mv
-                && sg.look == look && sg.rot == rot) {
+                && sg.look == look && sg.rot == rot && java.util.Arrays.equals(sg.zoom, zoom)) {
             return;
         }
         Snap sn = snap();
@@ -2230,6 +2257,7 @@ public class VideoEditorActivity extends Activity {
         sg.mirV = mv;
         sg.look = look;
         sg.rot = rot;
+        sg.zoom = zoom.clone();
         long newLen = VideoComposer.lengthUs(sg, idx == 0);
         if (newLen != oldLen) {
             remapScale(cum, oldLen, newLen);
