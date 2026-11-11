@@ -263,7 +263,7 @@ public class VideoEditorActivity extends Activity {
         ctl.addView(roundBtn("▶|", C_BTN_ON_CARD, C_TEXT, 40, 12, v -> seekRel(33)), lp(dp(40), dp(40), 12, 0));
         prev.addView(ctl, new LinearLayout.LayoutParams(MATCH, WRAP));
 
-        cropBtn = btn("✂  Ruota e ritaglia", C_BTN_ON_CARD, C_ACCENT, v -> cropDialog());
+        cropBtn = btn("✂  Ruota e ritaglia", C_CARD2, C_ACCENT, v -> cropDialog());
         prev.addView(cropBtn, lp(MATCH, dp(Ui.H_BTN), 0, 14));
         editorBox.addView(prev, lp(MATCH, WRAP, 0, 12));
 
@@ -1037,7 +1037,63 @@ public class VideoEditorActivity extends Activity {
     }
 
     /** Apre un file .mamovideo ricevuto da fuori (Apri con): lo copia tra i progetti e lo carica. */
-    private void importProject(Uri uri) {
+    private void importProject(final Uri uri) {
+        boolean embedded;
+        try {
+            embedded = ProjStore.isEmbedded(this, uri);
+        } catch (Exception e) {
+            Ui.infoDialog(this, "Progetto non leggibile", "Non riesco ad aprire questo file"
+                    + (e.getMessage() != null ? ": " + e.getMessage() : "."));
+            return;
+        }
+        if (embedded) {
+            importEmbedded(uri);
+            return;
+        }
+        importPlain(uri);
+    }
+
+    /** Progetto condiviso con i media: estrae clip e audio nei file dell'app e poi lo carica. */
+    private void importEmbedded(final Uri uri) {
+        final boolean[] cancel = {false};
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        d.setCancelable(true);
+        d.setOnCancelListener(di -> cancel[0] = true);
+        final Ui.Loading box = new Ui.Loading(this, "Apro il progetto con i media...");
+        box.setBackground(round(C_CARD, 20));
+        box.setPadding(dp(28), dp(24), dp(28), dp(22));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.78f), WRAP);
+        }
+        d.show();
+        new Thread(() -> {
+            try {
+                final String id = store.importEmbedded(this, uri, (text, pct) -> {
+                    runOnUiThread(() -> box.set(text, pct));
+                    return !cancel[0];
+                });
+                runOnUiThread(() -> {
+                    d.dismiss();
+                    loadProject(id);
+                });
+            } catch (Exception e) {
+                runOnUiThread(() -> {
+                    d.dismiss();
+                    if (!cancel[0]) {
+                        Ui.infoDialog(this, "Progetto non leggibile", "Non riesco ad aprire questo file"
+                                + (e.getMessage() != null ? ": " + e.getMessage() : "."));
+                    }
+                });
+            }
+        }).start();
+    }
+
+    private void importPlain(Uri uri) {
         try {
             java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
             try (java.io.InputStream is = getContentResolver().openInputStream(uri)) {
@@ -2159,6 +2215,29 @@ public class VideoEditorActivity extends Activity {
         LinearLayout secZ = section(body, "Zoom dinamico");
         final ZoomBox zoomBox = new ZoomBox(this, zm, C_BTN_ON_CARD, () -> upd[0].run());
         secZ.addView(zoomBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+        zoomBox.setFrameOrient(rot[0], mh[0], mv[0]);
+        final Uri zUri = sg.uri;
+        final long zAt = sg.startUs;
+        new Thread(() -> {
+            android.graphics.Bitmap zb = null;
+            MediaMetadataRetriever zr = new MediaMetadataRetriever();
+            try {
+                zr.setDataSource(this, zUri);
+                zb = zr.getScaledFrameAtTime(Math.max(0, zAt), MediaMetadataRetriever.OPTION_CLOSEST_SYNC, 640, 640);
+            } catch (Exception ignored) {
+            } finally {
+                try {
+                    zr.release();
+                } catch (Exception ignored) {
+                }
+            }
+            final android.graphics.Bitmap zf = zb;
+            runOnUiThread(() -> {
+                if (zf != null && d.isShowing()) {
+                    zoomBox.setFrame(zf);
+                }
+            });
+        }).start();
 
         // ---- audio
         LinearLayout secS = section(body, "Audio");
@@ -2188,6 +2267,7 @@ public class VideoEditorActivity extends Activity {
             rotText.setText("Rotazione: " + (rot[0] * 90) + "° in senso orario");
             styleOpt(rotL, false);
             styleOpt(rotR, false);
+            zoomBox.setFrameOrient(rot[0], mh[0], mv[0]);
             styleOpt(dirF, !rev[0]);
             styleOpt(dirB, rev[0]);
             for (int i = 0; i < lc.length; i++) {

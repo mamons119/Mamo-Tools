@@ -171,6 +171,119 @@ public abstract class ProjectsActivity extends Activity {
     }
 
     private void share(final ProjStore.Entry e) {
+        if (!video()) {
+            shareSimple(e);
+            return;
+        }
+        long bytes = store.mediaBytes(this, e.id);
+        String size = bytes < 0 ? "Alcuni file del progetto non sono piu' disponibili: la condivisione con i media "
+                + "non sara' possibile."
+                : "Dimensione dei media: circa " + sizeText(bytes) + ".";
+        new AlertDialog.Builder(this).setTitle("Condividi il progetto")
+                .setMessage("Solo progetto: file leggero, ma chi lo apre deve avere gli stessi video sul telefono.\n\n"
+                        + "Con i media: un unico file che contiene anche clip e audio importati (puo' essere molto "
+                        + "grande).\n\n" + size)
+                .setNegativeButton("Annulla", null)
+                .setNeutralButton("Solo progetto", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        shareSimple(e);
+                    }
+                })
+                .setPositiveButton("Con i media", new DialogInterface.OnClickListener() {
+                    @Override
+                    public void onClick(DialogInterface d, int w) {
+                        shareWithMedia(e);
+                    }
+                }).show();
+    }
+
+    private static String sizeText(long b) {
+        if (b >= 1024L * 1024 * 1024) {
+            return String.format(java.util.Locale.US, "%.1f GB", b / 1073741824.0);
+        }
+        return Math.max(1, b / 1048576) + " MB";
+    }
+
+    private void send(java.io.File f, String title) {
+        Uri u = Uri.parse("content://" + PdfShareProvider.AUTHORITY + "/" + Uri.encode(f.getName()));
+        Intent s = new Intent(Intent.ACTION_SEND);
+        s.setType("application/octet-stream");
+        s.putExtra(Intent.EXTRA_STREAM, u);
+        s.putExtra(Intent.EXTRA_SUBJECT, title);
+        s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try {
+            startActivity(Intent.createChooser(s, "Condividi il progetto"));
+        } catch (Exception ex) {
+            Toast.makeText(this, "Nessuna app per condividere.", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    private void shareWithMedia(final ProjStore.Entry e) {
+        final boolean[] cancel = {false};
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        d.setCancelable(true);
+        d.setOnCancelListener(new DialogInterface.OnCancelListener() {
+            @Override
+            public void onCancel(DialogInterface di) {
+                cancel[0] = true;
+            }
+        });
+        final Ui.Loading box = new Ui.Loading(this, "Preparo il file con i media...");
+        box.setBackground(Ui.round(this, Ui.CARD, 20));
+        box.setPadding(Ui.dp(this, 28), Ui.dp(this, 24), Ui.dp(this, 28), Ui.dp(this, 22));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.78f),
+                    android.view.ViewGroup.LayoutParams.WRAP_CONTENT);
+        }
+        d.show();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final java.io.File f = store.shareWithMedia(ProjectsActivity.this, e.id, e.title,
+                            new ProjStore.Prog() {
+                                @Override
+                                public boolean step(final String text, final int pct) {
+                                    runOnUiThread(new Runnable() {
+                                        @Override
+                                        public void run() {
+                                            box.set(text, pct);
+                                        }
+                                    });
+                                    return !cancel[0];
+                                }
+                            });
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            d.dismiss();
+                            send(f, e.title);
+                        }
+                    });
+                } catch (final Exception ex) {
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            d.dismiss();
+                            if (!cancel[0]) {
+                                Ui.infoDialog(ProjectsActivity.this, "Condivisione non riuscita",
+                                        "Non sono riuscito a preparare il file con i media"
+                                                + (ex.getMessage() != null ? ": " + ex.getMessage() : "."));
+                            }
+                        }
+                    });
+                }
+            }
+        }).start();
+    }
+
+    private void shareSimple(final ProjStore.Entry e) {
         Toast.makeText(this, "Preparo il progetto da condividere...", Toast.LENGTH_SHORT).show();
         new Thread(new Runnable() {
             @Override
@@ -180,18 +293,7 @@ public abstract class ProjectsActivity extends Activity {
                     runOnUiThread(new Runnable() {
                         @Override
                         public void run() {
-                            Uri u = Uri.parse("content://" + PdfShareProvider.AUTHORITY + "/" + Uri.encode(f.getName()));
-                            Intent s = new Intent(Intent.ACTION_SEND);
-                            s.setType("application/octet-stream");
-                            s.putExtra(Intent.EXTRA_STREAM, u);
-                            s.putExtra(Intent.EXTRA_SUBJECT, e.title);
-                            s.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
-                            try {
-                                startActivity(Intent.createChooser(s, "Condividi il progetto"));
-                            } catch (Exception ex) {
-                                Toast.makeText(ProjectsActivity.this, "Nessuna app per condividere.",
-                                        Toast.LENGTH_LONG).show();
-                            }
+                            send(f, e.title);
                         }
                     });
                 } catch (final Exception ex) {

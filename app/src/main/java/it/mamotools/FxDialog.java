@@ -93,6 +93,9 @@ final class FxDialog {
             it.startUs = Math.min(cursorMs, Math.max(0, durMs - 500)) * 1000;
             it.endUs = endFor((cursorMs + 3000) * 1000);
         }
+        if (!it.isText) {
+            loadFrame(video);
+        }
         root.addView(Ui.text(ctx, "Inizio", 12, Ui.DIM, false));
         sbStart = Ui.seek(ctx, new Ui.SimpleSeek() {
             @Override
@@ -698,6 +701,9 @@ final class FxDialog {
             }
             final Bitmap fb = b;
             h.post(() -> {
+                if (zoomBox != null) {
+                    zoomBox.setFrame(fb);
+                }
                 if (preview != null) {
                     preview.frame = fb;
                     preview.invalidate();

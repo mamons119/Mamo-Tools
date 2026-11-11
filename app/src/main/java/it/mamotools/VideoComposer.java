@@ -1040,7 +1040,12 @@ final class VideoComposer {
     private static void fillQuad(FloatBuffer fb, float fx, float fy, float mxs, float mys, float[][] uvr, Seg sg,
                                  double p) {
         float z = ZoomBox.at(sg.zoom[0], sg.zoom[1], 0, sg.zoom[4] >= 0.5f, p);
-        float px = sg.zoom[2], py = sg.zoom[3];
+        // il punto scelto e' sul fotogramma come appare (dopo rotazione e specchi): lo si riporta nelle
+        // coordinate della texture interpolando gli angoli del rettangolo
+        float ox = sg.zoom[2], oy = sg.zoom[3];
+        float tx = uvr[2][0] + (uvr[3][0] - uvr[2][0]) * ox, ty = uvr[2][1] + (uvr[3][1] - uvr[2][1]) * ox;
+        float bx = uvr[0][0] + (uvr[1][0] - uvr[0][0]) * ox, by = uvr[0][1] + (uvr[1][1] - uvr[0][1]) * ox;
+        float px = tx + (bx - tx) * oy, py = ty + (by - ty) * oy;
         float[] q = new float[16];
         float[][] pos = {{-fx * mxs, -fy * mys}, {fx * mxs, -fy * mys}, {-fx * mxs, fy * mys}, {fx * mxs, fy * mys}};
         for (int c = 0; c < 4; c++) {

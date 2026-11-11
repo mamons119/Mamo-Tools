@@ -1326,7 +1326,22 @@ final class VideoStabilizer {
                         }
                         GLES20.glUniform1f(uAsp, asp);
                         GLES20.glUniform1f(uZoom, cz * fxu[VideoFx.U_ZOOM]);
-                        GLES20.glUniform2f(uZc, (fxu[VideoFx.U_ZX] - 0.5f) * asp, 0.5f - fxu[VideoFx.U_ZY]);
+                        float zdx = fxu[VideoFx.U_ZX], zdy = fxu[VideoFx.U_ZY], zsx, zsy;
+                        // il punto e' scelto sullo schermo mostrato: va riportato nel video non ruotato
+                        if (rotation == 90) {
+                            zsx = zdy;
+                            zsy = 1 - zdx;
+                        } else if (rotation == 270) {
+                            zsx = 1 - zdy;
+                            zsy = zdx;
+                        } else if (rotation == 180) {
+                            zsx = 1 - zdx;
+                            zsy = 1 - zdy;
+                        } else {
+                            zsx = zdx;
+                            zsy = zdy;
+                        }
+                        GLES20.glUniform2f(uZc, (zsx - 0.5f) * asp, zsy - 0.5f);
                         GLES20.glUniform2f(uD, cdx, cdy);
                         GLES20.glUniform2f(uRot, (float) Math.cos(cr), (float) Math.sin(cr));
                         GLES20.glUniform2f(uTexel, 1f / w, 1f / h);
