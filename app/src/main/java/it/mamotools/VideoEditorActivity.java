@@ -116,7 +116,7 @@ public class VideoEditorActivity extends Activity {
     private PreviewVideo videoView;
     private MediaPlayer videoPlayer;
     private Timeline timeline;
-    private TextView timeText, markText, soundName, soundStartText, dbText, status;
+    private TextView timeCur, timeTot, markText, soundName, soundStartText, dbText, status;
     private Button playBtn, exportBtn, openBtn, soundTestBtn;
     private SeekBar soundStartBar, dbBar;
     private RadioGroup modeGroup;
@@ -249,33 +249,25 @@ public class VideoEditorActivity extends Activity {
             soundPause();
         });
 
-        timeText = text("0:00.0 / 0:00.0", 16, R.color.text, true);
-        timeText.setGravity(Gravity.CENTER);
-        timeText.setPadding(0, dp(12), 0, 0);
-        prev.addView(timeText, new LinearLayout.LayoutParams(MATCH, WRAP));
-
         LinearLayout ctl = new LinearLayout(this);
         ctl.setGravity(Gravity.CENTER);
-        ctl.setPadding(0, dp(10), 0, 0);
-        ctl.addView(btn("−1s", C_BTN_ON_CARD, C_TEXT, v -> seekRel(-1000)),
-                new LinearLayout.LayoutParams(dp(60), dp(Ui.H_BTN)));
-        playBtn = btn("▶", C_ACCENT, Color.BLACK, v -> togglePlay());
-        playBtn.setTextSize(20);
-        ctl.addView(playBtn, lp(dp(72), dp(56), 14, 0));
-        ctl.addView(btn("+1s", C_BTN_ON_CARD, C_TEXT, v -> seekRel(1000)),
-                lp(dp(60), dp(Ui.H_BTN), 14, 0));
+        ctl.setPadding(0, dp(12), 0, 0);
+        ctl.addView(roundBtn("|◀", C_BTN_ON_CARD, C_TEXT, 40, 12, v -> seekRel(-33)));
+        ctl.addView(roundBtn("−1s", C_BTN_ON_CARD, C_TEXT, 48, 13, v -> seekRel(-1000)), lp(dp(48), dp(48), 12, 0));
+        playBtn = roundBtn("▶", C_ACCENT, Color.BLACK, 64, 22, v -> togglePlay());
+        ctl.addView(playBtn, lp(dp(64), dp(64), 12, 0));
+        ctl.addView(roundBtn("+1s", C_BTN_ON_CARD, C_TEXT, 48, 13, v -> seekRel(1000)), lp(dp(48), dp(48), 12, 0));
+        ctl.addView(roundBtn("▶|", C_BTN_ON_CARD, C_TEXT, 40, 12, v -> seekRel(33)), lp(dp(40), dp(40), 12, 0));
         prev.addView(ctl, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         LinearLayout rotRow = new LinearLayout(this);
-        rotRow.setGravity(Gravity.CENTER);
-        rotRow.setPadding(0, dp(12), 0, 0);
+        rotRow.setGravity(Gravity.CENTER_VERTICAL);
+        rotRow.setPadding(0, dp(14), 0, 0);
+        rotRow.addView(text("Ruota video", 14, R.color.text, true), new LinearLayout.LayoutParams(0, WRAP, 1f));
         rotRow.addView(btn("↺", C_BTN_ON_CARD, C_ACCENT, v -> rotate(-90)),
                 new LinearLayout.LayoutParams(dp(Ui.ICON_W + 8), dp(Ui.ICON_H)));
-        rotText = text("0°", 13, R.color.text, true);
-        rotText.setGravity(Gravity.CENTER);
-        rotRow.addView(rotText, new LinearLayout.LayoutParams(dp(56), WRAP));
         rotRow.addView(btn("↻", C_BTN_ON_CARD, C_ACCENT, v -> rotate(90)),
-                new LinearLayout.LayoutParams(dp(Ui.ICON_W + 8), dp(Ui.ICON_H)));
+                lp(dp(Ui.ICON_W + 8), dp(Ui.ICON_H), 8, 0));
         prev.addView(rotRow, new LinearLayout.LayoutParams(MATCH, WRAP));
         editorBox.addView(prev, lp(MATCH, WRAP, 0, 12));
 
@@ -295,6 +287,14 @@ public class VideoEditorActivity extends Activity {
             updateTexts();
         });
         tl.addView(timeline, new LinearLayout.LayoutParams(MATCH, dp(68)));
+        LinearLayout timeRow = new LinearLayout(this);
+        timeRow.setPadding(dp(2), dp(8), dp(2), 0);
+        timeCur = text("0:00.0", 14, R.color.text, true);
+        timeTot = text("0:00.0", 14, R.color.text_dim, true);
+        timeTot.setGravity(Gravity.END);
+        timeRow.addView(timeCur, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        timeRow.addView(timeTot, new LinearLayout.LayoutParams(0, WRAP, 1f));
+        tl.addView(timeRow, new LinearLayout.LayoutParams(MATCH, WRAP));
         markText = text("", 13, R.color.text_dim, false);
         markText.setPadding(0, dp(10), 0, dp(8));
         tl.addView(markText);
@@ -325,6 +325,8 @@ public class VideoEditorActivity extends Activity {
             }
         }), lp(0, dp(Ui.H_BTN), 8, 8, 1f));
         tl.addView(r2, new LinearLayout.LayoutParams(MATCH, WRAP));
+        tl.addView(btn("🎞  Aggiungi clip nel punto del cursore", C_CARD2, C_ACCENT, v -> pickClip()),
+                lp(MATCH, dp(46), 0, 8));
         editorBox.addView(tl, lp(MATCH, WRAP, 0, 12));
 
         // ---- clip
@@ -333,8 +335,6 @@ public class VideoEditorActivity extends Activity {
         clipList = new LinearLayout(this);
         clipList.setOrientation(LinearLayout.VERTICAL);
         cc.addView(clipList, new LinearLayout.LayoutParams(MATCH, WRAP));
-        cc.addView(btn("＋  Aggiungi clip dal cursore", C_BTN_ON_CARD, C_ACCENT, v -> pickClip()),
-                lp(MATCH, dp(Ui.H_BTN), 0, 10));
         editorBox.addView(cc, lp(MATCH, WRAP, 0, 12));
 
         // ---- audio
@@ -760,6 +760,32 @@ public class VideoEditorActivity extends Activity {
             super.setEnabled(e);
             setAlpha(e ? 1f : 0.4f);
         }
+    }
+
+    /** Tasto tondo (cerchio di 'size' dp). */
+    private Button roundBtn(String label, int bg, int fg, int size, int sp, View.OnClickListener l) {
+        Button b = new RoundButton(this);
+        b.setText(label);
+        b.setAllCaps(false);
+        b.setTextColor(fg);
+        b.setTextSize(sp);
+        b.setTypeface(Typeface.DEFAULT_BOLD);
+        b.setMinWidth(0);
+        b.setMinimumWidth(0);
+        b.setMinHeight(0);
+        b.setMinimumHeight(0);
+        b.setPadding(0, 0, 0, 0);
+        b.setStateListAnimator(null);
+        GradientDrawable g = new GradientDrawable();
+        g.setShape(GradientDrawable.OVAL);
+        g.setColor(bg);
+        GradientDrawable mask = new GradientDrawable();
+        mask.setShape(GradientDrawable.OVAL);
+        mask.setColor(0xFFFFFFFF);
+        b.setBackground(new RippleDrawable(ColorStateList.valueOf(0x44FFFFFF), g, mask));
+        b.setOnClickListener(l);
+        b.setLayoutParams(new LinearLayout.LayoutParams(dp(size), dp(size)));
+        return b;
     }
 
     private Button btn(String label, int bg, int fg, View.OnClickListener l) {
@@ -3121,10 +3147,11 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void updateTexts() {
-        if (timeText == null) {
+        if (timeCur == null || timeTot == null) {
             return;
         }
-        timeText.setText(fmt(timeline == null ? 0 : timeline.pos) + " / " + fmt(durMs));
+        timeCur.setText(fmt(timeline == null ? 0 : timeline.pos));
+        timeTot.setText(fmt(durMs));
         if (soundStartText != null) {
             soundStartText.setText("Ascolto: " + fmt(soundPrevMs) + " (su " + fmt(soundDurMs)
                     + ")\nLa colonna sonora parte da: " + fmt(soundStartMs));
