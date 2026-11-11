@@ -1542,11 +1542,16 @@ public class VideoEditorActivity extends Activity {
         if (oldLen <= 0 || newLen <= 0) {
             return;
         }
+        remapMapped(x -> scaleT(x, a, oldLen, newLen));
+    }
+
+    /** Come remapScale, con una funzione qualsiasi che porta un istante vecchio (us) in quello nuovo. */
+    private void remapMapped(java.util.function.LongUnaryOperator m) {
         long oldDur = durMs;
         List<long[]> nc = new ArrayList<>();
         for (long[] c : cuts) {
-            long x = scaleT(c[0] * 1000, a, oldLen, newLen) / 1000;
-            long y = scaleT(c[1] * 1000, a, oldLen, newLen) / 1000;
+            long x = m.applyAsLong(c[0] * 1000) / 1000;
+            long y = m.applyAsLong(c[1] * 1000) / 1000;
             if (y > x) {
                 nc.add(new long[]{x, y});
             }
@@ -1554,10 +1559,10 @@ public class VideoEditorActivity extends Activity {
         cuts.clear();
         cuts.addAll(nc);
         if (markA >= 0) {
-            markA = scaleT(markA * 1000, a, oldLen, newLen) / 1000;
+            markA = m.applyAsLong(markA * 1000) / 1000;
         }
         if (markB >= 0) {
-            markB = scaleT(markB * 1000, a, oldLen, newLen) / 1000;
+            markB = m.applyAsLong(markB * 1000) / 1000;
         }
         if (markA >= 0 && markB >= 0 && markB <= markA) {
             markA = markB = -1;
@@ -1565,8 +1570,8 @@ public class VideoEditorActivity extends Activity {
         long newDur = totalUs() / 1000;
         for (VideoFx.Item it : fxItems) {
             boolean toEnd = it.endUs >= oldDur * 1000;
-            long x = scaleT(it.startUs, a, oldLen, newLen);
-            long y = scaleT(it.endUs, a, oldLen, newLen);
+            long x = m.applyAsLong(it.startUs);
+            long y = m.applyAsLong(it.endUs);
             if (toEnd) {
                 y = newDur * 1000 + 1000;
             } else if (y - x < 100000 && it.endUs - it.startUs >= 100000) {
@@ -2132,6 +2137,59 @@ public class VideoEditorActivity extends Activity {
         ends.addView(e3, new LinearLayout.LayoutParams(0, WRAP, 1f));
         secV.addView(ends, new LinearLayout.LayoutParams(MATCH, WRAP));
 
+        // ---- da che istante a che istante della clip
+        final long srcLen = sg.endUs - sg.startUs;
+        final long[] rng = {0, srcLen};
+        final int steps = (int) (srcLen / 100000);
+        final TextView rangeClip = text("", 13, R.color.text, true);
+        final TextView rangeVid = text("", 12, R.color.text_dim, false);
+        final SeekBar[] rBar = new SeekBar[2];
+        if (steps >= 3) {
+            TextView rl = text("Parte della clip a cui applicare la velocità", 12, R.color.text_dim, false);
+            secV.addView(rl, lp(MATCH, WRAP, 0, 14));
+            secV.addView(rangeClip, lp(MATCH, WRAP, 0, 4));
+            secV.addView(rangeVid, new LinearLayout.LayoutParams(MATCH, WRAP));
+            secV.addView(text("Da", 11, R.color.text_dim, false), lp(MATCH, WRAP, 0, 6));
+            rBar[0] = seek(new SimpleSeek() {
+                @Override
+                public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                    if (!user) {
+                        return;
+                    }
+                    long v = Math.min(p * 100000L, rng[1] - 100000L);
+                    rng[0] = Math.max(0, v);
+                    if (rng[0] != p * 100000L) {
+                        sb.setProgress((int) (rng[0] / 100000));
+                    }
+                    if (upd[0] != null) {
+                        upd[0].run();
+                    }
+                }
+            });
+            rBar[0].setMax(steps);
+            secV.addView(rBar[0], new LinearLayout.LayoutParams(MATCH, WRAP));
+            secV.addView(text("A", 11, R.color.text_dim, false));
+            rBar[1] = seek(new SimpleSeek() {
+                @Override
+                public void onProgressChanged(SeekBar sb, int p, boolean user) {
+                    if (!user) {
+                        return;
+                    }
+                    long v = p >= steps ? srcLen : p * 100000L;
+                    rng[1] = Math.min(srcLen, Math.max(v, rng[0] + 100000L));
+                    if (rng[1] != v) {
+                        sb.setProgress((int) Math.min(steps, rng[1] / 100000));
+                    }
+                    if (upd[0] != null) {
+                        upd[0].run();
+                    }
+                }
+            });
+            rBar[1].setMax(steps);
+            rBar[1].setProgress(steps);
+            secV.addView(rBar[1], new LinearLayout.LayoutParams(MATCH, WRAP));
+        }
+
         // ---- orientamento e direzione
         LinearLayout secO = section(body, "Orientamento e direzione");
         final TextView rotText = text("", 12, R.color.text_dim, false);
@@ -2278,8 +2336,32 @@ public class VideoEditorActivity extends Activity {
             volText.setText(vol[0] == 0f ? "Audio della clip: muto"
                     : "Volume dell'audio della clip: " + Math.round(vol[0] * 100) + "%");
             long oldB = sg.bodyUs();
-            long newB = Math.max(1, Math.round((sg.endUs - sg.startUs) / (double) speed[0]));
+            boolean partial = rng[0] > 0 || rng[1] < srcLen;
+            boolean split = partial && speed[0] != sg.speed;
+            long newB = split ? Math.round(rng[0] / (double) sg.speed + (rng[1] - rng[0]) / (double) speed[0]
+                    + (srcLen - rng[1]) / (double) sg.speed)
+                    : Math.round(srcLen / (double) speed[0]);
+            newB = Math.max(1, newB);
             sumText.setText("Durata della clip: " + fmt(oldB / 1000) + " → " + fmt(newB / 1000));
+            if (rBar[0] != null) {
+                long cumB = 0;
+                for (int i = 0; i < idx; i++) {
+                    cumB += VideoComposer.lengthUs(pieces.get(i).s, i == 0);
+                }
+                long bodyStart = cumB + (idx > 0 && sg.trans > 0 ? sg.transUs : 0);
+                long offOut = Math.round((rev[0] ? srcLen - rng[1] : rng[0]) / (double) sg.speed);
+                long vs = bodyStart + offOut;
+                long ve = vs + Math.round((rng[1] - rng[0]) / (double) speed[0]);
+                if (!partial) {
+                    rangeClip.setText("Tutta la clip  (" + fmt(srcLen / 1000) + ")");
+                    rangeVid.setText("Nel video: " + fmt(bodyStart / 1000) + " → "
+                            + fmt((bodyStart + newB) / 1000));
+                } else {
+                    rangeClip.setText("Nella clip: " + fmt(rng[0] / 1000) + " → " + fmt(rng[1] / 1000));
+                    rangeVid.setText("Nel video: " + fmt(vs / 1000) + " → " + fmt(ve / 1000)
+                            + (split ? "" : "   (cambia la velocità per applicarla a questa parte)"));
+                }
+            }
         };
         upd[0].run();
 
@@ -2292,6 +2374,12 @@ public class VideoEditorActivity extends Activity {
             look[0] = 0;
             rot[0] = 0;
             vol[0] = 1f;
+            rng[0] = 0;
+            rng[1] = srcLen;
+            if (rBar[0] != null) {
+                rBar[0].setProgress(0);
+                rBar[1].setProgress(steps);
+            }
             zm[0] = 1f;
             zm[1] = 1f;
             zm[2] = 0.5f;
@@ -2309,7 +2397,11 @@ public class VideoEditorActivity extends Activity {
         br.addView(btn("Annulla", C_CARD2, C_TEXT, v -> d.dismiss()), lp(0, dp(46), 6, 0, 1f));
         br.addView(btn("Applica", C_ACCENT, Color.BLACK, v -> {
             d.dismiss();
-            setClipMods(idx, speed[0], rev[0], vol[0], mh[0], mv[0], look[0], rot[0], zm);
+            if ((rng[0] > 0 || rng[1] < srcLen) && speed[0] != sg.speed) {
+                splitSpeed(idx, rng[0], rng[1], speed[0], rev[0], vol[0], mh[0], mv[0], look[0], rot[0], zm);
+            } else {
+                setClipMods(idx, speed[0], rev[0], vol[0], mh[0], mv[0], look[0], rot[0], zm);
+            }
         }), lp(0, dp(46), 6, 0, 1f));
         box.addView(br, lp(MATCH, WRAP, 0, 14));
         d.setContentView(box);
@@ -2321,6 +2413,122 @@ public class VideoEditorActivity extends Activity {
             w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.94f), maxH);
         }
         d.show();
+    }
+
+    /**
+     * Cambia la velocita' solo da 'a' a 'b' (us dall'inizio della parte usata della clip): la clip viene
+     * divisa in due o tre tratti, gli altri mantengono la velocita' di prima.
+     */
+    private void splitSpeed(int idx, long a, long b, float speed, boolean reverse, float vol, boolean mh,
+                            boolean mv, int look, int rot, float[] zoom) {
+        if (busy || idx < 0 || idx >= pieces.size()) {
+            return;
+        }
+        final VideoComposer.Seg sg = pieces.get(idx).s;
+        final String name = pieces.get(idx).name;
+        Snap sn = snap();
+        long cum = 0;
+        for (int i = 0; i < idx; i++) {
+            cum += VideoComposer.lengthUs(pieces.get(i).s, i == 0);
+        }
+        final long oldLen = VideoComposer.lengthUs(sg, idx == 0);
+        final long srcLen = sg.endUs - sg.startUs;
+        final float oldSp = sg.speed;
+        final long oldTr = idx > 0 && sg.trans > 0 ? sg.transUs : 0;
+        // sotto-intervalli della sorgente (offset dall'inizio) e relative velocita'
+        List<long[]> rg = new ArrayList<>();
+        List<Float> sp = new ArrayList<>();
+        if (a > 0) {
+            rg.add(new long[]{0, a});
+            sp.add(oldSp);
+        }
+        rg.add(new long[]{a, b});
+        sp.add(speed);
+        if (b < srcLen) {
+            rg.add(new long[]{b, srcLen});
+            sp.add(oldSp);
+        }
+        final boolean rv = reverse;
+        if (rv) {
+            java.util.Collections.reverse(rg);
+            java.util.Collections.reverse(sp);
+        }
+        // durata di ogni tratto nel video e frazione di clip percorsa (per lo zoom)
+        double tot = 0;
+        double[] ln = new double[rg.size()];
+        for (int i = 0; i < ln.length; i++) {
+            ln[i] = (rg.get(i)[1] - rg.get(i)[0]) / (double) sp.get(i);
+            tot += ln[i];
+        }
+        List<Piece> parts = new ArrayList<>();
+        double acc = 0;
+        for (int i = 0; i < ln.length; i++) {
+            VideoComposer.Seg p = sg.copy();
+            p.startUs = sg.startUs + rg.get(i)[0];
+            p.endUs = sg.startUs + rg.get(i)[1];
+            p.speed = sp.get(i);
+            p.reverse = reverse;
+            p.vol = vol;
+            p.mirH = mh;
+            p.mirV = mv;
+            p.look = look;
+            p.rot = rot;
+            p.zoom = zoom.clone();
+            if (i > 0) {
+                p.trans = 0;
+                p.transUs = 0;
+            }
+            if (zoom[0] != 1f || zoom[1] != 1f) {
+                // lo zoom prosegue da un tratto al successivo (nei tratti intermedi la curva e' lineare)
+                boolean soft = zoom[4] >= 0.5f;
+                p.zoom[0] = VideoFx.zoomAt(zoom[0], zoom[1], soft, acc / tot);
+                p.zoom[1] = VideoFx.zoomAt(zoom[0], zoom[1], soft, (acc + ln[i]) / tot);
+                if (ln.length > 1) {
+                    p.zoom[4] = 0f;
+                }
+            }
+            acc += ln[i];
+            parts.add(new Piece(p, name));
+        }
+        long newLen = 0;
+        for (int i = 0; i < parts.size(); i++) {
+            newLen += VideoComposer.lengthUs(parts.get(i).s, idx == 0 && i == 0);
+        }
+        pieces.remove(idx);
+        pieces.addAll(idx, parts);
+        final long fcum = cum;
+        final long newTr = idx > 0 && sg.trans > 0 ? sg.transUs : 0;
+        final List<long[]> frg = rg;
+        final List<Float> fsp = sp;
+        final long fNewLen = newLen;
+        remapMapped(x -> {
+            if (x <= fcum) {
+                return x;
+            }
+            if (x >= fcum + oldLen) {
+                return x + (fNewLen - oldLen);
+            }
+            long inner = x - fcum;
+            if (inner <= oldTr) {
+                return x;
+            }
+            long o = Math.round((inner - oldTr) * (double) oldSp);
+            o = Math.max(0, Math.min(srcLen, o));
+            if (rv) {
+                o = srcLen - o;
+            }
+            double t = 0;
+            for (int i = 0; i < frg.size(); i++) {
+                long ps = frg.get(i)[0], pe = frg.get(i)[1];
+                if (o >= ps && o <= pe) {
+                    t += (rv ? (pe - o) : (o - ps)) / (double) fsp.get(i);
+                    break;
+                }
+                t += (pe - ps) / (double) fsp.get(i);
+            }
+            return fcum + newTr + Math.round(t);
+        });
+        rebuild(cum / 1000, sn);
     }
 
     private void setClipMods(int idx, float speed, boolean reverse, float vol, boolean mh, boolean mv, int look,
