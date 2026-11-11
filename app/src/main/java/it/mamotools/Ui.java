@@ -22,6 +22,8 @@ final class Ui {
 
     static final int BG = 0xFF0F1115, CARD = 0xFF1A1D24, CARD2 = 0xFF262B35, ACCENT = 0xFF4DD0E1,
             TEXT = 0xFFECEFF4, DIM = 0xFF9AA3B2, DANGER = 0xFFFF6B6B, OK = 0xFF66BB6A;
+    /** Altezze standard (dp): pulsanti d'azione, chip/interruttori, piccoli pulsanti a icona. */
+    static final int H_BTN = 46, H_CHIP = 40, ICON_W = 38, ICON_H = 36;
     static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;
     static final int WRAP = ViewGroup.LayoutParams.WRAP_CONTENT;
 
@@ -175,6 +177,46 @@ final class Ui {
         p.setProgressTintList(ColorStateList.valueOf(ACCENT));
         p.setVisibility(View.GONE);
         return p;
+    }
+
+    /** Indicatore di caricamento unico: rotellina, testo e (se nota) barra di avanzamento sottile. */
+    static final class Loading extends LinearLayout {
+        private final TextView label;
+        private final ProgressBar pbar;
+
+        Loading(Context c, String text) {
+            super(c);
+            setOrientation(VERTICAL);
+            setGravity(Gravity.CENTER_HORIZONTAL);
+            ProgressBar spin = new ProgressBar(c);
+            spin.setIndeterminate(true);
+            spin.setIndeterminateTintList(ColorStateList.valueOf(ACCENT));
+            addView(spin, new LinearLayout.LayoutParams(dp(c, 44), dp(c, 44)));
+            label = text(c, text, 14, TEXT, true);
+            label.setGravity(Gravity.CENTER);
+            label.setPadding(dp(c, 12), dp(c, 12), dp(c, 12), 0);
+            addView(label, new LinearLayout.LayoutParams(MATCH, WRAP));
+            pbar = new ProgressBar(c, null, android.R.attr.progressBarStyleHorizontal);
+            pbar.setMax(100);
+            pbar.setProgressTintList(ColorStateList.valueOf(ACCENT));
+            pbar.setVisibility(GONE);
+            LinearLayout.LayoutParams pl = new LinearLayout.LayoutParams(MATCH, dp(c, 6));
+            pl.setMargins(dp(c, 24), dp(c, 12), dp(c, 24), 0);
+            addView(pbar, pl);
+        }
+
+        /** pct < 0: avanzamento sconosciuto (barra nascosta). */
+        void set(String text, int pct) {
+            if (text != null) {
+                label.setText(text);
+            }
+            if (pct < 0) {
+                pbar.setVisibility(GONE);
+            } else {
+                pbar.setVisibility(VISIBLE);
+                pbar.setProgress(Math.min(100, pct));
+            }
+        }
     }
 
     /** Scheda "scegli un file": icona, titolo e sottotitolo, cliccabile. */

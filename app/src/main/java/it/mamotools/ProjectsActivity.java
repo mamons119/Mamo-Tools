@@ -133,19 +133,9 @@ public abstract class ProjectsActivity extends Activity {
         android.app.Dialog d = new android.app.Dialog(this);
         d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
         d.setCancelable(false);
-        LinearLayout box = new LinearLayout(this);
-        box.setOrientation(LinearLayout.VERTICAL);
-        box.setGravity(Gravity.CENTER_HORIZONTAL);
+        Ui.Loading box = new Ui.Loading(this, text + "...");
         box.setBackground(Ui.round(this, Ui.CARD, 20));
         box.setPadding(Ui.dp(this, 28), Ui.dp(this, 24), Ui.dp(this, 28), Ui.dp(this, 22));
-        android.widget.ProgressBar pb = new android.widget.ProgressBar(this);
-        pb.setIndeterminate(true);
-        pb.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
-        box.addView(pb, new LinearLayout.LayoutParams(Ui.dp(this, 48), Ui.dp(this, 48)));
-        TextView t = Ui.text(this, text + "...", 15, Ui.TEXT, false);
-        t.setGravity(Gravity.CENTER);
-        t.setPadding(0, Ui.dp(this, 14), 0, 0);
-        box.addView(t);
         d.setContentView(box);
         android.view.Window w = d.getWindow();
         if (w != null) {

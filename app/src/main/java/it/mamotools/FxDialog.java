@@ -134,26 +134,26 @@ final class FxDialog {
             sbStart.setProgress((int) (it.startUs / 100000));
             sbEnd.setProgress(endProg());
             timesChanged();
-        }), new LinearLayout.LayoutParams(0, dp(42), 1f));
+        }), new LinearLayout.LayoutParams(0, dp(Ui.H_BTN), 1f));
         cur.addView(Ui.btn(ctx, "Fine = cursore", Ui.CARD2, Ui.TEXT, v -> {
             if (cm * 1000 > it.startUs) {
                 it.endUs = endFor(cm * 1000);
                 sbEnd.setProgress(endProg());
                 timesChanged();
             }
-        }), Ui.lp(ctx, 0, dp(42), 8, 0, 1f));
+        }), Ui.lp(ctx, 0, dp(Ui.H_BTN), 8, 0, 1f));
         root.addView(cur, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
         timesChanged();
 
         // ---- bottoni
         LinearLayout bt = new LinearLayout(ctx);
         bt.addView(Ui.btn(ctx, "Annulla", Ui.CARD2, Ui.TEXT, v -> dlg.dismiss()),
-                new LinearLayout.LayoutParams(0, dp(48), 1f));
+                new LinearLayout.LayoutParams(0, dp(Ui.H_BTN), 1f));
         if (editing) {
             bt.addView(Ui.btn(ctx, "Elimina", Ui.CARD2, Ui.DANGER, v -> {
                 dlg.dismiss();
                 cb.onDelete();
-            }), Ui.lp(ctx, 0, dp(48), 8, 0, 1f));
+            }), Ui.lp(ctx, 0, dp(Ui.H_BTN), 8, 0, 1f));
         }
         bt.addView(Ui.btn(ctx, "Salva", Ui.ACCENT, Color.BLACK, v -> {
             if (it.isText && (it.text == null || it.text.trim().isEmpty())) {
@@ -161,7 +161,7 @@ final class FxDialog {
             }
             dlg.dismiss();
             cb.onSave(it);
-        }), Ui.lp(ctx, 0, dp(48), 8, 0, 1.3f));
+        }), Ui.lp(ctx, 0, dp(Ui.H_BTN), 8, 0, 1.3f));
         root.addView(bt, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 20));
 
         dlg.setContentView(sv);
@@ -213,7 +213,7 @@ final class FxDialog {
                 it.effect = idx;
                 styleFx();
             });
-            row.addView(fxChips[i], Ui.lp(ctx, 0, dp(44), i % 2 == 0 ? 0 : 6, 0, 1f));
+            row.addView(fxChips[i], Ui.lp(ctx, 0, dp(Ui.H_CHIP), i % 2 == 0 ? 0 : 6, 0, 1f));
         }
         kBox = new LinearLayout(ctx);
         kBox.setOrientation(LinearLayout.VERTICAL);
@@ -242,7 +242,7 @@ final class FxDialog {
             it.crtWarp = !it.crtWarp;
             styleFx();
         });
-        crtBox.addView(crtChip, new LinearLayout.LayoutParams(Ui.MATCH, dp(44)));
+        crtBox.addView(crtChip, new LinearLayout.LayoutParams(Ui.MATCH, dp(Ui.H_CHIP)));
         crtBox.addView(Ui.text(ctx, "Le linee orizzontali e i puntini RGB verticali dello schermo ci sono sempre. "
                 + "Le distorsioni aggiungono: schermo bombato con angoli scuri, colori leggermente sfasati, "
                 + "tremolio delle righe, sfarfallio e disturbo. L'anteprima mostra linee, puntini, curvatura "
@@ -315,7 +315,7 @@ final class FxDialog {
                 it.vhsMode = mi;
                 styleFx();
             });
-            mrow.addView(vhsModeChips[i], Ui.lp(ctx, 0, dp(42), i == 0 ? 0 : 6, 0, 1f));
+            mrow.addView(vhsModeChips[i], Ui.lp(ctx, 0, dp(Ui.H_CHIP), i == 0 ? 0 : 6, 0, 1f));
         }
         vhsBox.addView(mrow, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 6));
         vhsRwBox = new LinearLayout(ctx);
@@ -326,21 +326,21 @@ final class FxDialog {
             it.vhsBlink = !it.vhsBlink;
             styleFx();
         });
-        vhsRwBox.addView(vhsBlinkChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsRwBox.addView(vhsBlinkChip, Ui.lp(ctx, Ui.MATCH, dp(Ui.H_CHIP), 0, 8));
         vhsBlueChip = Ui.chip(ctx, "");
         vhsBlueChip.setTextSize(13);
         vhsBlueChip.setOnClickListener(v -> {
             it.vhsBlue = !it.vhsBlue;
             styleFx();
         });
-        vhsRwBox.addView(vhsBlueChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsRwBox.addView(vhsBlueChip, Ui.lp(ctx, Ui.MATCH, dp(Ui.H_CHIP), 0, 8));
         vhsPlayChip = Ui.chip(ctx, "");
         vhsPlayChip.setTextSize(13);
         vhsPlayChip.setOnClickListener(v -> {
             it.vhsPlay = !it.vhsPlay;
             styleFx();
         });
-        vhsRwBox.addView(vhsPlayChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsRwBox.addView(vhsPlayChip, Ui.lp(ctx, Ui.MATCH, dp(Ui.H_CHIP), 0, 8));
         vhsPlayText = Ui.text(ctx, "", 14, Ui.TEXT, false);
         vhsRwBox.addView(vhsPlayText, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
         vhsPlayBar = Ui.seek(ctx, new Ui.SimpleSeek() {
@@ -367,14 +367,14 @@ final class FxDialog {
             it.vhsDist = !it.vhsDist;
             styleFx();
         });
-        vhsBox.addView(vhsDistChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 12));
+        vhsBox.addView(vhsDistChip, Ui.lp(ctx, Ui.MATCH, dp(Ui.H_CHIP), 0, 12));
         vhsTextChip = Ui.chip(ctx, "");
         vhsTextChip.setTextSize(13);
         vhsTextChip.setOnClickListener(v -> {
             it.vhsText = !it.vhsText;
             styleFx();
         });
-        vhsBox.addView(vhsTextChip, Ui.lp(ctx, Ui.MATCH, dp(44), 0, 8));
+        vhsBox.addView(vhsTextChip, Ui.lp(ctx, Ui.MATCH, dp(Ui.H_CHIP), 0, 8));
         vhsBox.addView(Ui.text(ctx, "Distorsione: righe sfasate, fasce di disturbo, neve, colori sbiaditi e "
                 + "bordi sfocati; l'intensita' regola quanto e' forte. Le scritte hanno pixel grossi e, con la "
                 + "distorsione attiva, tremano. Puoi tenere solo le scritte o solo la distorsione. "
@@ -553,7 +553,7 @@ final class FxDialog {
                 styleText();
                 preview.update();
             });
-            fr.addView(fontChips[i], Ui.lp(ctx, Ui.WRAP, dp(42), i == 0 ? 0 : 6, 0));
+            fr.addView(fontChips[i], Ui.lp(ctx, Ui.WRAP, dp(Ui.H_CHIP), i == 0 ? 0 : 6, 0));
         }
         root.addView(hs, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
 
@@ -590,11 +590,11 @@ final class FxDialog {
             styleText();
             preview.update();
         });
-        st.addView(chBold, new LinearLayout.LayoutParams(dp(44), dp(42)));
-        st.addView(chItalic, Ui.lp(ctx, dp(44), dp(42), 6, 0));
-        st.addView(chOutline, Ui.lp(ctx, 0, dp(42), 6, 0, 1f));
-        st.addView(chShadow, Ui.lp(ctx, 0, dp(42), 6, 0, 1f));
-        st.addView(chBox, Ui.lp(ctx, 0, dp(42), 6, 0, 1f));
+        st.addView(chBold, new LinearLayout.LayoutParams(dp(44), dp(Ui.H_CHIP)));
+        st.addView(chItalic, Ui.lp(ctx, dp(44), dp(Ui.H_CHIP), 6, 0));
+        st.addView(chOutline, Ui.lp(ctx, 0, dp(Ui.H_CHIP), 6, 0, 1f));
+        st.addView(chShadow, Ui.lp(ctx, 0, dp(Ui.H_CHIP), 6, 0, 1f));
+        st.addView(chBox, Ui.lp(ctx, 0, dp(Ui.H_CHIP), 6, 0, 1f));
         root.addView(st, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
 
         sizeText = Ui.text(ctx, "", 14, Ui.TEXT, false);

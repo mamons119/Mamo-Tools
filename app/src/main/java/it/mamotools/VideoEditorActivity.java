@@ -145,8 +145,7 @@ public class VideoEditorActivity extends Activity {
     private long origDurMs = 0;
     private int origVw = 0, origVh = 0;
     private LinearLayout clipList;
-    private LinearLayout editLoadBox;
-    private TextView editLoadText;
+    private Ui.Loading editLoadBox;
     private Switch swKeep;
     private android.widget.Switch stSwitch;
     private SeekBar stabZoomBar;
@@ -228,20 +227,11 @@ public class VideoEditorActivity extends Activity {
         overlay.setVideo(videoView);
         overlay.setItems(fxItems);
         vf.addView(overlay, new FrameLayout.LayoutParams(MATCH, MATCH));
-        editLoadBox = new LinearLayout(this);
-        editLoadBox.setOrientation(LinearLayout.VERTICAL);
+        editLoadBox = new Ui.Loading(this, "");
         editLoadBox.setGravity(Gravity.CENTER);
         editLoadBox.setBackgroundColor(0xCC0F1115);
         editLoadBox.setClickable(true);
         editLoadBox.setVisibility(View.GONE);
-        ProgressBar spin = new ProgressBar(this);
-        spin.setIndeterminate(true);
-        spin.setIndeterminateTintList(ColorStateList.valueOf(C_ACCENT));
-        editLoadBox.addView(spin, new LinearLayout.LayoutParams(dp(48), dp(48)));
-        editLoadText = text("", 13, R.color.text, true);
-        editLoadText.setGravity(Gravity.CENTER);
-        editLoadText.setPadding(dp(16), dp(10), dp(16), 0);
-        editLoadBox.addView(editLoadText, new LinearLayout.LayoutParams(MATCH, WRAP));
         vf.addView(editLoadBox, new FrameLayout.LayoutParams(MATCH, MATCH));
         prev.addView(vf, new LinearLayout.LayoutParams(MATCH, dp(220)));
         videoView.setOnPreparedListener(mp -> {
@@ -264,13 +254,25 @@ public class VideoEditorActivity extends Activity {
         ctl.setPadding(0, dp(10), 0, 0);
         playBtn = btn("▶", C_ACCENT, Color.BLACK, v -> togglePlay());
         playBtn.setTextSize(18);
-        ctl.addView(playBtn, new LinearLayout.LayoutParams(dp(52), dp(44)));
-        ctl.addView(btn("−1s", C_CARD2, C_TEXT, v -> seekRel(-1000)), lp(dp(54), dp(44), 8, 0));
-        ctl.addView(btn("+1s", C_CARD2, C_TEXT, v -> seekRel(1000)), lp(dp(54), dp(44), 6, 0));
+        ctl.addView(playBtn, new LinearLayout.LayoutParams(dp(52), dp(Ui.H_BTN)));
+        ctl.addView(btn("−1s", C_CARD2, C_TEXT, v -> seekRel(-1000)), lp(dp(54), dp(Ui.H_BTN), 8, 0));
+        ctl.addView(btn("+1s", C_CARD2, C_TEXT, v -> seekRel(1000)), lp(dp(54), dp(Ui.H_BTN), 6, 0));
         timeText = text("0:00.0 / 0:00.0", 14, R.color.text, true);
         timeText.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
         ctl.addView(timeText, new LinearLayout.LayoutParams(0, WRAP, 1f));
         prev.addView(ctl, new LinearLayout.LayoutParams(MATCH, WRAP));
+        LinearLayout rotRow = new LinearLayout(this);
+        rotRow.setGravity(Gravity.CENTER_VERTICAL);
+        rotRow.setPadding(0, dp(8), 0, 0);
+        rotRow.addView(text("Ruota il video", 13, R.color.text_dim, false), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        rotText = text("0°", 13, R.color.text, true);
+        rotText.setPadding(0, 0, dp(10), 0);
+        rotRow.addView(rotText);
+        rotRow.addView(btn("↺", C_BTN_ON_CARD, C_ACCENT, v -> rotate(-90)),
+                new LinearLayout.LayoutParams(dp(Ui.ICON_W + 8), dp(Ui.ICON_H)));
+        rotRow.addView(btn("↻", C_BTN_ON_CARD, C_ACCENT, v -> rotate(90)),
+                lp(dp(Ui.ICON_W + 8), dp(Ui.ICON_H), 6, 0));
+        prev.addView(rotRow, new LinearLayout.LayoutParams(MATCH, WRAP));
         editorBox.addView(prev, lp(MATCH, WRAP, 0, 12));
 
         // ---- timeline e tagli
@@ -300,24 +302,24 @@ public class VideoEditorActivity extends Activity {
                 markB = -1;
             }
             refreshMarks();
-        }), lp(0, dp(44), 0, 0, 1f));
+        }), lp(0, dp(Ui.H_BTN), 0, 0, 1f));
         r1.addView(btn("Fine  ]", C_CARD2, C_TEXT, v -> {
             markB = timeline.pos;
             if (markA >= 0 && markA >= markB) {
                 markA = -1;
             }
             refreshMarks();
-        }), lp(0, dp(44), 8, 0, 1f));
+        }), lp(0, dp(Ui.H_BTN), 8, 0, 1f));
         tl.addView(r1, new LinearLayout.LayoutParams(MATCH, WRAP));
         LinearLayout r2 = new LinearLayout(this);
         r2.addView(btn("✂  Taglia la selezione", C_DANGER, Color.BLACK, v -> addCut()),
-                lp(0, dp(44), 0, 8, 1.6f));
+                lp(0, dp(Ui.H_BTN), 0, 8, 1.6f));
         r2.addView(btn("↶  Annulla", C_CARD2, C_TEXT, v -> {
             if (!cuts.isEmpty()) {
                 cuts.remove(cuts.size() - 1);
                 refreshMarks();
             }
-        }), lp(0, dp(44), 8, 8, 1f));
+        }), lp(0, dp(Ui.H_BTN), 8, 8, 1f));
         tl.addView(r2, new LinearLayout.LayoutParams(MATCH, WRAP));
         tl.addView(btn("🎞  Aggiungi clip nel punto del cursore", C_CARD2, C_ACCENT, v -> pickClip()),
                 lp(MATCH, dp(46), 0, 8));
@@ -362,14 +364,14 @@ public class VideoEditorActivity extends Activity {
         LinearLayout soundRow = new LinearLayout(this);
         soundRow.setGravity(Gravity.CENTER_VERTICAL);
         soundRow.addView(btn("♪  Scegli audio", C_CARD2, C_TEXT, v -> pickSound()),
-                new LinearLayout.LayoutParams(WRAP, dp(44)));
+                new LinearLayout.LayoutParams(WRAP, dp(Ui.H_BTN)));
         soundName = text("Nessuna", 13, R.color.text_dim, false);
         soundName.setPadding(dp(12), 0, dp(8), 0);
         soundName.setSingleLine(true);
         soundName.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
         soundRow.addView(soundName, new LinearLayout.LayoutParams(0, WRAP, 1f));
         soundRow.addView(btn("✕", C_CARD2, C_DANGER, v -> clearSound()),
-                new LinearLayout.LayoutParams(dp(44), dp(44)));
+                new LinearLayout.LayoutParams(dp(Ui.H_BTN), dp(Ui.H_BTN)));
         so.addView(soundRow, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         soundBox = new LinearLayout(this);
@@ -400,9 +402,9 @@ public class VideoEditorActivity extends Activity {
         LinearLayout trRow = new LinearLayout(this);
         trRow.setBaselineAligned(false);
         soundTestBtn = btn("▶  Ascolta", C_CARD2, C_ACCENT, v -> toggleSoundTest());
-        trRow.addView(soundTestBtn, lp(0, dp(44), 0, 0, 1f));
+        trRow.addView(soundTestBtn, lp(0, dp(Ui.H_BTN), 0, 0, 1f));
         trRow.addView(btn("⚑  Parti da qui", C_CARD2, C_TEXT, v -> setSoundStartHere()),
-                lp(0, dp(44), 8, 0, 1.3f));
+                lp(0, dp(Ui.H_BTN), 8, 0, 1.3f));
         soundBox.addView(trRow, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         TextView ml = text("Come usarla", 13, R.color.text_dim, false);
@@ -487,21 +489,6 @@ public class VideoEditorActivity extends Activity {
         soundBox.addView(fnote);
         styleCurve();
         editorBox.addView(au, lp(MATCH, WRAP, 0, 12));
-
-        // ---- rotazione
-        LinearLayout rc = card();
-        LinearLayout rh = new LinearLayout(this);
-        rh.setGravity(Gravity.CENTER_VERTICAL);
-        rh.addView(sectionTitle("Rotazione"), new LinearLayout.LayoutParams(0, WRAP, 1f));
-        rotText = text("0°", 14, R.color.text_dim, true);
-        rh.addView(rotText);
-        rc.addView(rh, new LinearLayout.LayoutParams(MATCH, WRAP));
-        LinearLayout rr = new LinearLayout(this);
-        rr.addView(btn("↺  90° a sinistra", C_CARD2, C_ACCENT, v -> rotate(-90)),
-                new LinearLayout.LayoutParams(0, dp(46), 1f));
-        rr.addView(btn("↻  90° a destra", C_CARD2, C_ACCENT, v -> rotate(90)), lp(0, dp(46), 8, 0, 1f));
-        rc.addView(rr, lp(MATCH, WRAP, 0, 10));
-        editorBox.addView(rc, lp(MATCH, WRAP, 0, 12));
 
         // ---- effetti e testo
         LinearLayout fx = card();
@@ -620,7 +607,7 @@ public class VideoEditorActivity extends Activity {
                 + "originale)."));
         infoBtn.setTypeface(Typeface.create(Typeface.SERIF, Typeface.BOLD_ITALIC));
         infoBtn.setTextSize(16);
-        exHead.addView(infoBtn, new LinearLayout.LayoutParams(dp(38), dp(38)));
+        exHead.addView(infoBtn, new LinearLayout.LayoutParams(dp(Ui.ICON_W), dp(Ui.ICON_H)));
         ex.addView(exHead, new LinearLayout.LayoutParams(MATCH, WRAP));
         TextView nl = text("Nome del file", 13, R.color.text, true);
         nl.setPadding(0, dp(8), 0, dp(6));
@@ -1435,6 +1422,59 @@ public class VideoEditorActivity extends Activity {
         }
     }
 
+    private static long scaleT(long x, long a, long oldLen, long newLen) {
+        if (x <= a) {
+            return x;
+        }
+        if (x >= a + oldLen) {
+            return x + (newLen - oldLen);
+        }
+        return a + Math.round((x - a) * (double) newLen / oldLen);
+    }
+
+    /**
+     * Una clip che inizia a 'a' (us) cambia durata da oldLen a newLen: tagli, segni, effetti e testi
+     * dentro la clip si riscalano in proporzione, quelli dopo scorrono della differenza.
+     */
+    private void remapScale(long a, long oldLen, long newLen) {
+        if (oldLen <= 0 || newLen <= 0) {
+            return;
+        }
+        long oldDur = durMs;
+        List<long[]> nc = new ArrayList<>();
+        for (long[] c : cuts) {
+            long x = scaleT(c[0] * 1000, a, oldLen, newLen) / 1000;
+            long y = scaleT(c[1] * 1000, a, oldLen, newLen) / 1000;
+            if (y > x) {
+                nc.add(new long[]{x, y});
+            }
+        }
+        cuts.clear();
+        cuts.addAll(nc);
+        if (markA >= 0) {
+            markA = scaleT(markA * 1000, a, oldLen, newLen) / 1000;
+        }
+        if (markB >= 0) {
+            markB = scaleT(markB * 1000, a, oldLen, newLen) / 1000;
+        }
+        if (markA >= 0 && markB >= 0 && markB <= markA) {
+            markA = markB = -1;
+        }
+        long newDur = totalUs() / 1000;
+        for (VideoFx.Item it : fxItems) {
+            boolean toEnd = it.endUs >= oldDur * 1000;
+            long x = scaleT(it.startUs, a, oldLen, newLen);
+            long y = scaleT(it.endUs, a, oldLen, newLen);
+            if (toEnd) {
+                y = newDur * 1000 + 1000;
+            } else if (y - x < 100000 && it.endUs - it.startUs >= 100000) {
+                y = x + 100000;
+            }
+            it.startUs = x;
+            it.endUs = y;
+        }
+    }
+
     private static long mapRem(long x, long a, long b, long l) {
         return x <= a ? x : x >= b ? x - l : a;
     }
@@ -1471,7 +1511,7 @@ public class VideoEditorActivity extends Activity {
                                 public void onProgress(final String stage, final int pct) {
                                     runOnUiThread(() -> {
                                         if (gen == rebuildGen) {
-                                            setEditLoading(true, stage + " " + pct + "%");
+                                            setEditLoading(true, stage, pct);
                                         }
                                     });
                                 }
@@ -1525,12 +1565,16 @@ public class VideoEditorActivity extends Activity {
     /** Dopo un errore: ripristina la vista sul video che c'era prima (gia' presente su disco). */
     /** Caricamento durante la modifica: cerchio sopra l'anteprima e "Caricamento..." nella timeline. */
     private void setEditLoading(boolean on, String msg) {
+        setEditLoading(on, msg, -1);
+    }
+
+    private void setEditLoading(boolean on, String msg, int pct) {
         if (editLoadBox == null) {
             return;
         }
         editLoadBox.setVisibility(on ? View.VISIBLE : View.GONE);
         if (on && msg != null) {
-            editLoadText.setText(msg);
+            editLoadBox.set(msg, pct);
         }
         timeline.setLoading(on);
     }
@@ -1593,7 +1637,7 @@ public class VideoEditorActivity extends Activity {
                         + (sg.trans > 0 ? String.format(Locale.US, " · %.1f s", sg.transUs / 1e6) : "");
                 jr.addView(text(jt, 13, R.color.accent, false), new LinearLayout.LayoutParams(0, WRAP, 1f));
                 jr.addView(btn("✎", C_CARD, C_ACCENT, v -> transDialog(idx)),
-                        new LinearLayout.LayoutParams(dp(44), dp(36)));
+                        new LinearLayout.LayoutParams(dp(Ui.ICON_W), dp(Ui.ICON_H)));
                 clipList.addView(jr, lp(MATCH, WRAP, 0, 4));
             }
             LinearLayout row = new LinearLayout(this);
@@ -1619,11 +1663,11 @@ public class VideoEditorActivity extends Activity {
             row.addView(tx, lp(0, WRAP, 8, 0, 1f));
             Button infoB = btn("i", C_BTN_ON_CARD, C_ACCENT, v -> showClipInfo(pc));
             infoB.setPadding(0, 0, 0, 0);
-            row.addView(infoB, lp(dp(36), dp(34), 0, 0));
+            row.addView(infoB, lp(dp(Ui.ICON_W), dp(Ui.ICON_H), 0, 0));
             if (pieces.size() > 1) {
                 Button delB = btn("✕", C_BTN_ON_CARD, C_DANGER, v -> deleteClip(idx));
                 delB.setPadding(0, 0, 0, 0);
-                row.addView(delB, lp(dp(36), dp(34), 6, 0));
+                row.addView(delB, lp(dp(Ui.ICON_W), dp(Ui.ICON_H), 6, 0));
             }
             final long seekTo = cum / 1000;
             row.setClickable(true);
@@ -1646,7 +1690,7 @@ public class VideoEditorActivity extends Activity {
             Button editB = btn("Modifica clip: velocita', reverse, effetti", C_BTN_ON_CARD, C_ACCENT,
                     v -> clipDialog(idx));
             editB.setTextSize(13);
-            cardc.addView(editB, lp(MATCH, dp(38), 12, 0));
+            cardc.addView(editB, lp(MATCH, dp(Ui.H_CHIP), 12, 0));
             ((LinearLayout.LayoutParams) editB.getLayoutParams()).setMargins(dp(12), 0, dp(12), dp(10));
             clipList.addView(cardc, lp(MATCH, WRAP, 0, 4));
             cum += len;
@@ -1979,8 +2023,8 @@ public class VideoEditorActivity extends Activity {
             upd[0].run();
         });
         LinearLayout rr = new LinearLayout(this);
-        rr.addView(rotL, lp(0, dp(40), 0, 0, 1f));
-        rr.addView(rotR, lp(0, dp(40), 6, 0, 1f));
+        rr.addView(rotL, lp(0, dp(Ui.H_CHIP), 0, 0, 1f));
+        rr.addView(rotR, lp(0, dp(Ui.H_CHIP), 6, 0, 1f));
         secO.addView(rr, lp(MATCH, WRAP, 0, 6));
         final TextView mhChip = Ui.chip(this, "⇄  Specchio orizz."), mvChip = Ui.chip(this, "⇅  Specchio vert.");
         mhChip.setTextSize(13);
@@ -1994,8 +2038,8 @@ public class VideoEditorActivity extends Activity {
             upd[0].run();
         });
         LinearLayout mr = new LinearLayout(this);
-        mr.addView(mhChip, lp(0, dp(40), 0, 0, 1f));
-        mr.addView(mvChip, lp(0, dp(40), 6, 0, 1f));
+        mr.addView(mhChip, lp(0, dp(Ui.H_CHIP), 0, 0, 1f));
+        mr.addView(mvChip, lp(0, dp(Ui.H_CHIP), 6, 0, 1f));
         secO.addView(mr, lp(MATCH, WRAP, 0, 6));
         final TextView dirF = Ui.chip(this, "▶  Normale"), dirB = Ui.chip(this, "◀  Reverse");
         dirF.setTextSize(13);
@@ -2009,8 +2053,8 @@ public class VideoEditorActivity extends Activity {
             upd[0].run();
         });
         LinearLayout dr = new LinearLayout(this);
-        dr.addView(dirF, lp(0, dp(40), 0, 0, 1f));
-        dr.addView(dirB, lp(0, dp(40), 6, 0, 1f));
+        dr.addView(dirF, lp(0, dp(Ui.H_CHIP), 0, 0, 1f));
+        dr.addView(dirB, lp(0, dp(Ui.H_CHIP), 6, 0, 1f));
         secO.addView(dr, lp(MATCH, WRAP, 0, 6));
 
         // ---- aspetto: una sola riga scorrevole
@@ -2134,10 +2178,8 @@ public class VideoEditorActivity extends Activity {
         sg.look = look;
         sg.rot = rot;
         long newLen = VideoComposer.lengthUs(sg, idx == 0);
-        if (newLen > oldLen) {
-            remapInsert((cum + oldLen) / 1000, (newLen - oldLen) / 1000);
-        } else if (newLen < oldLen) {
-            remapRemove((cum + newLen) / 1000, (cum + oldLen) / 1000);
+        if (newLen != oldLen) {
+            remapScale(cum, oldLen, newLen);
         }
         rebuild(cum / 1000, sn);
     }
@@ -2184,7 +2226,7 @@ public class VideoEditorActivity extends Activity {
                 grid.addView(line, lp(MATCH, WRAP, 0, 8));
             }
             chips[i] = Ui.chip(this, VideoComposer.TRANS_NAMES[i]);
-            line.addView(chips[i], lp(0, dp(42), i % 2 == 0 ? 0 : 8, 0, 1f));
+            line.addView(chips[i], lp(0, dp(Ui.H_CHIP), i % 2 == 0 ? 0 : 8, 0, 1f));
             chips[i].setOnClickListener(v -> {
                 if (type[0] == ti) {
                     return;
@@ -2292,7 +2334,7 @@ public class VideoEditorActivity extends Activity {
                             Ui.styleChip(this, cc[m], m == ki);
                         }
                     });
-                    row.addView(cc[k], lp(0, dp(38), k % 2 == 0 ? 0 : 6, 0, 1f));
+                    row.addView(cc[k], lp(0, dp(Ui.H_CHIP), k % 2 == 0 ? 0 : 6, 0, 1f));
                 }
                 box.addView(col, new LinearLayout.LayoutParams(MATCH, WRAP));
                 continue;
@@ -2437,11 +2479,11 @@ public class VideoEditorActivity extends Activity {
             tx.addView(text(FxDialog.fmt(it.startUs / 1000) + " → " + FxDialog.fmt(it.endUs / 1000), 12,
                     R.color.text_dim, false));
             row.addView(tx, lp(0, WRAP, 8, 0, 1f));
-            row.addView(btn("✎", C_CARD2, C_ACCENT, v -> editFx(it, true)), new LinearLayout.LayoutParams(dp(44), dp(40)));
+            row.addView(btn("✎", C_CARD2, C_ACCENT, v -> editFx(it, true)), new LinearLayout.LayoutParams(dp(Ui.ICON_W), dp(Ui.ICON_H)));
             row.addView(btn("✕", C_CARD2, C_DANGER, v -> {
                 fxItems.remove(it);
                 refreshFx();
-            }), new LinearLayout.LayoutParams(dp(44), dp(40)));
+            }), new LinearLayout.LayoutParams(dp(Ui.ICON_W), dp(Ui.ICON_H)));
             row.setOnClickListener(v -> {
                 seekExact(it.startUs / 1000);
                 timeline.setPos(it.startUs / 1000);
