@@ -76,8 +76,49 @@ final class AudioEngine {
         }
     }
 
+    /** Un filtro che agisce solo tra i fotogrammi a e b della traccia. */
+    static final class Filt {
+        int mode = Fx.HP;
+        float lo = 200f, hi = 4000f;
+        int order = 1;
+        long a, b;
+
+        Filt copy() {
+            Filt f = new Filt();
+            f.mode = mode;
+            f.lo = lo;
+            f.hi = hi;
+            f.order = order;
+            f.a = a;
+            f.b = b;
+            return f;
+        }
+
+        Fx fx() {
+            return new Fx(mode, lo, hi, order, 0f);
+        }
+    }
+
+    /** Insieme dei filtri a tempo piu' il volume generale (immutabile: si ricrea a ogni modifica). */
+    static final class FxSet {
+        final List<Filt> list;
+        final float gainDb;
+
+        FxSet(List<Filt> l, float gainDb) {
+            list = new ArrayList<>();
+            for (Filt f : l) {
+                list.add(f.copy());
+            }
+            this.gainDb = gainDb;
+        }
+
+        boolean isNeutral() {
+            return list.isEmpty() && Math.abs(gainDb) < 0.01f;
+        }
+    }
+
     interface FxSource {
-        Fx get();
+        FxSet get();
     }
 
     interface Progress {
@@ -435,7 +476,7 @@ final class AudioEngine {
             return new double[]{b0 / a0, b1 / a0, b2 / a0, a1 / a0, a2 / a0};
         }
 
-        private static double step(double[] c, double[] s, double x) {
+        static double step(double[] c, double[] s, double x) {
             double y = c[0] * x + c[1] * s[0] + c[2] * s[1] - c[3] * s[2] - c[4] * s[3];
             s[1] = s[0];
             s[0] = x;
@@ -458,7 +499,7 @@ final class AudioEngine {
             }
         }
 
-        private static void put(byte[] b, int o, double v) {
+        static void put(byte[] b, int o, double v) {
             int s = (int) Math.round(v * 32767.0);
             if (s > 32767) {
                 s = 32767;
@@ -467,6 +508,77 @@ final class AudioEngine {
             }
             b[o] = (byte) s;
             b[o + 1] = (byte) (s >> 8);
+        }
+    }
+
+    /**
+     * Filtri a tempo: ogni filtro lavora sempre poco prima e dopo il suo tratto (cosi' il suo stato e' pronto)
+     * e il suo effetto viene dosato con una breve rampa di 10 ms ai bordi. Filtri sovrapposti si applicano
+     * uno dopo l'altro.
+     */
+    static final class Timed {
+        private final int n;
+        private final long[] fa, fb;
+        private final double[][][] co;
+        private final double[][][] sl, sr;
+        private final boolean[] on;
+        private final double gain;
+        private static final long WARM = RATE / 5, TAIL = RATE / 20, RAMP = RATE / 100;
+
+        Timed(FxSet s) {
+            n = s.list.size();
+            fa = new long[n];
+            fb = new long[n];
+            co = new double[n][][];
+            sl = new double[n][][];
+            sr = new double[n][][];
+            on = new boolean[n];
+            for (int k = 0; k < n; k++) {
+                Filt f = s.list.get(k);
+                fa[k] = f.a;
+                fb[k] = f.b;
+                co[k] = Chain.design(f.fx());
+                sl[k] = new double[co[k].length][4];
+                sr[k] = new double[co[k].length][4];
+            }
+            gain = Math.pow(10.0, s.gainDb / 20.0);
+        }
+
+        /** Elabora frames fotogrammi che iniziano alla posizione pos della traccia. */
+        void process(byte[] b, int frames, long pos) {
+            for (int k = 0; k < n; k++) {
+                boolean act = pos + frames > fa[k] - WARM && pos < fb[k] + TAIL;
+                if (!act && on[k]) {
+                    for (int q = 0; q < sl[k].length; q++) {
+                        java.util.Arrays.fill(sl[k][q], 0);
+                        java.util.Arrays.fill(sr[k][q], 0);
+                    }
+                }
+                on[k] = act;
+            }
+            for (int i = 0; i < frames; i++) {
+                int o = i * 4;
+                double l = ((short) ((b[o] & 0xFF) | (b[o + 1] << 8))) / 32768.0;
+                double r = ((short) ((b[o + 2] & 0xFF) | (b[o + 3] << 8))) / 32768.0;
+                long t = pos + i;
+                for (int k = 0; k < n; k++) {
+                    if (!on[k]) {
+                        continue;
+                    }
+                    double yl = l, yr = r;
+                    for (int q = 0; q < co[k].length; q++) {
+                        yl = Chain.step(co[k][q], sl[k][q], yl);
+                        yr = Chain.step(co[k][q], sr[k][q], yr);
+                    }
+                    double w = Math.min(1.0, Math.min((t - fa[k]) / (double) RAMP, (fb[k] - t) / (double) RAMP));
+                    if (w > 0) {
+                        l += w * (yl - l);
+                        r += w * (yr - r);
+                    }
+                }
+                Chain.put(b, o, l * gain);
+                Chain.put(b, o + 2, r * gain);
+            }
         }
     }
 
@@ -567,10 +679,11 @@ final class AudioEngine {
                 track = t;
                 t.play();
                 byte[] buf = new byte[2048 * 4];
-                Fx cur = null;
-                Chain chain = null;
+                FxSet cur = null;
+                Timed chain = null;
                 long written = 0;
                 while (!stop) {
+                    long pos0 = rd.pos;
                     int n = rd.read(buf, 2048);
                     if (n <= 0) {
                         if (loop && to > from) {
@@ -578,18 +691,19 @@ final class AudioEngine {
                             // e position() la riporta nel tratto con il modulo
                             rd.close();
                             rd = new Reader(clips, srcs, from, to);
+                            cur = null;
                             continue;
                         }
                         natural = true;
                         break;
                     }
-                    Fx f = fxs.get();
+                    FxSet f = fxs.get();
                     if (f != cur) {
                         cur = f;
-                        chain = f.isNeutral() ? null : new Chain(f);
+                        chain = f.isNeutral() ? null : new Timed(f);
                     }
                     if (chain != null) {
-                        chain.process(buf, n);
+                        chain.process(buf, n, pos0);
                     }
                     int off = 0;
                     while (off < n * 4 && !stop) {
@@ -629,7 +743,7 @@ final class AudioEngine {
 
     // ------------------------------------------------------------------ esportazione
 
-    void exportWav(Fx fx, OutputStream os, Progress p) throws IOException {
+    void exportWav(FxSet fx, OutputStream os, Progress p) throws IOException {
         long total = total();
         long dataLen = total * 4;
         byte[] h = new byte[44];
@@ -648,13 +762,13 @@ final class AudioEngine {
         os.write(h);
         Reader rd = new Reader(tl, srcs, 0, total);
         try {
-            Chain chain = fx.isNeutral() ? null : new Chain(fx);
+            Timed chain = fx.isNeutral() ? null : new Timed(fx);
             byte[] buf = new byte[8192 * 4];
             int n;
             long done = 0;
             while ((n = rd.read(buf, 8192)) > 0) {
                 if (chain != null) {
-                    chain.process(buf, n);
+                    chain.process(buf, n, done);
                 }
                 os.write(buf, 0, n * 4);
                 done += n;
@@ -683,7 +797,7 @@ final class AudioEngine {
         b[o + 1] = (byte) (v >> 8);
     }
 
-    void exportM4a(Fx fx, FileDescriptor fd, Progress p) throws IOException {
+    void exportM4a(FxSet fx, FileDescriptor fd, Progress p) throws IOException {
         long total = total();
         Reader rd = new Reader(tl, srcs, 0, total);
         MediaCodec enc = null;
@@ -698,7 +812,7 @@ final class AudioEngine {
             enc.start();
             mx = new MediaMuxer(fd, MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
 
-            Chain chain = fx.isNeutral() ? null : new Chain(fx);
+            Timed chain = fx.isNeutral() ? null : new Timed(fx);
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             byte[] chunk = new byte[16384];
             boolean inDone = false, started = false;
@@ -718,7 +832,7 @@ final class AudioEngine {
                             inDone = true;
                         } else {
                             if (chain != null) {
-                                chain.process(chunk, n);
+                                chain.process(chunk, n, fed);
                             }
                             ib.put(chunk, 0, n * 4);
                             enc.queueInputBuffer(ii, 0, n * 4, fed * 1000000L / RATE, 0);

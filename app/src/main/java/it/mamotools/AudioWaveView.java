@@ -72,6 +72,21 @@ final class AudioWaveView extends View {
         });
     }
 
+    private View twin;
+
+    /** Vista che mostra lo stesso tratto (il grafico dei filtri): si ridisegna insieme a questa. */
+    void setTwin(View v) {
+        twin = v;
+    }
+
+    @Override
+    public void invalidate() {
+        super.invalidate();
+        if (twin != null) {
+            twin.invalidate();
+        }
+    }
+
     void setListener(Listener l) {
         listener = l;
     }
