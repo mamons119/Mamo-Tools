@@ -666,7 +666,87 @@ final class FxDialog {
         Color.colorToHSV(it.color, hsv);
         hue.setProgress((int) hsv[0]);
         root.addView(hue);
+
+        // ---- animazione
+        root.addView(Ui.section(ctx, "Animazione"), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 18));
+        animChips(root, "Comparsa", VideoFx.IN_NAMES, true);
+        animChips(root, "Scomparsa", VideoFx.OUT_NAMES, false);
+        root.addView(Ui.text(ctx, "Movimento durante tutta la durata", 12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
+        HorizontalScrollView lh = new HorizontalScrollView(ctx);
+        lh.setHorizontalScrollBarEnabled(false);
+        LinearLayout lr = new LinearLayout(ctx);
+        lh.addView(lr);
+        loopChips = new TextView[VideoFx.LOOP_NAMES.length];
+        for (int i = 0; i < loopChips.length; i++) {
+            final int ci = i;
+            loopChips[i] = Ui.chip(ctx, VideoFx.LOOP_NAMES[i]);
+            loopChips[i].setTextSize(13);
+            loopChips[i].setOnClickListener(v -> {
+                it.animLoop = ci;
+                styleText();
+            });
+            lr.addView(loopChips[i], Ui.lp(ctx, Ui.WRAP, dp(Ui.H_CHIP), i == 0 ? 0 : 6, 0));
+        }
+        root.addView(lh, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 6));
+        root.addView(Ui.text(ctx, "Il movimento si vede nell'anteprima del video e nel file esportato.", 11, Ui.DIM, false),
+                Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
         styleText();
+    }
+
+    private TextView[] inChips, outChips, loopChips;
+    private TextView inDurText, outDurText;
+    private SeekBar inDurBar, outDurBar;
+
+    /** Scelta dell'animazione di comparsa o di scomparsa, con la durata. */
+    private void animChips(LinearLayout root, String title, String[] names, boolean in) {
+        root.addView(Ui.text(ctx, title, 12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
+        HorizontalScrollView hs = new HorizontalScrollView(ctx);
+        hs.setHorizontalScrollBarEnabled(false);
+        LinearLayout row = new LinearLayout(ctx);
+        hs.addView(row);
+        TextView[] chips = new TextView[names.length];
+        for (int i = 0; i < names.length; i++) {
+            final int ci = i;
+            chips[i] = Ui.chip(ctx, names[i]);
+            chips[i].setTextSize(13);
+            chips[i].setOnClickListener(v -> {
+                if (in) {
+                    it.animIn = ci;
+                } else {
+                    it.animOut = ci;
+                }
+                styleText();
+            });
+            row.addView(chips[i], Ui.lp(ctx, Ui.WRAP, dp(Ui.H_CHIP), i == 0 ? 0 : 6, 0));
+        }
+        root.addView(hs, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 6));
+        TextView dt = Ui.text(ctx, "", 12, Ui.TEXT, false);
+        root.addView(dt, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 6));
+        SeekBar bar = Ui.seek(ctx, new Ui.SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (user) {
+                    if (in) {
+                        it.animInMs = 100 + p * 100L;
+                    } else {
+                        it.animOutMs = 100 + p * 100L;
+                    }
+                    styleText();
+                }
+            }
+        });
+        bar.setMax(29);
+        bar.setProgress((int) Math.max(0, Math.min(29, ((in ? it.animInMs : it.animOutMs) - 100) / 100)));
+        root.addView(bar);
+        if (in) {
+            inChips = chips;
+            inDurText = dt;
+            inDurBar = bar;
+        } else {
+            outChips = chips;
+            outDurText = dt;
+            outDurBar = bar;
+        }
     }
 
     private void styleText() {
@@ -678,6 +758,23 @@ final class FxDialog {
         Ui.styleChip(ctx, chOutline, it.outline);
         Ui.styleChip(ctx, chShadow, it.shadow);
         Ui.styleChip(ctx, chBox, it.box);
+        if (inChips != null) {
+            for (int i = 0; i < inChips.length; i++) {
+                Ui.styleChip(ctx, inChips[i], i == it.animIn);
+            }
+            for (int i = 0; i < outChips.length; i++) {
+                Ui.styleChip(ctx, outChips[i], i == it.animOut);
+            }
+            for (int i = 0; i < loopChips.length; i++) {
+                Ui.styleChip(ctx, loopChips[i], i == it.animLoop);
+            }
+            inDurText.setText("Durata comparsa: " + String.format(java.util.Locale.US, "%.1f", it.animInMs / 1000f) + " s");
+            outDurText.setText("Durata scomparsa: " + String.format(java.util.Locale.US, "%.1f", it.animOutMs / 1000f) + " s");
+            inDurText.setVisibility(it.animIn == 0 ? View.GONE : View.VISIBLE);
+            inDurBar.setVisibility(it.animIn == 0 ? View.GONE : View.VISIBLE);
+            outDurText.setVisibility(it.animOut == 0 ? View.GONE : View.VISIBLE);
+            outDurBar.setVisibility(it.animOut == 0 ? View.GONE : View.VISIBLE);
+        }
         for (int i = 0; i < swatchViews.length; i++) {
             int col = VideoFx.SWATCHES[i];
             android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();

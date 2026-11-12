@@ -77,6 +77,9 @@ final class VideoFx {
         // zoom dinamico: {zoom iniziale, zoom finale, punto x, punto y, morbido}
         float[] zoom = {1f, 1.5f, 0.5f, 0.5f, 1f};
         long vhsPlayUs = 2000000L; // per quanto resta visibile "PLAY"
+        // animazione dei testi: comparsa, scomparsa (vedi IN_NAMES / OUT_NAMES) e movimento continuo (LOOP_NAMES)
+        int animIn = 1, animOut = 1, animLoop = 0;
+        long animInMs = 250, animOutMs = 250;
 
         Item copy() {
             Item i = new Item();
@@ -116,6 +119,11 @@ final class VideoFx {
             i.vhsPlayUs = vhsPlayUs;
             i.vhsBlue = vhsBlue;
             i.zoom = zoom.clone();
+            i.animIn = animIn;
+            i.animOut = animOut;
+            i.animLoop = animLoop;
+            i.animInMs = animInMs;
+            i.animOutMs = animOutMs;
             return i;
         }
 
@@ -159,6 +167,11 @@ final class VideoFx {
                 za.put((double) f);
             }
             o.put("zoom", za);
+            o.put("animIn", animIn);
+            o.put("animOut", animOut);
+            o.put("animLoop", animLoop);
+            o.put("animInMs", animInMs);
+            o.put("animOutMs", animOutMs);
             return o;
         }
 
@@ -204,6 +217,11 @@ final class VideoFx {
                     i.zoom[k] = (float) za.optDouble(k, i.zoom[k]);
                 }
             }
+            i.animIn = o.optInt("animIn", 1);
+            i.animOut = o.optInt("animOut", 1);
+            i.animLoop = o.optInt("animLoop", 0);
+            i.animInMs = o.optLong("animInMs", 250);
+            i.animOutMs = o.optLong("animOutMs", 250);
             if (!i.isText && i.effect == 10) {
                 // il vecchio "Zoom avanti" e' uno Zoom dal centro, lineare, da 1x a 1+0,5*intensita'
                 i.effect = EFFECT_ZOOM;
@@ -225,6 +243,155 @@ final class VideoFx {
                     : EFFECT_NAMES[effect];
             return t;
         }
+    }
+
+    static final String[] IN_NAMES = {"Nessuna", "Dissolvenza", "Sale dal basso", "Scende dall'alto", "Da sinistra",
+            "Da destra", "Ingrandisce", "Rimpicciolisce", "Rimbalzo"};
+    static final String[] OUT_NAMES = {"Nessuna", "Dissolvenza", "Scende in basso", "Sale in alto", "Verso sinistra",
+            "Verso destra", "Rimpicciolisce", "Ingrandisce"};
+    static final String[] LOOP_NAMES = {"Nessuno", "Fluttua", "Pulsa", "Ondeggia", "Tremolio", "Lampeggia",
+            "Zoom lento", "Sale piano"};
+
+    private static float easeOut(float x) {
+        float q = 1f - x;
+        return 1f - q * q * q;
+    }
+
+    private static float easeBack(float x) {
+        float c1 = 1.70158f, c3 = c1 + 1f, q = x - 1f;
+        return 1f + c3 * q * q * q + c1 * q * q;
+    }
+
+    /**
+     * Animazione di un testo all'istante t: out = {spostamento x, spostamento y (frazioni dello schermo
+     * mostrato), ingrandimento, opacita'}.
+     */
+    static void textAnim(Item it, long tUs, float[] out) {
+        out[0] = 0f;
+        out[1] = 0f;
+        out[2] = 1f;
+        out[3] = 1f;
+        if (it.vhs) {
+            return;
+        }
+        long dur = Math.max(1, it.endUs - it.startUs);
+        long inUs = it.animIn == 0 ? 0 : it.animInMs * 1000L, outUs = it.animOut == 0 ? 0 : it.animOutMs * 1000L;
+        if (inUs + outUs > dur) {
+            float f = dur / (float) (inUs + outUs);
+            inUs = (long) (inUs * f);
+            outUs = (long) (outUs * f);
+        }
+        float al = 1f, sc = 1f, dx = 0f, dy = 0f;
+        if (inUs > 0 && tUs - it.startUs < inUs) {
+            float p = Math.max(0f, Math.min(1f, (tUs - it.startUs) / (float) inUs));
+            float e = easeOut(p);
+            switch (it.animIn) {
+                case 1:
+                    al = p;
+                    break;
+                case 2:
+                    dy += 0.15f * (1f - e);
+                    al = e;
+                    break;
+                case 3:
+                    dy -= 0.15f * (1f - e);
+                    al = e;
+                    break;
+                case 4:
+                    dx -= 0.25f * (1f - e);
+                    al = e;
+                    break;
+                case 5:
+                    dx += 0.25f * (1f - e);
+                    al = e;
+                    break;
+                case 6:
+                    sc = 0.3f + 0.7f * e;
+                    al = e;
+                    break;
+                case 7:
+                    sc = 1.8f - 0.8f * e;
+                    al = e;
+                    break;
+                case 8:
+                    sc = Math.max(0.01f, easeBack(p));
+                    al = Math.min(1f, p * 4f);
+                    break;
+                default:
+                    break;
+            }
+        }
+        if (outUs > 0 && it.endUs - tUs < outUs) {
+            float q = Math.max(0f, Math.min(1f, (it.endUs - tUs) / (float) outUs));
+            float e = easeOut(q);
+            switch (it.animOut) {
+                case 1:
+                    al *= q;
+                    break;
+                case 2:
+                    dy += 0.15f * (1f - e);
+                    al *= e;
+                    break;
+                case 3:
+                    dy -= 0.15f * (1f - e);
+                    al *= e;
+                    break;
+                case 4:
+                    dx -= 0.25f * (1f - e);
+                    al *= e;
+                    break;
+                case 5:
+                    dx += 0.25f * (1f - e);
+                    al *= e;
+                    break;
+                case 6:
+                    sc *= 0.3f + 0.7f * e;
+                    al *= e;
+                    break;
+                case 7:
+                    sc *= 1.8f - 0.8f * e;
+                    al *= e;
+                    break;
+                default:
+                    break;
+            }
+        }
+        float te = (tUs - it.startUs) / 1e6f, tp = (tUs - it.startUs) / (float) dur;
+        double w = 2 * Math.PI;
+        switch (it.animLoop) {
+            case 1:
+                dy += 0.018f * (float) Math.sin(w * te / 2.2);
+                break;
+            case 2:
+                sc *= 1f + 0.06f * (float) Math.sin(w * te / 1.1);
+                break;
+            case 3:
+                dx += 0.025f * (float) Math.sin(w * te / 2.6);
+                break;
+            case 4: {
+                long step = tUs / 45000L;
+                dx += (hash1(step * 7 + 1) - 0.5f) * 0.010f;
+                dy += (hash1(step * 13 + 5) - 0.5f) * 0.010f;
+                break;
+            }
+            case 5:
+                if (((long) (te / 0.5f)) % 2 != 0) {
+                    al = 0f;
+                }
+                break;
+            case 6:
+                sc *= 1f + 0.18f * tp;
+                break;
+            case 7:
+                dy -= 0.07f * tp;
+                break;
+            default:
+                break;
+        }
+        out[0] = dx;
+        out[1] = dy;
+        out[2] = sc;
+        out[3] = Math.max(0f, Math.min(1f, al));
     }
 
     static boolean hasAny(List<Item> l) {
@@ -472,8 +639,12 @@ final class VideoFx {
 
     /** Scritta a "pixel grossi" come i vecchi videoregistratori: carattere a bassa risoluzione ingrandito. */
     private static Bitmap renderVhs(Item o, int dispW, int dispH, int rotationDeg) {
-        int cell = Math.max(1, Math.round(dispH / 240f));
-        float fs = Math.max(6f, o.sizeFrac * dispH / cell);
+        // i "pixel" delle scritte seguono la risoluzione dei vecchi VHS (circa 240 righe), ma non possono
+        // essere piu' grandi di un sedicesimo dell'altezza del carattere, altrimenti le scritte piccole
+        // diventano illeggibili: piu' il testo e' piccolo, piu' i pixel si infittiscono
+        float textPx = Math.max(1f, o.sizeFrac * dispH);
+        int cell = Math.max(1, Math.min(Math.round(dispH / 240f), (int) Math.floor(textPx / 16f)));
+        float fs = Math.max(8f, textPx / cell);
         Paint p = new Paint();
         p.setAntiAlias(false);
         p.setTypeface(Typeface.create("monospace", Typeface.BOLD));

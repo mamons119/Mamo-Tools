@@ -1172,6 +1172,7 @@ final class VideoStabilizer {
             java.util.List<int[]> textTex = new java.util.ArrayList<>();
             java.util.List<int[]> textSz = new java.util.ArrayList<>();
             final float[] cpos = new float[2];
+            final float[] tanim = new float[4];
             if (items != null) {
                 for (VideoFx.Item it : VideoFx.expandVhs(items)) {
                     if (!it.isText || it.text == null || it.text.trim().isEmpty()) {
@@ -1385,18 +1386,15 @@ final class VideoStabilizer {
                                 if (!it.activeAt(ptsUs)) {
                                     continue;
                                 }
-                                float al = 1f;
-                                float fade = 250000f;
-                                al = Math.min(al, (ptsUs - it.startUs) / fade);
-                                al = Math.min(al, (it.endUs - ptsUs) / fade);
-                                al = Math.max(0f, Math.min(1f, al));
-                                if (it.vhs) {
-                                    al = 1f;
+                                VideoFx.textAnim(it, ptsUs, tanim);
+                                float al = tanim[3];
+                                if (al <= 0.003f) {
+                                    continue;
                                 }
                                 int[] sz = textSz.get(k);
                                 VideoFx.center(it, swap ? sz[1] : sz[0], swap ? sz[0] : sz[1], dispW, dispH, cpos);
-                                float fu = cpos[0] + (it.vhsJit ? VideoFx.vhsJitter(ptsUs, it.salt) : 0f);
-                                float fv = cpos[1], fxc, fyc;
+                                float fu = cpos[0] + tanim[0] + (it.vhsJit ? VideoFx.vhsJitter(ptsUs, it.salt) : 0f);
+                                float fv = cpos[1] + tanim[1], fxc, fyc;
                                 if (rotation == 90) {
                                     fxc = fv;
                                     fyc = 1 - fu;
@@ -1412,7 +1410,7 @@ final class VideoStabilizer {
                                 }
                                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textTex.get(k)[0]);
                                 GLES20.glUniform2f(tC, 2 * fxc - 1, 1 - 2 * fyc);
-                                GLES20.glUniform2f(tH, sz[0] / (float) ow, sz[1] / (float) oh);
+                                GLES20.glUniform2f(tH, tanim[2] * sz[0] / (float) ow, tanim[2] * sz[1] / (float) oh);
                                 GLES20.glUniform1f(tA, al);
                                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                             }

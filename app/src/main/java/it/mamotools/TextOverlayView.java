@@ -145,6 +145,7 @@ final class TextOverlayView extends View {
     }
 
     private boolean textsDone = false;
+    private final float[] tan = new float[4];
 
     /** Disegna i testi (anche VHS) del momento corrente nel rettangolo del video (l,t,rw,rh). */
     private void drawTexts(Canvas c, float l, float t, float rw, float rh) {
@@ -167,7 +168,17 @@ final class TextOverlayView extends View {
             }
             VideoFx.center(it, b.getWidth(), b.getHeight(), rw, rh, cpos);
             float jx = it.vhsJit ? VideoFx.vhsJitter(us, it.salt) * rw : 0f;
-            c.drawBitmap(b, l + cpos[0] * rw - b.getWidth() / 2f + jx, t + cpos[1] * rh - b.getHeight() / 2f, paint);
+            VideoFx.textAnim(it, us, tan);
+            if (tan[3] <= 0.004f) {
+                continue;
+            }
+            float tcx = l + (cpos[0] + tan[0]) * rw + jx, tcy = t + (cpos[1] + tan[1]) * rh;
+            paint.setAlpha(Math.round(255 * tan[3]));
+            c.save();
+            c.scale(tan[2], tan[2], tcx, tcy);
+            c.drawBitmap(b, tcx - b.getWidth() / 2f, tcy - b.getHeight() / 2f, paint);
+            c.restore();
+            paint.setAlpha(255);
         }
     }
 
