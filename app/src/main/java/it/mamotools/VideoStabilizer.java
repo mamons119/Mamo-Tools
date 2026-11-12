@@ -522,6 +522,8 @@ final class VideoStabilizer {
             + "uniform vec2 zc;\n"
             + "uniform vec2 d;\n"
             + "uniform vec2 rot;\n"
+            + "uniform vec4 uCrop;\n"
+            + "uniform vec2 uMir;\n"
             + "uniform mat4 uST;\n"
             + "varying vec2 vTc;\n"
             + "varying vec2 vPos;\n"
@@ -529,9 +531,11 @@ final class VideoStabilizer {
             + "  gl_Position = vec4(aPos, 0.0, 1.0);\n"
             + "  vPos = aTex;\n"
             + "  vec2 p = aTex - 0.5; p.x *= asp;\n"
+            + "  p *= uMir;\n"
             + "  vec2 u = (p - zc) / zoom + zc - d;\n"
             + "  vec2 q = vec2(rot.x*u.x + rot.y*u.y, -rot.y*u.x + rot.x*u.y);\n"
             + "  q.x /= asp; q += 0.5;\n"
+            + "  q = uCrop.xy + q * uCrop.zw;\n"
             + "  vTc = (uST * vec4(q.x, 1.0 - q.y, 0.0, 1.0)).xy;\n"
             + "}\n";
 
@@ -545,6 +549,8 @@ final class VideoStabilizer {
             + "varying vec2 vPos;\n"
             + "uniform samplerExternalOES sTex;\n"
             + "uniform vec2 texel;\n"
+            + "uniform vec2 uOut;\n"
+            + "uniform float uCool, uWarm;\n"
             + "uniform float uGray, uSepia, uInv, uVig, uBlur, uPix, uSat, uCon, uFade, uSplit;\n"
             + "uniform float uCrt, uWarp, uSwap, uTime;\n"
             + "uniform vec4 uLin;\n"
@@ -571,7 +577,7 @@ final class VideoStabilizer {
             + "  return vec2(uLin.x * st.x - uLin.z * st.y, uLin.y * st.x - uLin.w * st.y);\n"
             + "}\n"
             + "vec2 fishSrc(vec2 pd, float ca){\n"
-            + "  vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "  vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "  float asp = sz.x / sz.y;\n"
             + "  vec2 p = (pd - 0.5) * vec2(asp, 1.0) * 2.0;\n"
             + "  float r = length(p);\n"
@@ -634,7 +640,7 @@ final class VideoStabilizer {
             + "    c = vec4(s(uv + o).r, s(uv).g, s(uv - o).b, 1.0);\n"
             + "  } else if (uCrt > 0.0) {\n"
             + "    vec2 pd = uSwap > 0.5 ? vPos.yx : vPos;\n"
-            + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "    vec2 cc = pd - 0.5;\n"
             + "    float r2 = dot(cc, cc);\n"
             + "    vec2 off = vec2(0.0);\n"
@@ -654,7 +660,7 @@ final class VideoStabilizer {
             + "    vec3 nb = s(base - tx).rgb + s(base + tx).rgb;\n"
             + "    c = vec4(mix(ctr, ctr * 0.5 + nb * 0.25, 0.5 * uCrt), 1.0);\n"
             + "  } else if (uVhs > 0.0) {\n"
-            + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "    vec2 tx = toTc(vec2(1.0 / sz.x, 0.0)) * max(1.0, sz.x / 480.0);\n"
             + "    vec2 cs = tx * (1.0 + 2.0 * uVhs);\n"
             + "    vec3 a = vec3(s(uv + cs).r, s(uv).g, s(uv - cs).b);\n"
@@ -674,12 +680,14 @@ final class VideoStabilizer {
             + " dot(col, vec3(0.272, 0.534, 0.131)));\n"
             + "  col = mix(col, sep, uSepia);\n"
             + "  col = mix(col, 1.0 - col, uInv);\n"
+            + "  col = mix(col, clamp(col * vec3(0.9, 0.97, 1.12) + vec3(-0.02, 0.0, 0.04), 0.0, 1.0), uCool);\n"
+            + "  col = mix(col, clamp(col * vec3(1.12, 1.0, 0.88) + vec3(0.03, 0.01, -0.03), 0.0, 1.0), uWarm);\n"
             + "  float l2 = dot(col, vec3(0.299, 0.587, 0.114));\n"
             + "  col = mix(vec3(l2), col, uSat);\n"
             + "  col = (col - 0.5) * uCon + 0.5;\n"
             + "  if (uFish > 0.0) {\n"
             + "    vec2 pdf = uSwap > 0.5 ? vPos.yx : vPos;\n"
-            + "    vec2 szf = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    vec2 szf = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "    float rf = length((pdf - 0.5) * vec2(szf.x / szf.y, 1.0) * 2.0);\n"
             + "    float vg = 1.0 - 0.65 * pow(smoothstep(0.45, 1.0, rf), 1.4);\n"
             + "    float mk = 1.0 - smoothstep(0.93, 1.0, rf);\n"
@@ -687,7 +695,7 @@ final class VideoStabilizer {
             + "  }\n"
             + "  if (uCrt > 0.0) {\n"
             + "    vec2 pd = uSwap > 0.5 ? vPos.yx : vPos;\n"
-            + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "    vec2 pp = pd * sz;\n"
             + "    float ly = max(3.0, floor(sz.y / 240.0 + 0.5));\n"
             + "    float lx = 3.0 * max(1.0, floor(sz.x / 960.0 + 0.5));\n"
@@ -716,7 +724,7 @@ final class VideoStabilizer {
             + "  }\n"
             + "  if (uVhs > 0.0) {\n"
             + "    vec2 dp = dpos(vPos);\n"
-            + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "    float cs = max(1.0, sz.y / 240.0);\n"
             + "    vec2 pp = floor(dp * sz / cs);\n"
             + "    float tt = mod(floor(uTime * 25.0), 997.0);\n"
@@ -737,7 +745,7 @@ final class VideoStabilizer {
             + "  }\n"
             + "  if (uRw > 0.0) {\n"
             + "    vec2 dp = dpos(vPos);\n"
-            + "    vec2 sz = uSwap > 0.5 ? (1.0 / texel).yx : (1.0 / texel);\n"
+            + "    vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "    float cs = max(1.0, sz.y / 240.0);\n"
             + "    vec2 pp = floor(dp * sz / cs);\n"
             + "    float tt = mod(floor(uTime * 25.0), 997.0);\n"
@@ -1046,10 +1054,13 @@ final class VideoStabilizer {
             int uD = GLES20.glGetUniformLocation(prog, "d"), uRot = GLES20.glGetUniformLocation(prog, "rot");
             int uST = GLES20.glGetUniformLocation(prog, "uST");
             int uTexel = GLES20.glGetUniformLocation(prog, "texel");
+            int uOutL = GLES20.glGetUniformLocation(prog, "uOut");
+            int uCropL = GLES20.glGetUniformLocation(prog, "uCrop");
+            int uMirL = GLES20.glGetUniformLocation(prog, "uMir");
             int uSwapL = GLES20.glGetUniformLocation(prog, "uSwap"), uTimeL = GLES20.glGetUniformLocation(prog, "uTime");
             int uLinL = GLES20.glGetUniformLocation(prog, "uLin");
             int uRotIL = GLES20.glGetUniformLocation(prog, "uRotI");
-            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue", "uZxUnused", "uZyUnused", "uFish"};
+            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue", "uZxUnused", "uZyUnused", "uFish", "uCool", "uWarm", "uMirHUnused", "uMirVUnused"};
             int[] uFx = new int[un.length];
             for (int i = 0; i < un.length; i++) {
                 uFx[i] = GLES20.glGetUniformLocation(prog, un[i]);
@@ -1084,10 +1095,10 @@ final class VideoStabilizer {
                     }
                 }
             }
-            final boolean needFbo = usePost || cropOn;
+            final boolean needFbo = usePost;
             int progP = 0, pPos = 0, pTex = 0, pSampler = 0, pTexel = 0, pCrt = 0, pWarp = 0, pBars = 0,
                     pBspd = 0, pSwap = 0, pTime = 0, pRotI = 0;
-            int[] fbo = new int[1], ftex = new int[1], fbo2 = new int[1], ftex2 = new int[1];
+            int[] fbo = new int[1], ftex = new int[1];
             if (usePost) {
                 progP = GLES20.glCreateProgram();
                 GLES20.glAttachShader(progP, shader(GLES20.GL_VERTEX_SHADER, VS_P));
@@ -1111,26 +1122,7 @@ final class VideoStabilizer {
                 pRotI = GLES20.glGetUniformLocation(progP, "uRotI");
             }
             if (needFbo) {
-                makeFbo(w, h, fbo, ftex);
-                if (usePost && cropOn) {
-                    makeFbo(w, h, fbo2, ftex2);
-                }
-            }
-            int progC = 0, cPos = 0, cTex = 0, cSampler = 0, cRect = 0;
-            if (cropOn) {
-                progC = GLES20.glCreateProgram();
-                GLES20.glAttachShader(progC, shader(GLES20.GL_VERTEX_SHADER, VS_P));
-                GLES20.glAttachShader(progC, shader(GLES20.GL_FRAGMENT_SHADER, FS_C));
-                GLES20.glLinkProgram(progC);
-                int[] lkc = new int[1];
-                GLES20.glGetProgramiv(progC, GLES20.GL_LINK_STATUS, lkc, 0);
-                if (lkc[0] == 0) {
-                    throw new IOException("programma grafico del ritaglio non valido");
-                }
-                cPos = GLES20.glGetAttribLocation(progC, "aPos");
-                cTex = GLES20.glGetAttribLocation(progC, "aTex");
-                cSampler = GLES20.glGetUniformLocation(progC, "sP");
-                cRect = GLES20.glGetUniformLocation(progC, "uR");
+                makeFbo(ow, oh, fbo, ftex);
             }
 
             // ---- programma per il nero finale (Appare/Sparisce al nero: sopra a tutto)
@@ -1160,7 +1152,7 @@ final class VideoStabilizer {
             int tC = GLES20.glGetUniformLocation(prog2, "uC"), tH = GLES20.glGetUniformLocation(prog2, "uH");
             int tA = GLES20.glGetUniformLocation(prog2, "uA"), tS = GLES20.glGetUniformLocation(prog2, "sT");
             boolean swap = rotation == 90 || rotation == 270;
-            int dispW = swap ? h : w, dispH = swap ? w : h;
+            int dispW = swap ? oh : ow, dispH = swap ? ow : oh;
             java.util.List<VideoFx.Item> texts = new java.util.ArrayList<>();
             java.util.List<int[]> textTex = new java.util.ArrayList<>();
             java.util.List<int[]> textSz = new java.util.ArrayList<>();
@@ -1243,7 +1235,7 @@ final class VideoStabilizer {
             }
 
             float[] stm = new float[16];
-            float asp = w / (float) h;
+            float asp = ow / (float) oh;
             int idx = 0;
             MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
             MediaCodec.BufferInfo einfo = new MediaCodec.BufferInfo();
@@ -1304,7 +1296,7 @@ final class VideoStabilizer {
                         }
                         if (needFbo) {
                             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
-                            GLES20.glViewport(0, 0, w, h);
+                            GLES20.glViewport(0, 0, ow, oh);
                         }
                         GLES20.glUseProgram(prog);
                         GLES20.glDisable(GLES20.GL_BLEND);
@@ -1345,6 +1337,12 @@ final class VideoStabilizer {
                         GLES20.glUniform2f(uD, cdx, cdy);
                         GLES20.glUniform2f(uRot, (float) Math.cos(cr), (float) Math.sin(cr));
                         GLES20.glUniform2f(uTexel, 1f / w, 1f / h);
+                        GLES20.glUniform2f(uOutL, ow, oh);
+                        GLES20.glUniform4f(uCropL, cropOn ? sx : 0f, cropOn ? sy : 0f, cropOn ? sw : 1f, cropOn ? sh : 1f);
+                        // lo specchio e' scelto sullo schermo mostrato: con il video ruotato di 90/270 gli assi si scambiano
+                        boolean mxd = fxu[VideoFx.U_MIRH] > 0.5f, myd = fxu[VideoFx.U_MIRV] > 0.5f;
+                        boolean mxs = swap ? myd : mxd, mys = swap ? mxd : myd;
+                        GLES20.glUniform2f(uMirL, mxs ? -1f : 1f, mys ? -1f : 1f);
                         for (int k = 0; k < uFx.length; k++) {
                             GLES20.glUniform1f(uFx[k], fxu[k]);
                         }
@@ -1399,15 +1397,15 @@ final class VideoStabilizer {
                                 }
                                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, textTex.get(k)[0]);
                                 GLES20.glUniform2f(tC, 2 * fxc - 1, 1 - 2 * fyc);
-                                GLES20.glUniform2f(tH, sz[0] / (float) w, sz[1] / (float) h);
+                                GLES20.glUniform2f(tH, sz[0] / (float) ow, sz[1] / (float) oh);
                                 GLES20.glUniform1f(tA, al);
                                 GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                             }
                             GLES20.glDisable(GLES20.GL_BLEND);
                         }
                         if (usePost) {
-                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, cropOn ? fbo2[0] : 0);
-                            GLES20.glViewport(0, 0, w, h);
+                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+                            GLES20.glViewport(0, 0, ow, oh);
                             GLES20.glDisable(GLES20.GL_BLEND);
                             GLES20.glUseProgram(progP);
                             GLES20.glEnableVertexAttribArray(pPos);
@@ -1419,7 +1417,7 @@ final class VideoStabilizer {
                             GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
                             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, ftex[0]);
                             GLES20.glUniform1i(pSampler, 0);
-                            GLES20.glUniform2f(pTexel, 1f / w, 1f / h);
+                            GLES20.glUniform2f(pTexel, 1f / ow, 1f / oh);
                             GLES20.glUniform1f(pCrt, cCrt);
                             GLES20.glUniform1f(pWarp, cWarp);
                             GLES20.glUniform1f(pBars, cBars);
@@ -1427,23 +1425,6 @@ final class VideoStabilizer {
                             GLES20.glUniform1f(pSwap, (rotation == 90 || rotation == 270) ? 1f : 0f);
                             GLES20.glUniform1f(pTime, (float) ((ptsUs % 600000000L) / 1e6));
                             GLES20.glUniform1f(pRotI, rotation == 90 ? 1f : rotation == 180 ? 2f : rotation == 270 ? 3f : 0f);
-                            GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
-                        }
-                        if (cropOn) {
-                            GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
-                            GLES20.glViewport(0, 0, ow, oh);
-                            GLES20.glDisable(GLES20.GL_BLEND);
-                            GLES20.glUseProgram(progC);
-                            GLES20.glEnableVertexAttribArray(cPos);
-                            GLES20.glEnableVertexAttribArray(cTex);
-                            fb.position(0);
-                            GLES20.glVertexAttribPointer(cPos, 2, GLES20.GL_FLOAT, false, 16, fb);
-                            fb.position(2);
-                            GLES20.glVertexAttribPointer(cTex, 2, GLES20.GL_FLOAT, false, 16, fb);
-                            GLES20.glActiveTexture(GLES20.GL_TEXTURE0);
-                            GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, usePost ? ftex2[0] : ftex[0]);
-                            GLES20.glUniform1i(cSampler, 0);
-                            GLES20.glUniform4f(cRect, sx, sy, sw, sh);
                             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                         }
                         if (topFade < 0.999f) {

@@ -41,6 +41,7 @@ final class FxDialog {
     private final int vw, vh;
     private final Callback cb;
     private final int extraRot;
+    private final float[] crop;   // ritaglio attivo (frazioni dello schermo intero) o null
     private final Dialog dlg;
     private TextView timeText;
     private SeekBar sbStart, sbEnd;
@@ -49,8 +50,8 @@ final class FxDialog {
     private final Handler h = new Handler(Looper.getMainLooper());
 
     static void show(Context ctx, VideoFx.Item initial, boolean editing, Uri video, long durMs, long cursorMs,
-                     int vw, int vh, int extraRot, Callback cb) {
-        new FxDialog(ctx, initial, editing, video, durMs, cursorMs, vw, vh, extraRot, cb);
+                     int vw, int vh, int extraRot, float[] crop, Callback cb) {
+        new FxDialog(ctx, initial, editing, video, durMs, cursorMs, vw, vh, extraRot, crop, cb);
     }
 
     private int dp(int v) {
@@ -58,7 +59,8 @@ final class FxDialog {
     }
 
     private FxDialog(Context ctx, VideoFx.Item initial, boolean editing, Uri video, long durMs, long cursorMs,
-                     int vw, int vh, int extraRot, Callback cb) {
+                     int vw, int vh, int extraRot, float[] crop, Callback cb) {
+        this.crop = crop == null ? null : crop.clone();
         this.ctx = ctx;
         this.extraRot = extraRot;
         this.it = initial.copy();
@@ -205,8 +207,14 @@ final class FxDialog {
         int n = VideoFx.EFFECT_NAMES.length;
         fxChips = new TextView[n];
         LinearLayout row = null;
+        int shown = 0;
         for (int i = 0; i < n; i++) {
-            if (i % 2 == 0) {
+            if (VideoFx.isHidden(i)) {
+                // resta creato ma non compare nell'elenco (vecchio "Zoom avanti")
+                fxChips[i] = Ui.chip(ctx, VideoFx.EFFECT_NAMES[i]);
+                continue;
+            }
+            if (shown % 2 == 0) {
                 row = new LinearLayout(ctx);
                 root.addView(row, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 6));
             }
@@ -217,7 +225,8 @@ final class FxDialog {
                 it.effect = idx;
                 styleFx();
             });
-            row.addView(fxChips[i], Ui.lp(ctx, 0, dp(Ui.H_CHIP), i % 2 == 0 ? 0 : 6, 0, 1f));
+            row.addView(fxChips[i], Ui.lp(ctx, 0, dp(Ui.H_CHIP), shown % 2 == 0 ? 0 : 6, 0, 1f));
+            shown++;
         }
         kBox = new LinearLayout(ctx);
         kBox.setOrientation(LinearLayout.VERTICAL);
@@ -698,6 +707,13 @@ final class FxDialog {
                 android.graphics.Matrix m = new android.graphics.Matrix();
                 m.postRotate(extraRot);
                 b = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
+            }
+            if (b != null && crop != null) {
+                // gli effetti e i testi agiscono sul video ritagliato: si mostra solo quella zona
+                int x0 = Math.max(0, Math.round(crop[0] * b.getWidth())), y0 = Math.max(0, Math.round(crop[1] * b.getHeight()));
+                int cw = Math.max(1, Math.min(b.getWidth() - x0, Math.round(crop[2] * b.getWidth())));
+                int chh = Math.max(1, Math.min(b.getHeight() - y0, Math.round(crop[3] * b.getHeight())));
+                b = Bitmap.createBitmap(b, x0, y0, cw, chh);
             }
             final Bitmap fb = b;
             h.post(() -> {

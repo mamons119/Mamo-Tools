@@ -19,10 +19,15 @@ final class VideoFx {
     }
 
     static final String[] EFFECT_NAMES = {"Bianco e nero", "Seppia", "Negativo", "Vintage", "Vignettatura",
-            "Sfocatura", "Pixel", "Vivido", "Appare dal nero", "Sparisce al nero", "Zoom avanti", "Glitch RGB", "Schermo CRT", "VHS", "Zoom dinamico", "Fisheye"};
-    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺", "🖥", "📼", "⤢", "🐟"};
+            "Sfocatura", "Pixel", "Vivido", "Appare dal nero", "Sparisce al nero", "Zoom avanti", "Glitch RGB", "Schermo CRT", "VHS", "Zoom", "Fisheye",
+            "Freddo", "Caldo", "Specchio orizzontale", "Specchio verticale"};
+    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺", "🖥", "📼", "⤢", "🐟", "❄", "🔥", "↔", "↕"};
     /** Se l'effetto ha un'intensita' regolabile. */
-    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true, true, true, false, true};
+    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true, true, true, false, true, true, true, false, false};
+    /** Effetti non piu' proposti nell'elenco ("Zoom avanti" e' un caso dello Zoom e viene convertito). */
+    static boolean isHidden(int effect) {
+        return effect == 10;
+    }
 
     static final int EFFECT_CRT = 12, EFFECT_VHS = 13, EFFECT_ZOOM = 14;
     static final String[] VHS_DEFAULT = {"PLAY ▶", "VHS", "01:35\nSEP. 03 1985", ""};
@@ -199,6 +204,11 @@ final class VideoFx {
                     i.zoom[k] = (float) za.optDouble(k, i.zoom[k]);
                 }
             }
+            if (!i.isText && i.effect == 10) {
+                // il vecchio "Zoom avanti" e' uno Zoom dal centro, lineare, da 1x a 1+0,5*intensita'
+                i.effect = EFFECT_ZOOM;
+                i.zoom = new float[]{1f, 1f + 0.5f * i.intensity, 0.5f, 0.5f, 0f};
+            }
             return i;
         }
 
@@ -224,7 +234,7 @@ final class VideoFx {
     // ------------------------------------------------------------------ parametri degli effetti
 
     static final int U_GRAY = 0, U_SEPIA = 1, U_INV = 2, U_VIG = 3, U_BLUR = 4, U_PIX = 5, U_SAT = 6, U_CON = 7,
-            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_ZX = 19, U_ZY = 20, U_FISH = 21, U_COUNT = 22;
+            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_ZX = 19, U_ZY = 20, U_FISH = 21, U_COOL = 22, U_WARM = 23, U_MIRH = 24, U_MIRV = 25, U_COUNT = 26;
 
     /** Calcola i parametri dello shader per l'istante t combinando gli effetti attivi. */
     static void uniforms(List<Item> items, long tUs, float[] u) {
@@ -248,6 +258,10 @@ final class VideoFx {
         u[U_RWDIR] = 0;
         u[U_RWBLUE] = 0;
         u[U_FISH] = 0;
+        u[U_COOL] = 0;
+        u[U_WARM] = 0;
+        u[U_MIRH] = 0;
+        u[U_MIRV] = 0;
         u[U_ZX] = 0.5f;
         u[U_ZY] = 0.5f;
         if (items == null) {
@@ -319,6 +333,18 @@ final class VideoFx {
                     break;
                 case 15:
                     u[U_FISH] = Math.max(u[U_FISH], k);
+                    break;
+                case 16:
+                    u[U_COOL] = Math.max(u[U_COOL], k);
+                    break;
+                case 17:
+                    u[U_WARM] = Math.max(u[U_WARM], k);
+                    break;
+                case 18:
+                    u[U_MIRH] = 1;
+                    break;
+                case 19:
+                    u[U_MIRV] = 1;
                     break;
                 case 14:
                     u[U_ZOOM] *= zoomAt(it.zoom[0], it.zoom[1], it.zoom[4] >= 0.5f, p);
@@ -612,6 +638,14 @@ final class VideoFx {
             cm.postConcat(new android.graphics.ColorMatrix(lerpM(new float[]{
                     -1, 0, 0, 0, 255, 0, -1, 0, 0, 255, 0, 0, -1, 0, 255, 0, 0, 0, 1, 0}, u[U_INV])));
         }
+        if (u[U_COOL] > 0) {
+            cm.postConcat(new android.graphics.ColorMatrix(lerpM(new float[]{
+                    .9f, 0, 0, 0, -5.1f, 0, .97f, 0, 0, 0, 0, 0, 1.12f, 0, 10.2f, 0, 0, 0, 1, 0}, u[U_COOL])));
+        }
+        if (u[U_WARM] > 0) {
+            cm.postConcat(new android.graphics.ColorMatrix(lerpM(new float[]{
+                    1.12f, 0, 0, 0, 7.65f, 0, 1f, 0, 0, 2.55f, 0, 0, .88f, 0, -7.65f, 0, 0, 0, 1, 0}, u[U_WARM])));
+        }
         if (u[U_SAT] != 1) {
             android.graphics.ColorMatrix sm = new android.graphics.ColorMatrix();
             sm.setSaturation(u[U_SAT]);
@@ -641,6 +675,7 @@ final class VideoFx {
     static boolean isNeutral(float[] u) {
         return u[U_GRAY] == 0 && u[U_SEPIA] == 0 && u[U_INV] == 0 && u[U_VIG] == 0 && u[U_BLUR] == 0
                 && u[U_PIX] == 0 && u[U_SAT] == 1 && u[U_CON] == 1 && u[U_FADE] == 1 && u[U_SPLIT] == 0
-                && u[U_ZOOM] == 1 && u[U_CRT] == 0 && u[U_VHS] == 0 && u[U_FISH] == 0;
+                && u[U_ZOOM] == 1 && u[U_CRT] == 0 && u[U_VHS] == 0 && u[U_FISH] == 0 && u[U_COOL] == 0
+                && u[U_WARM] == 0 && u[U_MIRH] == 0 && u[U_MIRV] == 0;
     }
 }

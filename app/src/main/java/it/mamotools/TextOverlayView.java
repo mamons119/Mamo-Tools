@@ -49,9 +49,10 @@ final class TextOverlayView extends View {
         u[VideoFx.U_FADE] = 1f;
         if (video != null) {
             if (VideoFx.isNeutral(u)) {
-                video.setFx(null, 1f, 0.5f, 0.5f);
+                video.setFx(null, 1f, 0.5f, 0.5f, false, false);
             } else {
-                video.setFx(VideoFx.colorMatrix(u), u[VideoFx.U_ZOOM], u[VideoFx.U_ZX], u[VideoFx.U_ZY]);
+                video.setFx(VideoFx.colorMatrix(u), u[VideoFx.U_ZOOM], u[VideoFx.U_ZX], u[VideoFx.U_ZY],
+                        u[VideoFx.U_MIRH] > 0.5f, u[VideoFx.U_MIRV] > 0.5f);
             }
         }
     }

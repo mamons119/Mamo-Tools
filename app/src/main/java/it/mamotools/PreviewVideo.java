@@ -19,6 +19,8 @@ import android.widget.FrameLayout;
  */
 final class PreviewVideo extends FrameLayout {
     private final TextureView tv;
+    private final FrameLayout inner;   // mostra solo la zona ritagliata; zoom e specchio agiscono qui
+    private float[] crop;              // {x, y, larghezza, altezza} del ritaglio (frazioni dello schermo intero)
     private MediaPlayer mp;
     private Surface surface;
     private boolean prepared = false;
@@ -73,7 +75,20 @@ final class PreviewVideo extends FrameLayout {
             public void onSurfaceTextureUpdated(SurfaceTexture st) {
             }
         });
-        addView(tv, new LayoutParams(10, 10));
+        inner = new FrameLayout(c) {
+            // misura e posizione del TextureView le decide PreviewVideo
+            @Override
+            protected void onMeasure(int ws, int hs) {
+                setMeasuredDimension(MeasureSpec.getSize(ws), MeasureSpec.getSize(hs));
+            }
+
+            @Override
+            protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            }
+        };
+        inner.setClipChildren(true);
+        inner.addView(tv, new LayoutParams(10, 10));
+        addView(inner, new LayoutParams(10, 10));
         setClipChildren(true);
     }
 
@@ -85,7 +100,13 @@ final class PreviewVideo extends FrameLayout {
         onCompletion = l;
     }
 
-    /** Dimensioni del video come appare (gia' ruotato), per il rapporto d'aspetto. */
+    /** Zona ritagliata mostrata (null = tutto). setDisplaySize deve ricevere le dimensioni gia' ritagliate. */
+    void setCrop(float[] c) {
+        crop = c == null || c.length != 4 ? null : c.clone();
+        requestLayout();
+    }
+
+    /** Dimensioni del video come appare (gia' ruotato e ritagliato), per il rapporto d'aspetto. */
     void setDisplaySize(int w, int h) {
         dispW = w;
         dispH = h;
@@ -216,11 +237,16 @@ final class PreviewVideo extends FrameLayout {
 
     /** Applica filtro di colore e zoom (null/1 = nessuno). */
     void setFx(ColorMatrix cm, float zoom) {
-        setFx(cm, zoom, 0.5f, 0.5f);
+        setFx(cm, zoom, 0.5f, 0.5f, false, false);
     }
 
-    /** Come sopra, con lo zoom attorno a un punto (frazioni della larghezza e dell'altezza della vista). */
-    void setFx(ColorMatrix cm, float zoom, float px, float py) {
+    private boolean mirH = false, mirV = false;
+
+    /**
+     * Filtro di colore, zoom attorno a un punto (frazioni della larghezza e dell'altezza del riquadro mostrato)
+     * e specchio orizzontale/verticale.
+     */
+    void setFx(ColorMatrix cm, float zoom, float px, float py, boolean mh, boolean mv) {
         float[] arr = cm == null ? null : cm.getArray().clone();
         boolean same = (arr == null && lastCm == null) || (arr != null && lastCm != null
                 && java.util.Arrays.equals(arr, lastCm));
@@ -232,28 +258,64 @@ final class PreviewVideo extends FrameLayout {
         if (Float.isNaN(zoom) || zoom <= 0f) {
             zoom = 1f;
         }
-        // zoom attorno a un punto senza toccare il perno: scala dal centro e sposta di (1-z)*(punto-centro).
-        // La traslazione e' nel sistema della vista madre, quindi vale anche con il video ruotato.
-        tv.setScaleX(zoom);
-        tv.setScaleY(zoom);
-        tv.setTranslationX((1f - zoom) * (px - 0.5f) * rect.width());
-        tv.setTranslationY((1f - zoom) * (py - 0.5f) * rect.height());
+        mirH = mh;
+        mirV = mv;
+        // scala dal centro del riquadro (zoom e specchio) e sposta in modo che il punto scelto resti fermo;
+        // lo specchio viene dopo lo zoom, come nell'esportazione
+        float sx = mh ? -zoom : zoom, sy = mv ? -zoom : zoom;
+        inner.setScaleX(sx);
+        inner.setScaleY(sy);
+        inner.setTranslationX((mh ? -1f : 1f) * (1f - zoom) * (px - 0.5f) * rect.width());
+        inner.setTranslationY((mv ? -1f : 1f) * (1f - zoom) * (py - 0.5f) * rect.height());
     }
 
-    /** Fotogramma corrente ridotto (senza filtri), oppure null. */
+    /** Fotogramma corrente come appare nel riquadro (ritagliato e specchiato, senza altri filtri), oppure null. */
     Bitmap grab(int w, int h) {
+        return grab(w, h, true);
+    }
+
+    /** Fotogramma intero, senza ritaglio e senza specchio (per la finestra "Ruota e ritaglia"). */
+    Bitmap grabFull(int w, int h) {
+        return grab(w, h, false);
+    }
+
+    private Bitmap grab(int w, int h, boolean cropped) {
         if (!tv.isAvailable() || w < 2 || h < 2) {
             return null;
         }
         try {
+            float[] c = cropped ? crop : null;
+            float cw = c == null ? 1f : c[2], ch = c == null ? 1f : c[3];
+            // il fotogramma intero ha dimensioni 1/cw e 1/ch volte piu' grandi del ritaglio richiesto
+            int fw = Math.min(2400, Math.max(2, Math.round(w / cw))), fh = Math.min(2400, Math.max(2, Math.round(h / ch)));
             boolean sw = extraRot == 90 || extraRot == 270;
-            Bitmap b = sw ? tv.getBitmap(h, w) : tv.getBitmap(w, h);
-            if (b != null && extraRot != 0) {
+            Bitmap b = sw ? tv.getBitmap(fh, fw) : tv.getBitmap(fw, fh);
+            if (b == null) {
+                return null;
+            }
+            if (extraRot != 0) {
                 android.graphics.Matrix m = new android.graphics.Matrix();
                 m.postRotate(extraRot);
                 Bitmap r = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
                 b.recycle();
-                return r;
+                b = r;
+            }
+            if (c != null) {
+                int x0 = Math.max(0, Math.round(c[0] * b.getWidth())), y0 = Math.max(0, Math.round(c[1] * b.getHeight()));
+                int cwp = Math.max(1, Math.min(b.getWidth() - x0, Math.round(c[2] * b.getWidth())));
+                int chp = Math.max(1, Math.min(b.getHeight() - y0, Math.round(c[3] * b.getHeight())));
+                Bitmap r = Bitmap.createBitmap(b, x0, y0, cwp, chp);
+                if (r != b) {
+                    b.recycle();
+                }
+                b = r;
+            }
+            if (cropped && (mirH || mirV)) {
+                android.graphics.Matrix m = new android.graphics.Matrix();
+                m.postScale(mirH ? -1 : 1, mirV ? -1 : 1);
+                Bitmap r = Bitmap.createBitmap(b, 0, 0, b.getWidth(), b.getHeight(), m, true);
+                b.recycle();
+                b = r;
             }
             return b;
         } catch (Exception e) {
@@ -274,18 +336,31 @@ final class PreviewVideo extends FrameLayout {
             t = (h - rh) / 2f;
         }
         rect.set(l, t, l + rw, t + rh);
+        inner.measure(MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(rw)), MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(rh)), MeasureSpec.EXACTLY));
+        // dimensioni dello schermo intero nel riquadro (il riquadro mostra solo la parte ritagliata)
+        float cw = crop == null ? 1f : crop[2], ch = crop == null ? 1f : crop[3];
+        float fw = rw / cw, fh = rh / ch;
         boolean sw = extraRot == 90 || extraRot == 270;
-        float tw = sw ? rh : rw, th = sw ? rw : rh;
+        float tw = sw ? fh : fw, th = sw ? fw : fh;
         tv.measure(MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(tw)), MeasureSpec.EXACTLY),
                 MeasureSpec.makeMeasureSpec(Math.max(1, Math.round(th)), MeasureSpec.EXACTLY));
     }
 
     @Override
     protected void onLayout(boolean changed, int l, int t, int r, int b) {
+        inner.layout(Math.round(rect.left), Math.round(rect.top), Math.round(rect.right), Math.round(rect.bottom));
         boolean sw = extraRot == 90 || extraRot == 270;
-        float cx = rect.centerX(), cy = rect.centerY();
-        float tw = sw ? rect.height() : rect.width(), th = sw ? rect.width() : rect.height();
+        float rw = rect.width(), rh = rect.height();
+        float cw = crop == null ? 1f : crop[2], ch = crop == null ? 1f : crop[3];
+        float fw = rw / cw, fh = rh / ch;
+        // il centro della zona ritagliata va al centro del riquadro
+        float cx = rw / 2f + (crop == null ? 0f : (0.5f - (crop[0] + cw / 2f)) * fw);
+        float cy = rh / 2f + (crop == null ? 0f : (0.5f - (crop[1] + ch / 2f)) * fh);
+        float tw = sw ? fh : fw, th = sw ? fw : fh;
         tv.layout(Math.round(cx - tw / 2), Math.round(cy - th / 2), Math.round(cx + tw / 2), Math.round(cy + th / 2));
+        inner.setPivotX(rw / 2f);
+        inner.setPivotY(rh / 2f);
         setClipBounds(new android.graphics.Rect(Math.round(rect.left), Math.round(rect.top),
                 Math.round(rect.right), Math.round(rect.bottom)));
     }

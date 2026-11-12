@@ -106,7 +106,8 @@ public class VideoEditorActivity extends Activity {
     private final java.util.List<VideoFx.Item> fxItems = new java.util.ArrayList<>();
     private LinearLayout fxList;
     private TextOverlayView overlay;
-    private int dispVw = 0, dispVh = 0;      // dimensioni mostrate (con rotazione utente)
+    private int dispVw = 0, dispVh = 0;      // dimensioni mostrate (con rotazione utente e ritaglio)
+    private int fullVw = 0, fullVh = 0;      // come sopra ma senza ritaglio
     private int baseVw = 0, baseVh = 0;      // dimensioni mostrate dal file originale
     private int extraRot = 0;                // rotazione scelta dall'utente (0/90/180/270)
     private float[] crop = null;             // ritaglio {x, y, larghezza, altezza} in frazioni, null = nessuno
@@ -2769,7 +2770,7 @@ public class VideoEditorActivity extends Activity {
             4f / 5f, 5f / 4f, 21f / 9f};
 
     private void cropDialog() {
-        if (busy || videoUri == null || dispVw <= 0 || dispVh <= 0) {
+        if (busy || videoUri == null || fullVw <= 0 || fullVh <= 0) {
             return;
         }
         final int rot0 = extraRot;
@@ -2791,7 +2792,7 @@ public class VideoEditorActivity extends Activity {
         box.addView(sv, new LinearLayout.LayoutParams(MATCH, 0, 1f));
 
         final CropView cv = new CropView(this);
-        cv.setAspect(dispVw / (float) dispVh);
+        cv.setAspect(fullVw / (float) fullVh);
         TextView fl = text("Fotogramma corrente  " + FxDialog.fmt(at), 12, R.color.text_dim, false);
         fl.setPadding(0, dp(10), 0, dp(6));
         body.addView(fl);
@@ -2802,9 +2803,9 @@ public class VideoEditorActivity extends Activity {
         body.addView(info, new LinearLayout.LayoutParams(MATCH, WRAP));
 
         // frame: prima da quello che si vede, altrimenti dal file
-        int gw = dispVw >= dispVh ? 720 : Math.max(2, Math.round(720f * dispVw / dispVh));
-        int gh = dispVw >= dispVh ? Math.max(2, Math.round(720f * dispVh / dispVw)) : 720;
-        android.graphics.Bitmap g0 = videoView.grab(gw, gh);
+        int gw = fullVw >= fullVh ? 720 : Math.max(2, Math.round(720f * fullVw / fullVh));
+        int gh = fullVw >= fullVh ? Math.max(2, Math.round(720f * fullVh / fullVw)) : 720;
+        android.graphics.Bitmap g0 = videoView.grabFull(gw, gh);
         if (g0 != null) {
             base[0] = g0;
             cv.setBitmap(g0);
@@ -2852,7 +2853,7 @@ public class VideoEditorActivity extends Activity {
         // formato attuale: se corrisponde a uno dei formati lo si seleziona
         float[] initRect = (crop != null) ? crop.clone() : null;
         if (initRect != null) {
-            float pr = (initRect[2] * dispVw) / (initRect[3] * dispVh);
+            float pr = (initRect[2] * fullVw) / (initRect[3] * fullVh);
             float best = 0.02f;
             for (int i = 1; i < CROP_RATIOS.length; i++) {
                 float dd = Math.abs(pr / CROP_RATIOS[i] - 1f);
@@ -2919,7 +2920,7 @@ public class VideoEditorActivity extends Activity {
                 styleOpt(chips[i], i == sel[0]);
             }
             boolean sw = ((rr[0] - rot0 + 360) % 180) != 0;
-            int bw = sw ? dispVh : dispVw, bh = sw ? dispVw : dispVh;
+            int bw = sw ? fullVh : fullVw, bh = sw ? fullVw : fullVh;
             float[] r = cv.rect();
             if (r == null) {
                 info.setText("Nessun ritaglio  ·  " + bw + "×" + bh + " px");
@@ -2945,7 +2946,7 @@ public class VideoEditorActivity extends Activity {
                 }
             } else {
                 boolean sw = delta == 90 || delta == 270;
-                cv.setAspect(sw ? dispVh / (float) dispVw : dispVw / (float) dispVh);
+                cv.setAspect(sw ? fullVh / (float) fullVw : fullVw / (float) fullVh);
             }
             cv.recenter();
             upd[0].run();
@@ -2970,7 +2971,7 @@ public class VideoEditorActivity extends Activity {
             if (base[0] != null) {
                 cv.setBitmap(base[0]);
             } else {
-                cv.setAspect(dispVw / (float) dispVh);
+                cv.setAspect(fullVw / (float) fullVh);
             }
             cv.setRatio(0f);
             cv.setFrac(1f);
@@ -2982,9 +2983,13 @@ public class VideoEditorActivity extends Activity {
         br.addView(btn("Applica", C_ACCENT, Color.BLACK, v -> {
             float[] r = cv.rect();
             d.dismiss();
+            if (rr[0] == rot0) {
+                remapForCrop(crop, r);
+            }
             extraRot = rr[0];
             crop = r;
             applyRotation();
+            refreshFx();
         }), lp(0, dp(46), 6, 0, 1f));
         box.addView(br, lp(MATCH, WRAP, 0, 14));
         d.setContentView(box);
@@ -2998,6 +3003,25 @@ public class VideoEditorActivity extends Activity {
         d.show();
     }
 
+    /**
+     * Il ritaglio cambia: testi e punto dello zoom restano sullo stesso punto del video (se escono dalla
+     * nuova inquadratura si fermano al bordo) e i testi mantengono la stessa grandezza sul contenuto.
+     */
+    private void remapForCrop(float[] from, float[] to) {
+        float[] a = from == null ? new float[]{0, 0, 1, 1} : from;
+        float[] b = to == null ? new float[]{0, 0, 1, 1} : to;
+        for (VideoFx.Item it : fxItems) {
+            if (it.isText) {
+                it.x = Math.max(0f, Math.min(1f, (it.x * a[2] + a[0] - b[0]) / b[2]));
+                it.y = Math.max(0f, Math.min(1f, (it.y * a[3] + a[1] - b[1]) / b[3]));
+                it.sizeFrac = Math.max(0.02f, Math.min(0.6f, it.sizeFrac * a[3] / b[3]));
+            } else if (it.effect == VideoFx.EFFECT_ZOOM) {
+                it.zoom[2] = Math.max(0f, Math.min(1f, (it.zoom[2] * a[2] + a[0] - b[0]) / b[2]));
+                it.zoom[3] = Math.max(0f, Math.min(1f, (it.zoom[3] * a[3] + a[1] - b[1]) / b[3]));
+            }
+        }
+    }
+
     private void rotate(int delta) {
         if (videoUri == null) {
             return;
@@ -3008,13 +3032,16 @@ public class VideoEditorActivity extends Activity {
 
     private void applyRotation() {
         boolean sw = extraRot == 90 || extraRot == 270;
-        dispVw = sw ? baseVh : baseVw;
-        dispVh = sw ? baseVw : baseVh;
+        fullVw = sw ? baseVh : baseVw;
+        fullVh = sw ? baseVw : baseVh;
+        // effetti, testi e zoom lavorano sul video gia' ritagliato
+        dispVw = crop == null ? fullVw : Math.max(2, Math.round(fullVw * crop[2]));
+        dispVh = crop == null ? fullVh : Math.max(2, Math.round(fullVh * crop[3]));
         overlay.setVideoSize(dispVw, dispVh);
+        videoView.setCrop(crop);
         videoView.setDisplaySize(dispVw, dispVh);
         videoView.setExtraRotation(extraRot);
         timeline.setExtraRot(extraRot);
-        overlay.setCrop(crop);
         if (cropBtn != null) {
             cropBtn.setText(crop != null || extraRot != 0 ? "✂  Ruota e ritaglia  •" : "✂  Ruota e ritaglia");
         }
@@ -3034,7 +3061,7 @@ public class VideoEditorActivity extends Activity {
             return;
         }
         long cur = timeline.pos;
-        FxDialog.show(this, item, editing, videoUri, durMs, cur, dispVw, dispVh, extraRot, new FxDialog.Callback() {
+        FxDialog.show(this, item, editing, videoUri, durMs, cur, dispVw, dispVh, extraRot, crop, new FxDialog.Callback() {
             @Override
             public void onSave(VideoFx.Item saved) {
                 if (editing) {
@@ -3125,10 +3152,9 @@ public class VideoEditorActivity extends Activity {
         refreshFx();
         markA = markB = -1;
         durMs = 0;
-        dispVw = dispVh = baseVw = baseVh = 0;
+        dispVw = dispVh = fullVw = fullVh = baseVw = baseVh = 0;
         extraRot = 0;
         crop = null;
-        overlay.setCrop(null);
         MediaMetadataRetriever mr = new MediaMetadataRetriever();
         try {
             mr.setDataSource(this, uri);
