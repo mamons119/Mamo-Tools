@@ -29,7 +29,7 @@ final class VideoFx {
         return effect == 10;
     }
 
-    static final int EFFECT_CRT = 12, EFFECT_VHS = 13, EFFECT_ZOOM = 14;
+    static final int EFFECT_CRT = 12, EFFECT_VHS = 13, EFFECT_ZOOM = 14, EFFECT_FISH = 15;
     static final String[] VHS_DEFAULT = {"PLAY ▶", "VHS", "01:35\nSEP. 03 1985", ""};
 
     static final String[] FONT_NAMES = {"Normale", "Condensato", "Sottile", "Nero", "Serif", "Macchina",
@@ -73,6 +73,7 @@ final class VideoFx {
         int vhsMode = 0;
         boolean vhsBlink = true;  // scritta REWIND / FAST FORWARD lampeggiante
         boolean vhsPlay = true;   // alla fine compare "PLAY"
+        float fishD = 1f;         // diametro dell'obiettivo fisheye (1 = altezza del fotogramma)
         boolean vhsBlue = true;   // rewind/fast forward con dominante blu
         // zoom dinamico: {zoom iniziale, zoom finale, punto x, punto y, morbido}
         float[] zoom = {1f, 1.5f, 0.5f, 0.5f, 1f};
@@ -118,6 +119,7 @@ final class VideoFx {
             i.vhsPlay = vhsPlay;
             i.vhsPlayUs = vhsPlayUs;
             i.vhsBlue = vhsBlue;
+            i.fishD = fishD;
             i.zoom = zoom.clone();
             i.animIn = animIn;
             i.animOut = animOut;
@@ -162,6 +164,7 @@ final class VideoFx {
             o.put("vhsPlay", vhsPlay);
             o.put("vhsPlayUs", vhsPlayUs);
             o.put("vhsBlue", vhsBlue);
+            o.put("fishD", (double) fishD);
             org.json.JSONArray za = new org.json.JSONArray();
             for (float f : zoom) {
                 za.put((double) f);
@@ -211,6 +214,7 @@ final class VideoFx {
             i.vhsPlay = o.optBoolean("vhsPlay", true);
             i.vhsPlayUs = o.optLong("vhsPlayUs", 2000000L);
             i.vhsBlue = o.optBoolean("vhsBlue", true);
+            i.fishD = (float) o.optDouble("fishD", 1.0);
             org.json.JSONArray za = o.optJSONArray("zoom");
             if (za != null && za.length() >= 5) {
                 for (int k = 0; k < 5; k++) {
@@ -401,7 +405,7 @@ final class VideoFx {
     // ------------------------------------------------------------------ parametri degli effetti
 
     static final int U_GRAY = 0, U_SEPIA = 1, U_INV = 2, U_VIG = 3, U_BLUR = 4, U_PIX = 5, U_SAT = 6, U_CON = 7,
-            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_ZX = 19, U_ZY = 20, U_FISH = 21, U_COOL = 22, U_WARM = 23, U_MIRH = 24, U_MIRV = 25, U_COUNT = 26;
+            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_ZX = 19, U_ZY = 20, U_FISH = 21, U_COOL = 22, U_WARM = 23, U_MIRH = 24, U_MIRV = 25, U_FISHD = 26, U_COUNT = 27;
 
     /** Calcola i parametri dello shader per l'istante t combinando gli effetti attivi. */
     static void uniforms(List<Item> items, long tUs, float[] u) {
@@ -425,6 +429,7 @@ final class VideoFx {
         u[U_RWDIR] = 0;
         u[U_RWBLUE] = 0;
         u[U_FISH] = 0;
+        u[U_FISHD] = 1;
         u[U_COOL] = 0;
         u[U_WARM] = 0;
         u[U_MIRH] = 0;
@@ -500,6 +505,7 @@ final class VideoFx {
                     break;
                 case 15:
                     u[U_FISH] = Math.max(u[U_FISH], k);
+                    u[U_FISHD] = Math.max(0.3f, Math.min(2f, it.fishD));
                     break;
                 case 16:
                     u[U_COOL] = Math.max(u[U_COOL], k);

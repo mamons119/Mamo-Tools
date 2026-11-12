@@ -53,6 +53,72 @@ final class VideoProcessor {
         java.util.List<VideoFx.Item> fx; // effetti e testi (tempi in microsecondi)
         long soundFadeInUs = 0, soundFadeOutUs = 0; // dissolvenze della colonna sonora (0 = nessuna)
         int soundFadeCurve = 1; // 0 lineare, 1 morbida
+        float origVol = 1f;     // volume dell'audio del video (1 = invariato, 0 = muto, > 1 = amplificato)
+        java.util.List<ClipSound> clips; // colonne sonore delle singole clip (tempi del video montato)
+    }
+
+    /** Colonna sonora di una singola clip, su un tratto {t0, t1} del video (microsecondi). */
+    static final class ClipSound {
+        Uri uri;
+        long srcUs;              // punto del file audio corrispondente a t0
+        long t0, t1;
+        long elapsed0, remain0;  // tempo trascorso dall'inizio della clip e rimasto alla sua fine, all'istante t0
+        long fadeInUs, fadeOutUs;
+        int curve = 1;
+        int mode = 0;            // 0 sovrapposta, 1 sostituisce la colonna sonora generale, 2 sostituisce tutto
+
+        ClipSound part(long a, long b) {
+            ClipSound c = new ClipSound();
+            c.uri = uri;
+            c.srcUs = srcUs + (a - t0);
+            c.elapsed0 = elapsed0 + (a - t0);
+            c.remain0 = remain0 - (a - t0);
+            c.t0 = a;
+            c.t1 = b;
+            c.fadeInUs = fadeInUs;
+            c.fadeOutUs = fadeOutUs;
+            c.curve = curve;
+            c.mode = mode;
+            return c;
+        }
+
+        float gain(long tUs) {
+            long el = elapsed0 + (tUs - t0), re = remain0 - (tUs - t0);
+            float g = 1f;
+            if (fadeInUs > 0 && el < fadeInUs) {
+                g *= shape(el / (float) fadeInUs, curve);
+            }
+            if (fadeOutUs > 0 && re < fadeOutUs) {
+                g *= shape(re / (float) fadeOutUs, curve);
+            }
+            return g;
+        }
+    }
+
+    static float shape(float x, int curve) {
+        x = Math.max(0f, Math.min(1f, x));
+        return curve == 0 ? x : x * x * (3 - 2 * x);
+    }
+
+    /** Porta le colonne sonore delle clip da un montaggio ai tratti {a, b} tenuti, che iniziano in outOff. */
+    static java.util.List<ClipSound> mapClips(java.util.List<ClipSound> src, long[] a, long[] b, long[] outOff) {
+        java.util.List<ClipSound> res = new java.util.ArrayList<>();
+        if (src == null) {
+            return res;
+        }
+        for (ClipSound c : src) {
+            for (int i = 0; i < a.length; i++) {
+                long lo = Math.max(c.t0, a[i]), hi = Math.min(c.t1, b[i]);
+                if (hi - lo < 20000) {
+                    continue;
+                }
+                ClipSound p = c.part(lo, hi);
+                p.t0 = outOff[i] + (lo - a[i]);
+                p.t1 = p.t0 + (hi - lo);
+                res.add(p);
+            }
+        }
+        return res;
     }
 
     static final int RATE = 44100;
@@ -86,6 +152,8 @@ final class VideoProcessor {
                 o2.soundFadeInUs = o.soundFadeInUs;
                 o2.soundFadeOutUs = o.soundFadeOutUs;
                 o2.soundFadeCurve = o.soundFadeCurve;
+                o2.origVol = o.origVol;
+                o2.clips = o.clips;
                 o2.extraRot = 0; // gia' applicata nel file intermedio
                 export(ctx, o2, out, cacheDir, new Progress() {
                     @Override
@@ -135,6 +203,24 @@ final class VideoProcessor {
                 o3.soundFadeInUs = o.soundFadeInUs;
                 o3.soundFadeOutUs = o.soundFadeOutUs;
                 o3.soundFadeCurve = o.soundFadeCurve;
+                o3.origVol = o.origVol;
+                {
+                    java.util.List<long[]> kk = new java.util.ArrayList<>();
+                    for (long[] k : o.keep) {
+                        if (k[1] - k[0] >= 100000) {
+                            kk.add(k);
+                        }
+                    }
+                    long[] ka = new long[kk.size()], kb = new long[kk.size()], ko = new long[kk.size()];
+                    long acc = 0;
+                    for (int q = 0; q < ka.length; q++) {
+                        ka[q] = kk.get(q)[0];
+                        kb[q] = kk.get(q)[1];
+                        ko[q] = acc;
+                        acc += kb[q] - ka[q];
+                    }
+                    o3.clips = mapClips(o.clips, ka, kb, ko);
+                }
                 o3.extraRot = o.extraRot;
                 export(ctx, o3, out, cacheDir, new Progress() {
                     @Override
@@ -226,10 +312,16 @@ final class VideoProcessor {
         File pcmOrig = new File(tmpDir, "orig.pcm");
         File pcmSound = new File(tmpDir, "sound.pcm");
         File tmpM4a = new File(tmpDir, "mix.m4a");
-        boolean useSound = o.sound != null;
+        final java.util.List<ClipSound> frags = mapClips(o.clips, java.util.Arrays.copyOf(starts, segs),
+                java.util.Arrays.copyOf(ends, segs), java.util.Arrays.copyOf(offsets, segs));
+        final boolean hasClips = !frags.isEmpty();
+        final boolean origWanted = o.keepAudio && origAudio && o.origVol > 0.001f;
+        boolean useSound = o.sound != null || hasClips
+                || (origWanted && Math.abs(o.origVol - 1f) > 0.001f);
+        File pcmClip = new File(tmpDir, "clip.pcm");
         try {
             if (useSound) {
-                boolean needOrig = o.keepAudio && origAudio && o.mix;
+                boolean needOrig = origWanted && (o.sound == null || o.mix);
                 if (needOrig) {
                     p.onProgress("Lettura dell'audio originale...", 5);
                     PcmWriter w = new PcmWriter(pcmOrig);
@@ -242,16 +334,32 @@ final class VideoProcessor {
                         w.close();
                     }
                 }
-                p.onProgress("Lettura della colonna sonora...", 15);
-                PcmWriter w = new PcmWriter(pcmSound);
-                try {
-                    decodeRange(ctx, o.sound, o.soundStartUs, o.soundStartUs + total, w);
-                } finally {
-                    w.close();
+                if (o.sound != null) {
+                    p.onProgress("Lettura della colonna sonora...", 15);
+                    PcmWriter w = new PcmWriter(pcmSound);
+                    try {
+                        decodeRange(ctx, o.sound, o.soundStartUs, o.soundStartUs + total, w);
+                    } finally {
+                        w.close();
+                    }
+                }
+                if (hasClips) {
+                    p.onProgress("Lettura delle colonne sonore delle clip...", 20);
+                    buildClipPcm(ctx, frags, pcmClip, total);
+                    for (ClipSound c : frags) {
+                        long f0 = c.t0 * RATE / 1000000L, f1 = c.t1 * RATE / 1000000L;
+                        if (c.mode >= 1 && o.sound != null) {
+                            mutePcm(pcmSound, f0, f1);
+                        }
+                        if (c.mode >= 2 && needOrig) {
+                            mutePcm(pcmOrig, f0, f1);
+                        }
+                    }
                 }
                 p.onProgress("Mixaggio audio...", 30);
-                float g = (float) Math.pow(10.0, o.originalDb / 20.0);
-                encodeMix(needOrig ? pcmOrig : null, pcmSound, g, tmpM4a, p,
+                float g = (o.sound != null ? (float) Math.pow(10.0, o.originalDb / 20.0) : 1f) * o.origVol;
+                encodeMix(needOrig ? pcmOrig : null, o.sound != null ? pcmSound : null,
+                        hasClips ? pcmClip : null, g, tmpM4a, p,
                         o.soundFadeInUs, o.soundFadeOutUs, o.soundFadeCurve, total);
             }
 
@@ -273,7 +381,7 @@ final class VideoProcessor {
                     ae.setDataSource(tmpM4a.getAbsolutePath());
                     aTrack = findTrack(ae, "audio/");
                     audioFromTemp = true;
-                } else if (o.keepAudio && origAudio) {
+                } else if (origWanted) {
                     ae = new MediaExtractor();
                     ae.setDataSource(ctx, o.video, null);
                     aTrack = findTrack(ae, "audio/");
@@ -335,6 +443,8 @@ final class VideoProcessor {
             pcmOrig.delete();
             //noinspection ResultOfMethodCallIgnored
             pcmSound.delete();
+            //noinspection ResultOfMethodCallIgnored
+            pcmClip.delete();
             //noinspection ResultOfMethodCallIgnored
             tmpM4a.delete();
         }
@@ -425,6 +535,93 @@ final class VideoProcessor {
     }
 
     // =========================================================================== PCM
+
+    /** File PCM lungo quanto il video con le colonne sonore delle clip ai loro posti, con dissolvenze. */
+    private static void buildClipPcm(Context ctx, java.util.List<ClipSound> frags, File out, long totalUs)
+            throws IOException {
+        java.util.List<ClipSound> sorted = new java.util.ArrayList<>(frags);
+        java.util.Collections.sort(sorted, (x, y) -> Long.compare(x.t0, y.t0));
+        PcmWriter w = new PcmWriter(out);
+        java.util.List<long[]> pos = new java.util.ArrayList<>();
+        java.util.List<ClipSound> placed = new java.util.ArrayList<>();
+        try {
+            for (ClipSound c : sorted) {
+                long f0 = c.t0 * RATE / 1000000L;
+                if (f0 > w.frames) {
+                    w.silence(f0 - w.frames);
+                }
+                long start = w.frames;
+                try {
+                    decodeRange(ctx, c.uri, c.srcUs, c.srcUs + (c.t1 - c.t0), w);
+                } catch (IOException e) {
+                    if (w.frames == start) {
+                        // file non leggibile: silenzio al suo posto
+                        w.silence(Math.max(0, (c.t1 - c.t0) * RATE / 1000000L));
+                    }
+                }
+                pos.add(new long[]{start, w.frames});
+                placed.add(c);
+            }
+            long tot = totalUs * RATE / 1000000L;
+            if (tot > w.frames) {
+                w.silence(tot - w.frames);
+            }
+        } finally {
+            w.close();
+        }
+        for (int i = 0; i < placed.size(); i++) {
+            final ClipSound c = placed.get(i);
+            final long base = pos.get(i)[0];
+            if (c.fadeInUs <= 0 && c.fadeOutUs <= 0) {
+                continue;
+            }
+            scalePcm(out, base, pos.get(i)[1], f -> c.gain(c.t0 + (f - base) * 1000000L / RATE));
+        }
+    }
+
+    interface FrameGain {
+        float at(long frame);
+    }
+
+    /** Moltiplica per un guadagno variabile i fotogrammi [f0, f1) di un file PCM (s16 stereo). */
+    static void scalePcm(File f, long f0, long f1, FrameGain g) throws IOException {
+        java.io.RandomAccessFile raf = new java.io.RandomAccessFile(f, "rw");
+        try {
+            long len = raf.length() / 4;
+            f1 = Math.min(f1, len);
+            byte[] b = new byte[4 * 8192];
+            long fr = Math.max(0, f0);
+            while (fr < f1) {
+                int n = (int) Math.min(8192, f1 - fr);
+                raf.seek(fr * 4);
+                raf.readFully(b, 0, n * 4);
+                for (int i = 0; i < n; i++) {
+                    float gg = g.at(fr + i);
+                    if (gg == 1f) {
+                        continue;
+                    }
+                    for (int ch = 0; ch < 2; ch++) {
+                        int o = i * 4 + ch * 2;
+                        int v = Math.round((short) ((b[o] & 0xFF) | (b[o + 1] << 8)) * gg);
+                        v = Math.max(-32768, Math.min(32767, v));
+                        b[o] = (byte) v;
+                        b[o + 1] = (byte) (v >> 8);
+                    }
+                }
+                raf.seek(fr * 4);
+                raf.write(b, 0, n * 4);
+                fr += n;
+            }
+        } finally {
+            raf.close();
+        }
+    }
+
+    /** Silenzia i fotogrammi [f0, f1) con una breve rampa ai bordi per evitare scatti. */
+    static void mutePcm(File f, final long f0, final long f1) throws IOException {
+        final float ramp = RATE * 0.02f;
+        scalePcm(f, f0, f1, fr -> 1f - Math.max(0f, Math.min(1f, Math.min(fr - f0, f1 - 1 - fr) / ramp)));
+    }
 
     /** Scrive PCM 16 bit stereo a 44100 Hz su file, ricampionando in modo lineare. */
     static final class PcmWriter {
@@ -674,9 +871,11 @@ final class VideoProcessor {
     private static final class MixSource {
         private final InputStream sound;
         private final InputStream orig;
+        private final InputStream clip;
         private final float gain;
         private final byte[] bs = new byte[16384];
         private final byte[] bo = new byte[16384];
+        private final byte[] bc = new byte[16384];
         long totalFrames = 0;
         long fadeInF = 0, fadeOutF = 0, endF = 0;
         int curve = 1;
@@ -705,8 +904,9 @@ final class VideoProcessor {
             return g;
         }
 
-        MixSource(File orig, File sound, float gain) throws IOException {
-            this.sound = new BufferedInputStream(new FileInputStream(sound), 64 * 1024);
+        MixSource(File orig, File sound, File clip, float gain) throws IOException {
+            this.sound = sound == null ? null : new BufferedInputStream(new FileInputStream(sound), 64 * 1024);
+            this.clip = clip == null ? null : new BufferedInputStream(new FileInputStream(clip), 64 * 1024);
             this.orig = orig == null ? null
                     : new BufferedInputStream(new FileInputStream(orig), 64 * 1024);
             this.gain = gain;
@@ -715,9 +915,10 @@ final class VideoProcessor {
         /** @return byte scritti in dst (multiplo di 4) oppure -1 a fine. */
         int read(byte[] dst, int max) throws IOException {
             int want = Math.min(max, bs.length) & ~3;
-            int ns = fill(sound, bs, want);
+            int ns = sound == null ? 0 : fill(sound, bs, want);
             int no = orig == null ? 0 : fill(orig, bo, want);
-            int n = Math.max(ns, no);
+            int nc = clip == null ? 0 : fill(clip, bc, want);
+            int n = Math.max(ns, Math.max(no, nc));
             if (n <= 0) {
                 return -1;
             }
@@ -727,7 +928,8 @@ final class VideoProcessor {
                     s = Math.round(s * fadeGain(totalFrames + (i >> 2)));
                 }
                 int ov = i < no ? (short) ((bo[i] & 0xFF) | (bo[i + 1] << 8)) : 0;
-                int v = orig == null ? s : Math.round(s + ov * gain);
+                int cv = i < nc ? (short) ((bc[i] & 0xFF) | (bc[i + 1] << 8)) : 0;
+                int v = Math.round(s + ov * gain + cv);
                 if (v > 32767) {
                     v = 32767;
                 } else if (v < -32768) {
@@ -754,7 +956,12 @@ final class VideoProcessor {
 
         void close() {
             try {
-                sound.close();
+                if (sound != null) {
+                    sound.close();
+                }
+                if (clip != null) {
+                    clip.close();
+                }
                 if (orig != null) {
                     orig.close();
                 }
@@ -765,15 +972,22 @@ final class VideoProcessor {
 
     static void encodeMix(File orig, File sound, float gain, File outM4a, Progress p)
             throws IOException {
-        encodeMix(orig, sound, gain, outM4a, p, 0, 0, 1, 0);
+        encodeMix(orig, sound, null, gain, outM4a, p, 0, 0, 1, 0);
     }
 
     static void encodeMix(File orig, File sound, float gain, File outM4a, Progress p,
                           long fadeInUs, long fadeOutUs, int curve, long totalUs)
             throws IOException {
-        MixSource src = new MixSource(orig, sound, gain);
+        encodeMix(orig, sound, null, gain, outM4a, p, fadeInUs, fadeOutUs, curve, totalUs);
+    }
+
+    static void encodeMix(File orig, File sound, File clip, float gain, File outM4a, Progress p,
+                          long fadeInUs, long fadeOutUs, int curve, long totalUs)
+            throws IOException {
+        MixSource src = new MixSource(orig, sound, clip, gain);
         src.setFade(fadeInUs, fadeOutUs, curve, totalUs);
-        long totalBytes = Math.max(orig == null ? 0 : orig.length(), sound.length());
+        long totalBytes = Math.max(Math.max(orig == null ? 0 : orig.length(), sound == null ? 0 : sound.length()),
+                clip == null ? 0 : clip.length());
         MediaCodec enc = null;
         MediaMuxer mx = null;
         try {

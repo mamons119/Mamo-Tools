@@ -201,6 +201,8 @@ final class FxDialog {
     private SeekBar vhsPlayBar;
     private TextView kText;
     private ZoomBox zoomBox;
+    private LinearLayout fishBox;
+    private TextView fishText;
 
     private void buildEffect(LinearLayout root) {
         root.addView(Ui.section(ctx, "Tipo di effetto"), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 12));
@@ -247,6 +249,25 @@ final class FxDialog {
         settle(k, Math.round(it.intensity * 100));
         kBox.addView(k);
         root.addView(kBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
+        fishBox = new LinearLayout(ctx);
+        fishBox.setOrientation(LinearLayout.VERTICAL);
+        fishText = Ui.text(ctx, "", 14, Ui.TEXT, false);
+        fishBox.addView(fishText);
+        SeekBar fs = Ui.seek(ctx, new Ui.SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
+                it.fishD = (30 + p) / 100f;
+                fishText.setText("Diametro obiettivo: " + (30 + p) + "% dell'altezza");
+            }
+        });
+        fs.setMax(170);   // 30% .. 200%
+        fs.setProgress(Math.max(0, Math.min(170, Math.round(it.fishD * 100) - 30)));
+        settle(fs, Math.max(0, Math.min(170, Math.round(it.fishD * 100) - 30)));
+        fishBox.addView(fs);
+        root.addView(fishBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
         zoomBox = new ZoomBox(ctx, it.zoom, Ui.CARD2, () -> { });
         root.addView(zoomBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 14));
         crtBox = new LinearLayout(ctx);
@@ -468,6 +489,8 @@ final class FxDialog {
         kBox.setVisibility(VideoFx.EFFECT_HAS_K[it.effect] ? View.VISIBLE : View.GONE);
         zoomBox.setVisibility(it.effect == VideoFx.EFFECT_ZOOM ? View.VISIBLE : View.GONE);
         kText.setText("Intensita': " + Math.round(it.intensity * 100) + "%");
+        fishBox.setVisibility(it.effect == VideoFx.EFFECT_FISH ? View.VISIBLE : View.GONE);
+        fishText.setText("Diametro obiettivo: " + Math.round(it.fishD * 100) + "% dell'altezza");
         crtBox.setVisibility(it.effect == VideoFx.EFFECT_CRT ? View.VISIBLE : View.GONE);
         crtChip.setText(it.crtWarp ? "Distorsioni CRT: attive" : "Distorsioni CRT: disattivate");
         Ui.styleChip(ctx, crtChip, it.crtWarp);

@@ -473,6 +473,7 @@ final class TextOverlayView extends View {
         float th = 0.12f + 0.93f * Math.max(0f, Math.min(1f, u[VideoFx.U_FISH]));
         float tanT = (float) Math.tan(th * 1.02f);
         float asp = rw / rh;
+        float fd = Math.max(0.3f, Math.min(2f, u[VideoFx.U_FISHD]));
         float cx = l + rw / 2, cy = t + rh / 2, half = rh / 2;
         Paint bk = new Paint();
         bk.setColor(0xFF000000);
@@ -483,7 +484,7 @@ final class TextOverlayView extends View {
         for (int j = 0; j <= ny; j++) {
             for (int i = 0; i <= nx; i++) {
                 float px = (i / (float) nx - 0.5f) * 2f * asp, py = (j / (float) ny - 0.5f) * 2f;
-                float rs = (float) Math.sqrt(px * px + py * py);
+                float rs = (float) Math.sqrt(px * px + py * py) / fd;
                 float f = 1f;
                 if (rs > 1e-5f) {
                     f = (float) (Math.atan(rs * tanT) / th) / rs;
@@ -498,7 +499,7 @@ final class TextOverlayView extends View {
         fxPaint.setColorFilter(null);
         // vignettatura della lente e bordo morbido, senza stacco netto
         Paint vp = new Paint();
-        vp.setShader(new RadialGradient(cx, cy, half, new int[]{0, 0, 0xA6000000, 0xFF000000},
+        vp.setShader(new RadialGradient(cx, cy, half * fd, new int[]{0, 0, 0xA6000000, 0xFF000000},
                 new float[]{0f, 0.45f, 0.93f, 1f}, Shader.TileMode.CLAMP));
         c.drawRect(l - 2, t - 2, l + rw + 2, t + rh + 2, vp);
     }

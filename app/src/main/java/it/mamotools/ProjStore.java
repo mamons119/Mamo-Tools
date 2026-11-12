@@ -224,6 +224,10 @@ final class ProjStore {
             if (!v.isEmpty()) {
                 set.add(v);
             }
+            String sv = pa.optJSONObject(i) == null ? "" : pa.optJSONObject(i).optString("snd", "");
+            if (!sv.isEmpty()) {
+                set.add(sv);
+            }
         }
         return set;
     }
@@ -240,6 +244,9 @@ final class ProjStore {
             JSONObject p = pa.optJSONObject(i);
             if (p != null && map.containsKey(p.optString("uri", ""))) {
                 p.put("uri", map.get(p.getString("uri")));
+            }
+            if (p != null && map.containsKey(p.optString("snd", ""))) {
+                p.put("snd", map.get(p.getString("snd")));
             }
         }
     }

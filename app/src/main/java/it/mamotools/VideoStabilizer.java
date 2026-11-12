@@ -554,7 +554,7 @@ final class VideoStabilizer {
             + "uniform float uGray, uSepia, uInv, uVig, uBlur, uPix, uSat, uCon, uFade, uSplit;\n"
             + "uniform float uCrt, uWarp, uSwap, uTime;\n"
             + "uniform vec4 uLin;\n"
-            + "uniform float uBars, uBspd, uVhs, uRotI, uRw, uRwDir, uRwBlue, uFish;\n"
+            + "uniform float uBars, uBspd, uVhs, uRotI, uRw, uRwDir, uRwBlue, uFish, uFishD;\n"
             + "vec4 s(vec2 uv){ return texture2D(sTex, uv); }\n"
             + "float hsh(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n"
             + "vec2 dpos(vec2 p){\n"
@@ -580,12 +580,13 @@ final class VideoStabilizer {
             + "  vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
             + "  float asp = sz.x / sz.y;\n"
             + "  vec2 p = (pd - 0.5) * vec2(asp, 1.0) * 2.0;\n"
+            + "  p /= uFishD;\n"
             + "  float r = length(p);\n"
             + "  float th = mix(0.12, 1.05, uFish);\n"
             + "  float rr = min(r, 1.05);\n"
             + "  float g = tan(rr * th * (1.0 + ca * r)) / tan(th * 1.02);\n"
             + "  vec2 sp = p / max(r, 0.0001) * g;\n"
-            + "  return 0.5 + sp / (2.0 * vec2(asp, 1.0));\n"
+            + "  return 0.5 + sp * uFishD / (2.0 * vec2(asp, 1.0));\n"
             + "}\n"
             + "void main(){\n"
             + "  vec2 uv = vTc;\n"
@@ -688,7 +689,7 @@ final class VideoStabilizer {
             + "  if (uFish > 0.0) {\n"
             + "    vec2 pdf = uSwap > 0.5 ? vPos.yx : vPos;\n"
             + "    vec2 szf = uSwap > 0.5 ? uOut.yx : uOut;\n"
-            + "    float rf = length((pdf - 0.5) * vec2(szf.x / szf.y, 1.0) * 2.0);\n"
+            + "    float rf = length((pdf - 0.5) * vec2(szf.x / szf.y, 1.0) * 2.0) / uFishD;\n"
             + "    float vg = 1.0 - 0.65 * pow(smoothstep(0.45, 1.0, rf), 1.4);\n"
             + "    float mk = 1.0 - smoothstep(0.93, 1.0, rf);\n"
             + "    col *= vg * mk;\n"
@@ -1075,7 +1076,7 @@ final class VideoStabilizer {
             int uSwapL = GLES20.glGetUniformLocation(prog, "uSwap"), uTimeL = GLES20.glGetUniformLocation(prog, "uTime");
             int uLinL = GLES20.glGetUniformLocation(prog, "uLin");
             int uRotIL = GLES20.glGetUniformLocation(prog, "uRotI");
-            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue", "uZxUnused", "uZyUnused", "uFish", "uCool", "uWarm", "uMirHUnused", "uMirVUnused"};
+            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue", "uZxUnused", "uZyUnused", "uFish", "uCool", "uWarm", "uMirHUnused", "uMirVUnused", "uFishD"};
             int[] uFx = new int[un.length];
             for (int i = 0; i < un.length; i++) {
                 uFx[i] = GLES20.glGetUniformLocation(prog, un[i]);

@@ -50,6 +50,12 @@ final class VideoComposer {
         int rot = 0;                 // rotazione extra in passi di 90 gradi, in senso orario (0..3)
         // zoom dinamico durante la clip: {zoom iniziale, zoom finale, punto x, punto y, morbido}
         float[] zoom = {1f, 1f, 0.5f, 0.5f, 1f};
+        // colonna sonora della sola clip (snd == null: nessuna). Parte sul primo istante della clip nel video montato.
+        Uri snd;
+        long sndDurUs, sndStartUs;       // durata del file audio e punto da cui parte
+        long sndFadeInUs, sndFadeOutUs;  // dissolvenze
+        int sndCurve = 1;                // 0 lineare, 1 morbida
+        int sndMode = 0;                 // 0 sovrapposta, 1 sostituisce la colonna sonora generale, 2 sostituisce tutto l'audio
 
         boolean zoomOn() {
             return zoom[0] != 1f || zoom[1] != 1f;
@@ -89,6 +95,13 @@ final class VideoComposer {
             s.look = look;
             s.rot = rot;
             s.zoom = zoom.clone();
+            s.snd = snd;
+            s.sndDurUs = sndDurUs;
+            s.sndStartUs = sndStartUs;
+            s.sndFadeInUs = sndFadeInUs;
+            s.sndFadeOutUs = sndFadeOutUs;
+            s.sndCurve = sndCurve;
+            s.sndMode = sndMode;
             return s;
         }
     }
