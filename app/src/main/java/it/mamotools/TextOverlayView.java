@@ -620,17 +620,32 @@ final class TextOverlayView extends View {
         Paint p = new Paint();
         p.setColor(android.graphics.Color.argb(Math.round(255 * 0.14f * k), 48, 16, 72));
         c.drawRect(l, t, l + rw, t + rh, p);
-        int cnt = Math.min(1500, Math.round(rw * rh / (cell * cell) * 0.01f * k));
-        float[] pts = new float[cnt * 2];
-        for (int i = 0; i < cnt; i++) {
-            pts[2 * i] = l + r.nextFloat() * rw;
-            pts[2 * i + 1] = t + r.nextFloat() * rh;
+        // grana: tratti orizzontali corti e morbidi, non puntini
+        Paint gp = new Paint();
+        int rows = Math.max(1, Math.round(rh / cell));
+        int grains = Math.min(260, Math.round(rows * 0.8f * k));
+        for (int i = 0; i < grains; i++) {
+            float yy = t + (float) Math.floor(r.nextFloat() * rows) * cell;
+            float x = l + r.nextFloat() * rw;
+            float len = (3f + r.nextFloat() * 9f) * cell;
+            boolean light = r.nextFloat() > 0.4f;
+            gp.setColor(android.graphics.Color.argb(Math.round(255 * (0.05f + 0.10f * r.nextFloat()) * k),
+                    light ? 235 : 20, light ? 235 : 20, light ? 245 : 30));
+            c.drawRect(x, yy, x + len, yy + cell, gp);
         }
-        Paint sp = new Paint();
-        sp.setColor(0xCCDDDDDD);
-        sp.setStrokeWidth(cell);
-        sp.setStrokeCap(Paint.Cap.SQUARE);
-        c.drawPoints(pts, sp);
+        // strisce chiare di segnale perso (poche, di lunghezza e luminosita' variabili, con bordi sfumati)
+        int streaks = Math.min(40, Math.round(rows * 0.045f * k * 1.6f));
+        for (int i = 0; i < streaks; i++) {
+            float yy = t + (float) Math.floor(r.nextFloat() * rows) * cell;
+            float x = l + r.nextFloat() * rw;
+            float len = (4f + r.nextFloat() * 30f) * cell;
+            float a0 = 0.25f + 0.35f * r.nextFloat();
+            gp.setColor(android.graphics.Color.argb(Math.round(255 * a0 * k), 220, 222, 242));
+            c.drawRect(x + cell, yy, x + len - cell, yy + cell, gp);
+            gp.setColor(android.graphics.Color.argb(Math.round(255 * a0 * 0.4f * k), 220, 222, 242));
+            c.drawRect(x, yy, x + cell, yy + cell, gp);
+            c.drawRect(x + len - cell, yy, x + len, yy + cell, gp);
+        }
         Paint dp = new Paint();
         dp.setColor(0xDDE0E0E0);
         for (int i = 0; i < 2; i++) {
