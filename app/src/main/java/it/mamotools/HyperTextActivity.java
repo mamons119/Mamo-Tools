@@ -167,87 +167,28 @@ public class HyperTextActivity extends Activity {
         head.addView(langChip, Ui.lp(this, Ui.WRAP, Ui.dp(this, 34), 8, 0));
         root.addView(head, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
 
-        // Barra degli strumenti
-        HorizontalScrollView hs = new HorizontalScrollView(this);
-        hs.setHorizontalScrollBarEnabled(false);
-        LinearLayout tools = new LinearLayout(this);
-        tools.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), Ui.dp(this, 6));
-        hs.addView(tools);
-        tool(tools, "↶", new Runnable() {
+        // Barra dei menu (stile programmi per PC)
+        LinearLayout menuBar = new LinearLayout(this);
+        menuBar.setGravity(Gravity.CENTER_VERTICAL);
+        menuBar.setBackgroundColor(0xFF14171D);
+        menuBar.setPadding(Ui.dp(this, 4), 0, Ui.dp(this, 4), 0);
+        menuBtn(menuBar, "File", 0);
+        menuBtn(menuBar, "Modifica", 1);
+        menuBtn(menuBar, "Cerca", 2);
+        menuBtn(menuBar, "Visualizza", 3);
+        menuBtn(menuBar, "Strumenti", 4);
+        menuBar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        menuBar.addView(iconBtn("↶", new Runnable() {
             public void run() {
                 doUndo();
             }
-        });
-        tool(tools, "↷", new Runnable() {
+        }));
+        menuBar.addView(iconBtn("↷", new Runnable() {
             public void run() {
                 doRedo();
             }
-        });
-        tool(tools, "Anteprima", new Runnable() {
-            public void run() {
-                preview();
-            }
-        });
-        tool(tools, "Cerca", new Runnable() {
-            public void run() {
-                showFind();
-            }
-        });
-        tool(tools, "Vai a riga", new Runnable() {
-            public void run() {
-                gotoLine();
-            }
-        });
-        tool(tools, "Commenta", new Runnable() {
-            public void run() {
-                toggleComment();
-            }
-        });
-        tool(tools, "Formatta", new Runnable() {
-            public void run() {
-                format();
-            }
-        });
-        tool(tools, "A−", new Runnable() {
-            public void run() {
-                size(-1);
-            }
-        });
-        tool(tools, "A+", new Runnable() {
-            public void run() {
-                size(1);
-            }
-        });
-        tool(tools, "Auto ( )", new Runnable() {
-            public void run() {
-                pairs = !pairs;
-                prefs.edit().putBoolean("pairs", pairs).apply();
-                Toast.makeText(HyperTextActivity.this, pairs ? "Chiusura automatica di parentesi e virgolette: attiva"
-                        : "Chiusura automatica: disattivata", Toast.LENGTH_SHORT).show();
-            }
-        });
-        tool(tools, "Numeri", new Runnable() {
-            public void run() {
-                lineNums = !lineNums;
-                prefs.edit().putBoolean("nums", lineNums).apply();
-                ed.setNumbers(lineNums);
-            }
-        });
-        tool(tools, "A capo", new Runnable() {
-            public void run() {
-                wrap = !wrap;
-                prefs.edit().putBoolean("wrap", wrap).apply();
-                ed.setHorizontallyScrolling(!wrap);
-                ed.requestLayout();
-            }
-        });
-        tool(tools, "Salva", new Runnable() {
-            public void run() {
-                save();
-                Toast.makeText(HyperTextActivity.this, "Salvato", Toast.LENGTH_SHORT).show();
-            }
-        });
-        root.addView(hs, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        }));
+        root.addView(menuBar, new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 42)));
 
         // Barra di ricerca
         findBar = new LinearLayout(this);
@@ -401,6 +342,334 @@ public class HyperTextActivity extends Activity {
             }
         });
         row.addView(t, Ui.lp(this, Ui.WRAP, Ui.dp(this, 34), 4, 0));
+    }
+
+    // ---------- menu ----------
+
+    private static final class Item {
+        String label, key;
+        Runnable run;
+        int check = -1; // -1 nessuna spunta, 0 spenta, 1 accesa
+        boolean sep;
+    }
+
+    private static Item mi(String label, String key, Runnable r) {
+        Item i = new Item();
+        i.label = label;
+        i.key = key;
+        i.run = r;
+        return i;
+    }
+
+    private static Item mc(String label, String key, boolean on, Runnable r) {
+        Item i = mi(label, key, r);
+        i.check = on ? 1 : 0;
+        return i;
+    }
+
+    private static Item sep() {
+        Item i = new Item();
+        i.sep = true;
+        return i;
+    }
+
+    private void menuBtn(LinearLayout bar, String label, final int which) {
+        final TextView t = Ui.text(this, label, 14, Ui.TEXT, false);
+        t.setGravity(Gravity.CENTER);
+        t.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), 0);
+        t.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showMenu(t, menuItems(which));
+            }
+        });
+        bar.addView(t, new LinearLayout.LayoutParams(Ui.WRAP, Ui.MATCH));
+    }
+
+    private View iconBtn(String label, final Runnable r) {
+        TextView t = Ui.text(this, label, 20, Ui.ACCENT, true);
+        t.setGravity(Gravity.CENTER);
+        t.setMinWidth(Ui.dp(this, 42));
+        t.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                r.run();
+            }
+        });
+        t.setLayoutParams(new LinearLayout.LayoutParams(Ui.WRAP, Ui.MATCH));
+        return t;
+    }
+
+    private void edit(int id) {
+        ed.requestFocus();
+        ed.onTextContextMenuItem(id);
+    }
+
+    private List<Item> menuItems(int which) {
+        List<Item> m = new ArrayList<>();
+        switch (which) {
+            case 0:
+                m.add(mi("Salva", "Ctrl+S", new Runnable() {
+                    public void run() {
+                        save();
+                        Toast.makeText(HyperTextActivity.this, "Salvato", Toast.LENGTH_SHORT).show();
+                    }
+                }));
+                m.add(mi("Rinomina…", "", new Runnable() {
+                    public void run() {
+                        rename();
+                    }
+                }));
+                m.add(mi("Scarica in Download", "", new Runnable() {
+                    public void run() {
+                        download();
+                    }
+                }));
+                m.add(sep());
+                m.add(mi("Chiudi file", "", new Runnable() {
+                    public void run() {
+                        finish();
+                    }
+                }));
+                break;
+            case 1:
+                m.add(mi("Annulla", "Ctrl+Z", new Runnable() {
+                    public void run() {
+                        doUndo();
+                    }
+                }));
+                m.add(mi("Ripeti", "Ctrl+Y", new Runnable() {
+                    public void run() {
+                        doRedo();
+                    }
+                }));
+                m.add(sep());
+                m.add(mi("Taglia", "Ctrl+X", new Runnable() {
+                    public void run() {
+                        edit(android.R.id.cut);
+                    }
+                }));
+                m.add(mi("Copia", "Ctrl+C", new Runnable() {
+                    public void run() {
+                        edit(android.R.id.copy);
+                    }
+                }));
+                m.add(mi("Incolla", "Ctrl+V", new Runnable() {
+                    public void run() {
+                        edit(android.R.id.paste);
+                    }
+                }));
+                m.add(mi("Seleziona tutto", "Ctrl+A", new Runnable() {
+                    public void run() {
+                        edit(android.R.id.selectAll);
+                    }
+                }));
+                m.add(sep());
+                m.add(mi("Duplica riga", "Ctrl+D", new Runnable() {
+                    public void run() {
+                        duplicateLine();
+                    }
+                }));
+                m.add(mi("Elimina riga", "Ctrl+Maiusc+K", new Runnable() {
+                    public void run() {
+                        deleteLine();
+                    }
+                }));
+                m.add(mi("Sposta riga su", "Alt+↑", new Runnable() {
+                    public void run() {
+                        moveLine(-1);
+                    }
+                }));
+                m.add(mi("Sposta riga giu'", "Alt+↓", new Runnable() {
+                    public void run() {
+                        moveLine(1);
+                    }
+                }));
+                m.add(sep());
+                m.add(mi("Commenta / decommenta", "Ctrl+/", new Runnable() {
+                    public void run() {
+                        toggleComment();
+                    }
+                }));
+                m.add(mi("Aumenta rientro", "Tab", new Runnable() {
+                    public void run() {
+                        tab(false);
+                    }
+                }));
+                m.add(mi("Riduci rientro", "Maiusc+Tab", new Runnable() {
+                    public void run() {
+                        tab(true);
+                    }
+                }));
+                m.add(mi("Formatta codice", "", new Runnable() {
+                    public void run() {
+                        format();
+                    }
+                }));
+                break;
+            case 2:
+                m.add(mi("Trova e sostituisci…", "Ctrl+F", new Runnable() {
+                    public void run() {
+                        showFind();
+                    }
+                }));
+                m.add(mi("Trova successivo", "F3", new Runnable() {
+                    public void run() {
+                        findNext(true);
+                    }
+                }));
+                m.add(mi("Trova precedente", "Maiusc+F3", new Runnable() {
+                    public void run() {
+                        findNext(false);
+                    }
+                }));
+                m.add(sep());
+                m.add(mi("Vai a riga…", "Ctrl+G", new Runnable() {
+                    public void run() {
+                        gotoLine();
+                    }
+                }));
+                m.add(mi("Vai al prossimo errore", "", new Runnable() {
+                    public void run() {
+                        jumpToError();
+                    }
+                }));
+                break;
+            case 3:
+                m.add(mi("Anteprima (HTML, Markdown, SVG)", "F5", new Runnable() {
+                    public void run() {
+                        preview();
+                    }
+                }));
+                m.add(sep());
+                m.add(mc("Numeri di riga", "", lineNums, new Runnable() {
+                    public void run() {
+                        lineNums = !lineNums;
+                        prefs.edit().putBoolean("nums", lineNums).apply();
+                        ed.setNumbers(lineNums);
+                    }
+                }));
+                m.add(mc("A capo automatico", "", wrap, new Runnable() {
+                    public void run() {
+                        wrap = !wrap;
+                        prefs.edit().putBoolean("wrap", wrap).apply();
+                        ed.setHorizontallyScrolling(!wrap);
+                        ed.requestLayout();
+                    }
+                }));
+                m.add(sep());
+                m.add(mi("Ingrandisci testo", "Ctrl++", new Runnable() {
+                    public void run() {
+                        size(1);
+                    }
+                }));
+                m.add(mi("Riduci testo", "Ctrl+-", new Runnable() {
+                    public void run() {
+                        size(-1);
+                    }
+                }));
+                break;
+            default:
+                m.add(mi("Linguaggio: " + lang.name + "…", "", new Runnable() {
+                    public void run() {
+                        pickLang();
+                    }
+                }));
+                m.add(mc("Chiusura automatica ( ) \" \"", "", pairs, new Runnable() {
+                    public void run() {
+                        pairs = !pairs;
+                        prefs.edit().putBoolean("pairs", pairs).apply();
+                    }
+                }));
+                m.add(mi("Accetta suggerimento", "Ctrl+Spazio", new Runnable() {
+                    public void run() {
+                        if (!sugg.isEmpty()) {
+                            acceptSuggestion(sugg.get(0));
+                        }
+                    }
+                }));
+                break;
+        }
+        return m;
+    }
+
+    private void showMenu(View anchor, List<Item> items) {
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setMinimumWidth(Ui.dp(this, 250));
+        col.setPadding(0, Ui.dp(this, 6), 0, Ui.dp(this, 6));
+        final android.widget.PopupWindow pw = new android.widget.PopupWindow(Ui.WRAP, Ui.WRAP);
+        for (final Item it : items) {
+            if (it.sep) {
+                View v = new View(this);
+                v.setBackgroundColor(0xFF3A404C);
+                LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.MATCH, 1);
+                lp.topMargin = Ui.dp(this, 5);
+                lp.bottomMargin = Ui.dp(this, 5);
+                col.addView(v, lp);
+                continue;
+            }
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(Ui.dp(this, 10), Ui.dp(this, 11), Ui.dp(this, 14), Ui.dp(this, 11));
+            TextView ck = Ui.text(this, it.check == 1 ? "✓" : "", 14, Ui.ACCENT, true);
+            ck.setGravity(Gravity.CENTER);
+            row.addView(ck, new LinearLayout.LayoutParams(Ui.dp(this, 24), Ui.WRAP));
+            row.addView(Ui.text(this, it.label, 15, Ui.TEXT, false), new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+            if (it.key != null && !it.key.isEmpty()) {
+                TextView k = Ui.text(this, it.key, 12, Ui.DIM, false);
+                k.setPadding(Ui.dp(this, 24), 0, 0, 0);
+                row.addView(k);
+            }
+            row.setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x33FFFFFF), null, null));
+            row.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    pw.dismiss();
+                    it.run.run();
+                }
+            });
+            col.addView(row, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        }
+        android.widget.ScrollView sv = new android.widget.ScrollView(this);
+        sv.addView(col);
+        sv.setBackground(Ui.round(this, Ui.CARD2, 10));
+        pw.setContentView(sv);
+        int maxH = (int) (getResources().getDisplayMetrics().heightPixels * 0.7f);
+        col.measure(View.MeasureSpec.makeMeasureSpec(getResources().getDisplayMetrics().widthPixels,
+                View.MeasureSpec.AT_MOST), View.MeasureSpec.UNSPECIFIED);
+        pw.setHeight(Math.min(maxH, col.getMeasuredHeight()));
+        pw.setWidth(Math.min(getResources().getDisplayMetrics().widthPixels - Ui.dp(this, 16),
+                Math.max(Ui.dp(this, 250), col.getMeasuredWidth())));
+        pw.setFocusable(true);
+        pw.setOutsideTouchable(true);
+        pw.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+        pw.setElevation(Ui.dp(this, 12));
+        pw.showAsDropDown(anchor, 0, 0);
+    }
+
+    private void download() {
+        save();
+        try {
+            final byte[] data = ed.getText().toString().getBytes("UTF-8");
+            String ext = title.contains(".") ? title.substring(title.lastIndexOf('.') + 1).toLowerCase(Locale.ROOT)
+                    : "";
+            String mime = ext.isEmpty() ? null : android.webkit.MimeTypeMap.getSingleton().getMimeTypeFromExtension(ext);
+            if (mime == null) {
+                mime = "application/octet-stream";
+            }
+            FileUtil.save(this, android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, "Download/MamoTools",
+                    title, mime, new FileUtil.Writer() {
+                        @Override
+                        public void write(java.io.OutputStream os) throws java.io.IOException {
+                            os.write(data);
+                        }
+                    });
+            Toast.makeText(this, "Salvato in Download/MamoTools", Toast.LENGTH_LONG).show();
+        } catch (Exception e) {
+            Toast.makeText(this, "Download non riuscito: " + e.getMessage(), Toast.LENGTH_LONG).show();
+        }
     }
 
     private TextView small(String label, final Runnable r) {
