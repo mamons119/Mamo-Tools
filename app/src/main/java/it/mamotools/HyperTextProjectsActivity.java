@@ -27,6 +27,8 @@ import java.util.Locale;
 /** Elenco dei file di Hyper Text: crea un file nuovo, riprendi, scarica o elimina. */
 public class HyperTextProjectsActivity extends Activity {
 
+    private static final int REQ_IMPORT = 91;
+    private static final int MAX_IMPORT = 5 * 1024 * 1024;
     private LinearLayout root;
     private ProjStore store;
 
@@ -52,6 +54,22 @@ public class HyperTextProjectsActivity extends Activity {
                     }
                 });
         root.addView(pick.view, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 4));
+        Ui.PickCard imp = new Ui.PickCard(this, "📂", "Importa un file", "Apri un file di testo o di codice dal telefono",
+                new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+                        i.addCategory(Intent.CATEGORY_OPENABLE);
+                        i.setType("*/*");
+                        try {
+                            startActivityForResult(i, REQ_IMPORT);
+                        } catch (Exception e) {
+                            Toast.makeText(HyperTextProjectsActivity.this, "Impossibile aprire il selettore di file.",
+                                    Toast.LENGTH_LONG).show();
+                        }
+                    }
+                });
+        root.addView(imp.view, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
 
         List<ProjStore.Entry> list = store.list();
         if (list.isEmpty()) {
@@ -92,6 +110,73 @@ public class HyperTextProjectsActivity extends Activity {
             }), Ui.lp(this, 0, Ui.dp(this, 44), 8, 0, 1f));
             card.addView(btns, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
             root.addView(card, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int req, int res, Intent data) {
+        super.onActivityResult(req, res, data);
+        if (req != REQ_IMPORT || res != RESULT_OK || data == null || data.getData() == null) {
+            return;
+        }
+        android.net.Uri uri = data.getData();
+        String name = "importato.txt";
+        try (android.database.Cursor c = getContentResolver().query(uri, null, null, null, null)) {
+            if (c != null && c.moveToFirst()) {
+                int ix = c.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                if (ix >= 0 && c.getString(ix) != null) {
+                    name = c.getString(ix);
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        try (java.io.InputStream in = getContentResolver().openInputStream(uri)) {
+            if (in == null) {
+                throw new IOException("file non leggibile");
+            }
+            java.io.ByteArrayOutputStream bo = new java.io.ByteArrayOutputStream();
+            byte[] buf = new byte[65536];
+            int n;
+            while ((n = in.read(buf)) > 0) {
+                bo.write(buf, 0, n);
+                if (bo.size() > MAX_IMPORT) {
+                    Toast.makeText(this, "File troppo grande (massimo 5 MB).", Toast.LENGTH_LONG).show();
+                    return;
+                }
+            }
+            byte[] b = bo.toByteArray();
+            for (int i = 0; i < Math.min(b.length, 8000); i++) {
+                if (b[i] == 0) {
+                    Toast.makeText(this, "Questo non sembra un file di testo.", Toast.LENGTH_LONG).show();
+                    return;
+                }
+            }
+            String text = new String(b, "UTF-8");
+            if (text.startsWith("\uFEFF")) {
+                text = text.substring(1);
+            }
+            text = text.replace("\r\n", "\n").replace('\r', '\n');
+            name = name.replaceAll("[\\\\/:*?\"<>|]", "_").trim();
+            if (name.isEmpty()) {
+                name = "importato.txt";
+            }
+            CodeLang l = CodeLang.detect(name, text);
+            int lines = 1;
+            for (int i = 0; i < text.length(); i++) {
+                if (text.charAt(i) == '\n') {
+                    lines++;
+                }
+            }
+            JSONObject o = new JSONObject();
+            o.put("title", name);
+            o.put("text", text);
+            o.put("lang", l.name);
+            o.put("summary", l.name + " · " + lines + (lines == 1 ? " riga" : " righe"));
+            String id = ProjStore.newId();
+            store.write(id, o);
+            open(id);
+        } catch (Exception e) {
+            Toast.makeText(this, "Importazione non riuscita: " + e.getMessage(), Toast.LENGTH_LONG).show();
         }
     }
 

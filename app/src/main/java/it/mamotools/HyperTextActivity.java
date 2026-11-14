@@ -72,7 +72,11 @@ public class HyperTextActivity extends Activity {
     private TextView findCount;
     private SharedPreferences prefs;
     private float fontSp = 14f;
-    private boolean wrap = false, lineNums = true;
+    private boolean wrap = false, lineNums = true, pairs = true;
+    private HorizontalScrollView suggestBar;
+    private LinearLayout suggestRow;
+    private final List<String> sugg = new ArrayList<>();
+    private volatile java.util.Set<String> docWords = new java.util.HashSet<>();
 
     private final ArrayList<Snap> undo = new ArrayList<>(), redo = new ArrayList<>();
     private String prevText = "";
@@ -104,6 +108,7 @@ public class HyperTextActivity extends Activity {
         fontSp = prefs.getFloat("size", 14f);
         wrap = prefs.getBoolean("wrap", false);
         lineNums = prefs.getBoolean("nums", true);
+        pairs = prefs.getBoolean("pairs", true);
         id = getIntent().getStringExtra("project");
         String text = "";
         int caret = 0;
@@ -178,6 +183,11 @@ public class HyperTextActivity extends Activity {
                 doRedo();
             }
         });
+        tool(tools, "Anteprima", new Runnable() {
+            public void run() {
+                preview();
+            }
+        });
         tool(tools, "Cerca", new Runnable() {
             public void run() {
                 showFind();
@@ -206,6 +216,14 @@ public class HyperTextActivity extends Activity {
         tool(tools, "A+", new Runnable() {
             public void run() {
                 size(1);
+            }
+        });
+        tool(tools, "Auto ( )", new Runnable() {
+            public void run() {
+                pairs = !pairs;
+                prefs.edit().putBoolean("pairs", pairs).apply();
+                Toast.makeText(HyperTextActivity.this, pairs ? "Chiusura automatica di parentesi e virgolette: attiva"
+                        : "Chiusura automatica: disattivata", Toast.LENGTH_SHORT).show();
             }
         });
         tool(tools, "Numeri", new Runnable() {
@@ -308,6 +326,7 @@ public class HyperTextActivity extends Activity {
             @Override
             public void onSelection() {
                 updateStatus();
+                updateSuggest();
             }
         };
         ed.addTextChangedListener(new TextWatcher() {
@@ -328,6 +347,16 @@ public class HyperTextActivity extends Activity {
             }
         });
         root.addView(ed, new LinearLayout.LayoutParams(Ui.MATCH, 0, 1f));
+
+        // Suggerimenti di completamento
+        suggestBar = new HorizontalScrollView(this);
+        suggestBar.setHorizontalScrollBarEnabled(false);
+        suggestBar.setBackgroundColor(0xFF1F2430);
+        suggestBar.setVisibility(View.GONE);
+        suggestRow = new LinearLayout(this);
+        suggestRow.setPadding(Ui.dp(this, 4), Ui.dp(this, 2), Ui.dp(this, 4), Ui.dp(this, 2));
+        suggestBar.addView(suggestRow);
+        root.addView(suggestBar, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
 
         // Simboli
         HorizontalScrollView sy = new HorizontalScrollView(this);
@@ -423,6 +452,7 @@ public class HyperTextActivity extends Activity {
     // ---------- modifica, annulla/ripeti ----------
 
     private void changed(Editable s) {
+        String old = prevText;
         if (!restoring) {
             long now = System.currentTimeMillis();
             if (undo.isEmpty() || now - lastChange > 700) {
@@ -439,15 +469,195 @@ public class HyperTextActivity extends Activity {
         version++;
         dirty = true;
         ed.updateLines();
-        if (!restoring && !indenting && chCount == 1 && chBefore == 0 && chStart < prevText.length()
-                && prevText.charAt(chStart) == '\n') {
-            autoIndent(s, chStart);
+        if (!restoring && !indenting) {
+            if (chCount == 1 && chBefore == 0 && chStart < prevText.length()) {
+                char c = prevText.charAt(chStart);
+                if (c == '\n') {
+                    autoIndent(s, chStart);
+                } else {
+                    autoPair(s, chStart, c);
+                }
+            } else if (chCount == 0 && chBefore == 1 && chStart < old.length()) {
+                autoUnpair(s, old.charAt(chStart), chStart);
+            }
         }
         h.removeCallbacks(doColor);
         h.postDelayed(doColor, 350);
         h.removeCallbacks(doSave);
         h.postDelayed(doSave, 2500);
         updateStatus();
+        updateSuggest();
+    }
+
+    private boolean pairsOn() {
+        return pairs && lang.kind != CodeLang.MARKDOWN && !lang.name.equals("Testo semplice");
+    }
+
+    private static char closerOf(char c) {
+        switch (c) {
+            case '(':
+                return ')';
+            case '[':
+                return ']';
+            case '{':
+                return '}';
+            default:
+                return 0;
+        }
+    }
+
+    private void autoPair(Editable s, int pos, char c) {
+        if (!pairsOn()) {
+            return;
+        }
+        int len = s.length();
+        char next = pos + 1 < len ? s.charAt(pos + 1) : 0;
+        char prev = pos > 0 ? s.charAt(pos - 1) : 0;
+        boolean quote = c == '"' || c == '\'' || c == '`';
+        if (quote && c == '\'' && lang.name.equals("Rust")) {
+            return;
+        }
+        if (quote && c != '`' && lang.quotes.indexOf(c) < 0) {
+            return;
+        }
+        if (quote && c == '`' && !lang.backtick) {
+            return;
+        }
+        indenting = true;
+        try {
+            if ((c == ')' || c == ']' || c == '}' || quote) && next == c) {
+                boolean skip = true;
+                if (quote) {
+                    int ls = lineStart(s, pos), le = lineEnd(s, pos), n = 0;
+                    for (int i = ls; i < le; i++) {
+                        if (s.charAt(i) == c) {
+                            n++;
+                        }
+                    }
+                    skip = n % 2 == 1;
+                }
+                if (skip) {
+                    s.delete(pos, pos + 1);
+                    ed.setSelection(pos + 1);
+                    return;
+                }
+            }
+            boolean nextOk = next == 0 || Character.isWhitespace(next) || next == ')' || next == ']' || next == '}'
+                    || next == ',' || next == ';';
+            if (closerOf(c) != 0 && nextOk) {
+                s.insert(pos + 1, String.valueOf(closerOf(c)));
+                ed.setSelection(pos + 1);
+            } else if (quote && nextOk && !Character.isLetterOrDigit(prev) && prev != '\\' && prev != c) {
+                s.insert(pos + 1, String.valueOf(c));
+                ed.setSelection(pos + 1);
+            }
+        } finally {
+            indenting = false;
+        }
+    }
+
+    private void autoUnpair(Editable s, char deleted, int pos) {
+        if (!pairsOn() || pos >= s.length()) {
+            return;
+        }
+        char want = closerOf(deleted);
+        if (want == 0 && (deleted == '"' || deleted == '\'' || deleted == '`')) {
+            want = deleted;
+        }
+        if (want != 0 && s.charAt(pos) == want) {
+            indenting = true;
+            try {
+                s.delete(pos, pos + 1);
+            } finally {
+                indenting = false;
+            }
+        }
+    }
+
+    // ---------- suggerimenti ----------
+
+    private static boolean wordCh(char c) {
+        return Character.isLetterOrDigit(c) || c == '_';
+    }
+
+    private int prefixLen() {
+        Editable t = ed.getText();
+        int p = ed.getSelectionStart();
+        if (p < 0 || p != ed.getSelectionEnd() || p > t.length()) {
+            return 0;
+        }
+        if (p < t.length() && wordCh(t.charAt(p))) {
+            return 0;
+        }
+        int a = p;
+        while (a > 0 && wordCh(t.charAt(a - 1))) {
+            a--;
+        }
+        return p - a;
+    }
+
+    private void updateSuggest() {
+        if (suggestBar == null || ed == null) {
+            return;
+        }
+        sugg.clear();
+        int n = restoring ? 0 : prefixLen();
+        if (n >= 2 && n <= 40 && !lang.name.equals("Testo semplice") || n >= 3 && n <= 40) {
+            int p = ed.getSelectionStart();
+            String pre = ed.getText().subSequence(p - n, p).toString();
+            boolean ci = lang.ci;
+            String key = ci ? pre.toLowerCase(Locale.ROOT) : pre;
+            java.util.TreeSet<String> kws = new java.util.TreeSet<>(), docs = new java.util.TreeSet<>();
+            for (String w : lang.kw) {
+                if (w.startsWith(key) && !w.equals(key)) {
+                    kws.add(w);
+                }
+            }
+            for (String w : lang.types) {
+                if (w.startsWith(key) && !w.equals(key)) {
+                    kws.add(w);
+                }
+            }
+            for (String w : docWords) {
+                String c = ci ? w.toLowerCase(Locale.ROOT) : w;
+                if (c.startsWith(key) && !c.equals(key) && !kws.contains(w)) {
+                    docs.add(w);
+                }
+            }
+            for (String w : kws) {
+                if (sugg.size() < 12) {
+                    sugg.add(w);
+                }
+            }
+            for (String w : docs) {
+                if (sugg.size() < 12) {
+                    sugg.add(w);
+                }
+            }
+        }
+        suggestRow.removeAllViews();
+        for (final String w : sugg) {
+            TextView t = Ui.text(this, w, 14, Ui.ACCENT, true);
+            t.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
+            t.setPadding(Ui.dp(this, 10), Ui.dp(this, 7), Ui.dp(this, 10), Ui.dp(this, 7));
+            t.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    acceptSuggestion(w);
+                }
+            });
+            suggestRow.addView(t);
+        }
+        suggestBar.setVisibility(sugg.isEmpty() ? View.GONE : View.VISIBLE);
+        suggestBar.scrollTo(0, 0);
+    }
+
+    private void acceptSuggestion(String w) {
+        int n = prefixLen();
+        int p = ed.getSelectionStart();
+        if (n > 0 && p >= n) {
+            ed.getText().replace(p - n, p, w);
+        }
     }
 
     private void autoIndent(Editable s, int nl) {
@@ -527,6 +737,10 @@ public class HyperTextActivity extends Activity {
             findBar.setVisibility(View.GONE);
             return true;
         }
+        if (k == KeyEvent.KEYCODE_F5) {
+            preview();
+            return true;
+        }
         if (k == KeyEvent.KEYCODE_F3) {
             findNext(!shift);
             return true;
@@ -539,6 +753,11 @@ public class HyperTextActivity extends Activity {
             return false;
         }
         switch (k) {
+            case KeyEvent.KEYCODE_SPACE:
+                if (!sugg.isEmpty()) {
+                    acceptSuggestion(sugg.get(0));
+                }
+                return true;
             case KeyEvent.KEYCODE_S:
                 save();
                 Toast.makeText(this, "Salvato", Toast.LENGTH_SHORT).show();
@@ -905,6 +1124,7 @@ public class HyperTextActivity extends Activity {
         final String text = ed.getText().toString();
         final int v = version;
         final CodeLang l = lang;
+        final int caretPos = Math.max(0, ed.getSelectionStart());
         if (text.length() > MAX_HILITE) {
             clearSpans();
             updateStatus();
@@ -913,6 +1133,16 @@ public class HyperTextActivity extends Activity {
         exec.execute(new Runnable() {
             @Override
             public void run() {
+                java.util.Set<String> words = new java.util.HashSet<>();
+                java.util.regex.Matcher wm = java.util.regex.Pattern.compile("[A-Za-z_][A-Za-z0-9_]{2,}")
+                        .matcher(text);
+                while (wm.find() && words.size() < 20000) {
+                    if (caretPos >= wm.start() && caretPos <= wm.end()) {
+                        continue;
+                    }
+                    words.add(wm.group());
+                }
+                docWords = words;
                 final List<HyperSyntax.Tok> toks = HyperSyntax.tokens(text, l);
                 final List<HyperSyntax.Err> er = HyperSyntax.checks(l) ? HyperSyntax.check(text, l, toks)
                         : new ArrayList<HyperSyntax.Err>();
@@ -961,6 +1191,56 @@ public class HyperTextActivity extends Activity {
         }
         ed.invalidate();
         updateStatus();
+    }
+
+    private void preview() {
+        String t = ed.getText().toString();
+        String low = title.toLowerCase(Locale.ROOT);
+        String html;
+        if (lang.kind == CodeLang.MARKDOWN) {
+            html = MdRender.page(t);
+        } else if (lang.kind == CodeLang.HTML) {
+            html = t;
+        } else if (low.endsWith(".svg")) {
+            html = "<html><body style='margin:0;background:#fff'>" + t + "</body></html>";
+        } else {
+            Toast.makeText(this, "L'anteprima e' disponibile per HTML, Markdown e SVG.", Toast.LENGTH_LONG).show();
+            return;
+        }
+        save();
+        final android.app.Dialog d = new android.app.Dialog(this, android.R.style.Theme_DeviceDefault_NoActionBar);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackgroundColor(Ui.BG);
+        LinearLayout bar = new LinearLayout(this);
+        bar.setGravity(Gravity.CENTER_VERTICAL);
+        bar.setPadding(Ui.dp(this, 14), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+        bar.addView(Ui.text(this, "Anteprima · " + title, 16, Ui.TEXT, true),
+                new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        bar.addView(Ui.btn(this, "Chiudi", Ui.CARD2, Ui.ACCENT, new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                d.dismiss();
+            }
+        }), new LinearLayout.LayoutParams(Ui.WRAP, Ui.dp(this, 40)));
+        box.addView(bar);
+        final android.webkit.WebView wv = new android.webkit.WebView(this);
+        wv.setBackgroundColor(lang.kind == CodeLang.MARKDOWN ? Ui.BG : 0xFFFFFFFF);
+        android.webkit.WebSettings ws = wv.getSettings();
+        ws.setJavaScriptEnabled(true);
+        ws.setAllowFileAccess(false);
+        ws.setAllowContentAccess(false);
+        wv.setWebViewClient(new android.webkit.WebViewClient());
+        wv.loadDataWithBaseURL(null, html, "text/html", "UTF-8", null);
+        box.addView(wv, new LinearLayout.LayoutParams(Ui.MATCH, 0, 1f));
+        d.setContentView(box);
+        d.setOnDismissListener(new DialogInterface.OnDismissListener() {
+            @Override
+            public void onDismiss(DialogInterface di) {
+                wv.destroy();
+            }
+        });
+        d.show();
     }
 
     private void jumpToError() {
