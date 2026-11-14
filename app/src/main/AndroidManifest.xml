@@ -317,6 +317,18 @@
             android:exported="false" />
 
         <activity
+            android:name=".HyperTextProjectsActivity"
+            android:label="Hyper Text"
+            android:exported="false" />
+
+        <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode"
+            android:name=".HyperTextActivity"
+            android:label="Hyper Text"
+            android:windowSoftInputMode="adjustResize"
+            android:exported="false" />
+
+        <activity
             android:name=".ProducerActivity"
             android:label="Produzioni"
             android:exported="false" />

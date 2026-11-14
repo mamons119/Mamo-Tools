@@ -58,6 +58,10 @@ public class MainActivity extends Activity {
                     "Taglia, copia e incolla parti di un audio, filtri passa-alto/basso/banda "
                             + "e volume.",
                     AudioProjectsActivity.class),
+            new Tool("📝", "Hyper Text",
+                    "Editor di testo e codice con colori del linguaggio, controllo degli errori "
+                            + "e scorciatoie per tastiera Bluetooth.",
+                    HyperTextProjectsActivity.class),
             new Tool("🎛", "Produzioni",
                     "Componi musica da zero: pad a 16 passi, suoni sintetizzati, i tuoi sample, "
                             + "loop ed esportazione in WAV, FLAC e M4A.",
