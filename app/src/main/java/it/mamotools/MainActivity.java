@@ -39,10 +39,10 @@ public class MainActivity extends Activity {
     }
 
     private static final Tool[] TOOLS = {
-            new Tool("🔊", "Volume Boost",
-                    "Amplifica il volume oltre il massimo, equalizzatore e bilanciamento "
-                            + "sinistra/destra per le cuffie.",
-                    VolumeBoostActivity.class),
+            new Tool("⌨", "Input/Output",
+                    "Volume Boost (volume oltre il massimo, equalizzatore) e Keyboard bluetooth "
+                            + "(assegna funzioni e simboli ai tasti di una tastiera).",
+                    IoToolsActivity.class),
             new Tool("🎥", "Stable Cam",
                     "Registra video stabilizzati alla massima qualita' del telefono "
                             + "e li salva in Galleria.",

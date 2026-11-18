@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="kbd_service_desc">Legge i tasti della tastiera Bluetooth per applicare le mappature personalizzate create in Mamo Tools (per esempio far scrivere un simbolo a una combinazione di tasti). Non legge altro e non invia nulla fuori dal telefono.</string>
+</resources>

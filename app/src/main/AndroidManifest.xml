@@ -25,6 +25,13 @@
         android:name="android.hardware.camera"
         android:required="false" />
 
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.MAIN" />
+            <category android:name="android.intent.category.LAUNCHER" />
+        </intent>
+    </queries>
+
     <application
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
@@ -305,6 +312,34 @@
                 <data android:pathPattern=".*\\.kml" />
             </intent-filter>
         </activity>
+
+        <activity
+            android:name=".IoToolsActivity"
+            android:label="Input/Output"
+            android:exported="false" />
+
+        <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".KeyboardMapActivity"
+            android:label="Keyboard bluetooth"
+            android:exported="false" />
+
+        <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".KeyboardProfileActivity"
+            android:label="Keyboard bluetooth"
+            android:exported="false" />
+
+        <service
+            android:name=".KeyRemapService"
+            android:label="Mamo Tools - Keyboard bluetooth"
+            android:exported="true"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/key_remap_service" />
+        </service>
 
         <activity
             android:name=".VideoProjectsActivity"
