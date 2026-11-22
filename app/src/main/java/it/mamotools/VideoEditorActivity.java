@@ -4385,8 +4385,14 @@ public class VideoEditorActivity extends Activity {
                         exportDone(null, "Esportazione annullata.");
                         return;
                     }
+                    String where = " {" + VideoStabilizer.dbg + "}";
+                    StackTraceElement[] stk = t.getStackTrace();
+                    for (int si = 0; si < stk.length && si < 3; si++) {
+                        where += " [" + stk[si].getClassName().replaceAll("^.*\\.", "") + "." + stk[si].getMethodName()
+                                + ":" + stk[si].getLineNumber() + "]";
+                    }
                     exportDone(null, "Salvataggio non riuscito"
-                            + (m != null && !m.isEmpty() ? ": " + m : " (" + t.getClass().getSimpleName() + ")"));
+                            + (m != null && !m.isEmpty() ? ": " + m : " (" + t.getClass().getSimpleName() + ")") + where);
                 } finally {
                     if (fullFile != null) {
                         //noinspection ResultOfMethodCallIgnored

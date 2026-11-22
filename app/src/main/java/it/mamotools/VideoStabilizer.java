@@ -687,10 +687,10 @@ final class VideoStabilizer {
             + "    vec3 nb = (s(uv - tx).rgb + s(uv + tx).rgb + s(uv - ty).rgb + s(uv + ty).rgb) * 0.25;\n"
             + "    vec3 w = mix(a, nb, 0.85 * uCSoft);\n"
             + "    vec2 cs = tx * (1.0 + 3.0 * uCBleed);\n"
-            + "    vec3 sm = (s(uv - cs).rgb + s(uv - cs * 2.0).rgb + s(uv + cs).rgb) / 3.0;\n"
+            + "    vec3 sm = (s(uv - cs).rgb + s(uv - cs * 2.5).rgb) * 0.5;\n"
             + "    float wl = dot(w, vec3(0.299, 0.587, 0.114));\n"
             + "    vec3 cb = mix(w, vec3(wl) + (sm - vec3(dot(sm, vec3(0.299, 0.587, 0.114)))), uCBleed);\n"
-            + "    vec3 wide = (s(uv - tx * 4.0).rgb + s(uv + tx * 4.0).rgb + s(uv - ty * 4.0).rgb + s(uv + ty * 4.0).rgb) * 0.25;\n"
+            + "    vec3 wide = (s(uv - tx * 3.0 - ty * 3.0).rgb + s(uv + tx * 3.0 + ty * 3.0).rgb) * 0.5;\n"
             + "    float hl = max(dot(wide, vec3(0.299, 0.587, 0.114)) - 0.6, 0.0);\n"
             + "    camGlow = vec3(1.0, 0.85, 0.65) * hl * 0.9 * uCGlow;\n"
             + "    c = vec4(cb, 1.0);\n"
@@ -1308,9 +1308,11 @@ final class VideoStabilizer {
                         }
                     }
                 }
+                dbg = "decoder f" + idx;
                 int oi = dec.dequeueOutputBuffer(info, TIMEOUT);
                 if (oi >= 0) {
                     boolean draw = info.size > 0 && (info.flags & MediaCodec.BUFFER_FLAG_CODEC_CONFIG) == 0;
+                    dbg = "rilascio f" + idx;
                     dec.releaseOutputBuffer(oi, draw);
                     if (draw) {
                         synchronized (lock) {
@@ -1326,6 +1328,7 @@ final class VideoStabilizer {
                             }
                             avail[0] = false;
                         }
+                        dbg = "texture f" + idx;
                         st.updateTexImage();
                         st.getTransformMatrix(stm);
                         long ptsUs = info.presentationTimeUs;
@@ -1486,6 +1489,7 @@ final class VideoStabilizer {
                             GLES20.glDrawArrays(GLES20.GL_TRIANGLE_STRIP, 0, 4);
                             GLES20.glDisable(GLES20.GL_BLEND);
                         }
+                        dbg = "scambio f" + idx + " gl=" + GLES20.glGetError();
                         EGLExt.eglPresentationTimeANDROID(dpy, esurf, info.presentationTimeUs * 1000L);
                         EGL14.eglSwapBuffers(dpy, esurf);
                         idx++;
@@ -1502,8 +1506,10 @@ final class VideoStabilizer {
                         decDone = true;
                     }
                 }
+                dbg = "codificatore f" + idx;
                 drain(enc, mx, einfo, af, muxTracks, started, false);
             }
+            dbg = "fine";
             enc.signalEndOfInputStream();
             drain(enc, mx, einfo, af, muxTracks, started, true);
 
@@ -1574,6 +1580,9 @@ final class VideoStabilizer {
             }
         }
     }
+
+    /** Ultima fase raggiunta dall'esportazione (per diagnosticare gli errori). */
+    static volatile String dbg = "";
 
     static void drain(MediaCodec enc, MediaMuxer mx, MediaCodec.BufferInfo info, MediaFormat af,
                               int[] tracks, boolean[] started, boolean end) throws IOException {
