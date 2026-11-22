@@ -1663,7 +1663,7 @@ public class VideoEditorActivity extends Activity {
                 File out = new File(getCacheDir(), "clips_" + (++compSeq) + ".mp4");
                 try {
                     int[] wh = VideoComposer.fitSize(origVw, origVh, PROXY_SIDE);
-                    VideoComposer.compose(VideoEditorActivity.this, segs, out, getCacheDir(), wh[0], wh[1],
+                    VideoComposer.composeCached(VideoEditorActivity.this, segs, out, getCacheDir(), wh[0], wh[1],
                             Math.max(1500000, wh[0] * wh[1] * 4), new VideoProcessor.Progress() {
                                 @Override
                                 public void onProgress(final String stage, final int pct) {
@@ -1696,7 +1696,7 @@ public class VideoEditorActivity extends Activity {
                             compFile.delete();
                         }
                         compFile = out;
-                        status.setText("");
+                        status.setText(VideoComposer.lastStats);
                         applyVideo(Uri.fromFile(out), d, seekMs);
                     });
                 } catch (final Throwable t) {

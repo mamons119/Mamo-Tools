@@ -483,21 +483,35 @@ final class VideoComposer {
         }
     }
 
+    /** Montaggio completo (tutti i tratti in un solo passaggio, con audio). */
     static void compose(Context ctx, List<Seg> segs, File out, File cacheDir, int w, int h,
                         int bitrate, VideoProcessor.Progress p) throws IOException {
+        render(ctx, segs, out, cacheDir, w, h, bitrate, p, true, true, null, null);
+    }
+
+    /**
+     * Disegna i tratti dati in un MP4.
+     * @param withAudio    aggiunge anche l'audio (false per i singoli pezzi della memoria)
+     * @param firstGlobal  il primo tratto e' davvero il primo del video (la sua transizione non esiste)
+     * @param prevFrame    ultimo fotogramma del tratto precedente (file RGBA) per la transizione iniziale
+     * @param lastFrameOut dove salvare l'ultimo fotogramma disegnato (RGBA), o null
+     */
+    private static void render(Context ctx, List<Seg> segs, File out, File cacheDir, int w, int h,
+                               int bitrate, VideoProcessor.Progress p, boolean withAudio, boolean firstGlobal,
+                               File prevFrame, File lastFrameOut) throws IOException {
         if (segs.isEmpty()) {
             throw new IOException("nessun tratto da montare");
         }
         long totalUs = 0;
         for (int i = 0; i < segs.size(); i++) {
-            totalUs += lengthUs(segs.get(i), i == 0);
+            totalUs += lengthUs(segs.get(i), firstGlobal && i == 0);
         }
 
         // ---------------- audio (prima, cosi' si conosce il formato della traccia)
         boolean anyAudio = false;
         boolean[] segAudio = new boolean[segs.size()];
         for (int i = 0; i < segs.size(); i++) {
-            segAudio[i] = hasAudio(ctx, segs.get(i).uri);
+            segAudio[i] = withAudio && hasAudio(ctx, segs.get(i).uri);
             anyAudio |= segAudio[i];
         }
         File pcm = new File(cacheDir, "compose.pcm");
@@ -653,6 +667,18 @@ final class VideoComposer {
             GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texPrev);
             GLES20.glCopyTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
             GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
+            if (prevFrame != null) {
+                byte[] raw = readAll(prevFrame);
+                if (raw.length != w * h * 4) {
+                    throw new IOException("fotogramma precedente non valido");
+                }
+                ByteBuffer pb = ByteBuffer.allocateDirect(raw.length);
+                pb.put(raw);
+                pb.position(0);
+                GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texPrev);
+                GLES20.glTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, w, h, GLES20.GL_RGBA,
+                        GLES20.GL_UNSIGNED_BYTE, pb);
+            }
 
             FloatBuffer fbSeg = ByteBuffer.allocateDirect(16 * 4).order(ByteOrder.nativeOrder()).asFloatBuffer();
             float[] full = {-1, -1, 0, 0, 1, -1, 1, 0, -1, 1, 0, 1, 1, 1, 1, 1};
@@ -763,7 +789,7 @@ final class VideoComposer {
                 }
                 long lastDrawn = -1, prevPts = -1;
 
-                boolean doTrans = i > 0 && sg.trans > 0 && sg.transUs > 0;
+                boolean doTrans = (i > 0 || !firstGlobal) && sg.trans > 0 && sg.transUs > 0;
                 boolean first = true;
                 boolean inDone = false, done = false;
                 MediaCodec.BufferInfo info = new MediaCodec.BufferInfo();
@@ -972,6 +998,16 @@ final class VideoComposer {
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, fbo[0]);
                 GLES20.glBindTexture(GLES20.GL_TEXTURE_2D, texPrev);
                 GLES20.glCopyTexSubImage2D(GLES20.GL_TEXTURE_2D, 0, 0, 0, 0, 0, w, h);
+                if (lastFrameOut != null && i == segs.size() - 1) {
+                    ByteBuffer rb = ByteBuffer.allocateDirect(w * h * 4);
+                    GLES20.glReadPixels(0, 0, w, h, GLES20.GL_RGBA, GLES20.GL_UNSIGNED_BYTE, rb);
+                    byte[] raw = new byte[w * h * 4];
+                    rb.position(0);
+                    rb.get(raw);
+                    try (java.io.FileOutputStream fo = new java.io.FileOutputStream(lastFrameOut)) {
+                        fo.write(raw);
+                    }
+                }
                 GLES20.glBindFramebuffer(GLES20.GL_FRAMEBUFFER, 0);
             }
             enc.signalEndOfInputStream();
@@ -1042,10 +1078,394 @@ final class VideoComposer {
             if (ae != null) {
                 ae.release();
             }
+            if (withAudio) {
+                //noinspection ResultOfMethodCallIgnored
+                pcm.delete();
+                //noinspection ResultOfMethodCallIgnored
+                m4a.delete();
+            }
+        }
+    }
+
+    // ------------------------------------------------------------------ memoria dei pezzi montati
+
+    /** Descrizione (a voce) dell'ultimo montaggio: quanti pezzi rifatti e quanti riutilizzati. */
+    static volatile String lastStats = "";
+
+    private static final String BLOCK_REV = "b1";
+    private static final long CACHE_LIMIT = 600L * 1024 * 1024;
+
+    /**
+     * Come compose(), ma ogni tratto viene montato (e ricordato) da solo e poi i pezzi si uniscono:
+     * dopo una modifica si rifanno solo i tratti cambiati. Se qualcosa non va, si ricade sul montaggio completo.
+     */
+    static void composeCached(Context ctx, List<Seg> segs, File out, File cacheDir, int w, int h,
+                              int bitrate, VideoProcessor.Progress p) throws IOException {
+        long t0 = System.currentTimeMillis();
+        lastStats = "";
+        try {
+            int[] st = composeBlocks(ctx, segs, out, cacheDir, w, h, bitrate, p);
+            lastStats = String.format(java.util.Locale.US, "Montaggio in %.1f s · %d rifatti, %d riutilizzati",
+                    (System.currentTimeMillis() - t0) / 1000.0, st[0], st[1]);
+        } catch (IOException | RuntimeException e) {
+            //noinspection ResultOfMethodCallIgnored
+            out.delete();
+            compose(ctx, segs, out, cacheDir, w, h, bitrate, p);
+            lastStats = String.format(java.util.Locale.US, "Montaggio completo in %.1f s",
+                    (System.currentTimeMillis() - t0) / 1000.0);
+        }
+    }
+
+    private static String revision(Context ctx) {
+        long v = 0;
+        try {
+            v = ctx.getPackageManager().getPackageInfo(ctx.getPackageName(), 0).getLongVersionCode();
+        } catch (Exception ignored) {
+        }
+        return BLOCK_REV + "." + v;
+    }
+
+    private static String srcId(Context ctx, Uri uri) {
+        try {
+            if ("file".equals(uri.getScheme()) && uri.getPath() != null) {
+                File f = new File(uri.getPath());
+                return f.length() + ":" + f.lastModified();
+            }
+            try (android.database.Cursor c = ctx.getContentResolver().query(uri, null, null, null, null)) {
+                if (c != null && c.moveToFirst()) {
+                    StringBuilder sb = new StringBuilder();
+                    String[] names = {"_size", "size", "last_modified", "date_modified"};
+                    for (String n : names) {
+                        int ix = c.getColumnIndex(n);
+                        if (ix >= 0) {
+                            sb.append(n).append('=').append(c.getString(ix)).append(';');
+                        }
+                    }
+                    return sb.toString();
+                }
+            }
+        } catch (Exception ignored) {
+        }
+        return "";
+    }
+
+    /** Tutto cio' che cambia le immagini di un tratto (il volume e la colonna sonora no: sono solo audio). */
+    private static String renderSig(Context ctx, Seg s) {
+        return s.uri + "|" + srcId(ctx, s.uri) + "|" + s.startUs + "," + s.endUs + "," + s.speed + "," + s.reverse
+                + "," + s.mirH + "," + s.mirV + "," + s.look + "," + s.rot + ","
+                + java.util.Arrays.toString(s.zoom);
+    }
+
+    private static String sha(String s) throws IOException {
+        try {
+            java.security.MessageDigest md = java.security.MessageDigest.getInstance("SHA-1");
+            byte[] d = md.digest(s.getBytes("UTF-8"));
+            StringBuilder sb = new StringBuilder();
+            for (byte b : d) {
+                sb.append(String.format("%02x", b));
+            }
+            return sb.toString();
+        } catch (java.security.NoSuchAlgorithmException e) {
+            throw new IOException("hash non disponibile");
+        }
+    }
+
+    private static byte[] readAll(File f) throws IOException {
+        try (java.io.FileInputStream in = new java.io.FileInputStream(f)) {
+            byte[] b = new byte[(int) f.length()];
+            int off = 0;
+            while (off < b.length) {
+                int n = in.read(b, off, b.length - off);
+                if (n < 0) {
+                    throw new IOException("file troncato");
+                }
+                off += n;
+            }
+            return b;
+        }
+    }
+
+    private static boolean sameCsd(MediaFormat a, MediaFormat b) {
+        try {
+            if (a.getInteger(MediaFormat.KEY_WIDTH) != b.getInteger(MediaFormat.KEY_WIDTH)
+                    || a.getInteger(MediaFormat.KEY_HEIGHT) != b.getInteger(MediaFormat.KEY_HEIGHT)) {
+                return false;
+            }
+            for (String k : new String[]{"csd-0", "csd-1"}) {
+                ByteBuffer x = a.containsKey(k) ? a.getByteBuffer(k) : null;
+                ByteBuffer y = b.containsKey(k) ? b.getByteBuffer(k) : null;
+                if ((x == null) != (y == null)) {
+                    return false;
+                }
+                if (x != null && !x.duplicate().equals(y.duplicate())) {
+                    return false;
+                }
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** @return {pezzi rifatti, pezzi riutilizzati} */
+    private static int[] composeBlocks(Context ctx, List<Seg> segs, File out, File cacheDir, int w, int h,
+                                       int bitrate, final VideoProcessor.Progress p) throws IOException {
+        if (segs.isEmpty()) {
+            throw new IOException("nessun tratto da montare");
+        }
+        int n = segs.size();
+        File dir = new File(cacheDir, "blocks");
+        //noinspection ResultOfMethodCallIgnored
+        dir.mkdirs();
+        String rev = revision(ctx) + "|" + w + "x" + h + "|" + bitrate;
+        String[] key = new String[n];
+        File[] mp4 = new File[n], lf = new File[n];
+        for (int i = 0; i < n; i++) {
+            Seg s = segs.get(i);
+            StringBuilder sb = new StringBuilder(rev).append('|').append(renderSig(ctx, s));
+            if (i > 0 && s.trans > 0 && s.transUs > 0) {
+                sb.append("|T").append(s.trans).append(',').append(s.transUs).append(',')
+                        .append(java.util.Arrays.toString(s.tp)).append("|P").append(key[i - 1]);
+            }
+            key[i] = sha(sb.toString());
+            mp4[i] = new File(dir, "blk_" + key[i] + ".mp4");
+            lf[i] = new File(dir, "blk_" + key[i] + ".lf");
+        }
+
+        // ---------------- audio (sempre rifatto: e' veloce rispetto al video)
+        boolean anyAudio = false;
+        boolean[] segAudio = new boolean[n];
+        for (int i = 0; i < n; i++) {
+            segAudio[i] = hasAudio(ctx, segs.get(i).uri);
+            anyAudio |= segAudio[i];
+        }
+        File pcm = new File(cacheDir, "compose.pcm");
+        File m4a = new File(cacheDir, "compose.m4a");
+        MediaExtractor ae = null;
+        MediaFormat af = null;
+        MediaMuxer mx = null;
+        int rebuilt = 0, reused = 0;
+        try {
+            if (anyAudio) {
+                p.onProgress("Preparazione dell'audio...", 1);
+                VideoProcessor.PcmWriter pw = new VideoProcessor.PcmWriter(pcm);
+                try {
+                    long target = 0;
+                    for (int i = 0; i < n; i++) {
+                        Seg s = segs.get(i);
+                        if (i > 0 && s.trans > 0) {
+                            target += s.transUs * VideoProcessor.RATE / 1000000L;
+                            pw.silence(target - pw.frames);
+                        }
+                        target += s.bodyUs() * VideoProcessor.RATE / 1000000L;
+                        if (segAudio[i]) {
+                            appendSegAudio(ctx, s, pw, cacheDir, target);
+                        }
+                        pw.silence(target - pw.frames);
+                        p.onProgress("Preparazione dell'audio...", 1 + 9 * (i + 1) / n);
+                    }
+                } finally {
+                    pw.close();
+                }
+                VideoProcessor.encodeMix(null, pcm, 1f, m4a, new VideoProcessor.Progress() {
+                    @Override
+                    public void onProgress(String stage, int pct) {
+                    }
+                });
+                ae = new MediaExtractor();
+                ae.setDataSource(m4a.getAbsolutePath());
+                int at = VideoProcessor.findTrack(ae, "audio/");
+                if (at >= 0) {
+                    ae.selectTrack(at);
+                    af = ae.getTrackFormat(at);
+                }
+            }
+
+            // ---------------- pezzi mancanti
+            long needUs = 0;
+            boolean[] have = new boolean[n];
+            for (int i = 0; i < n; i++) {
+                have[i] = mp4[i].length() > 0 && lf[i].length() == (long) w * h * 4;
+                if (!have[i]) {
+                    needUs += Math.max(1, segs.get(i).bodyUs());
+                }
+            }
+            long doneUs = 0;
+            for (int i = 0; i < n; i++) {
+                if (have[i]) {
+                    reused++;
+                    continue;
+                }
+                final Seg s = segs.get(i);
+                final long base = doneUs, total = Math.max(1, needUs), mine = Math.max(1, s.bodyUs());
+                File tmpV = new File(dir, "blk_" + key[i] + ".tmp.mp4");
+                File tmpL = new File(dir, "blk_" + key[i] + ".tmp.lf");
+                File prev = (i > 0 && s.trans > 0 && s.transUs > 0) ? lf[i - 1] : null;
+                try {
+                    render(ctx, java.util.Collections.singletonList(s), tmpV, cacheDir, w, h, bitrate,
+                            new VideoProcessor.Progress() {
+                                @Override
+                                public void onProgress(String stage, int pct) {
+                                    double f = Math.max(0, Math.min(1, (pct - 12) / 83.0));
+                                    p.onProgress("Montaggio delle clip...",
+                                            12 + (int) (83 * (base + f * mine) / total));
+                                }
+                            }, false, i == 0, prev, tmpL);
+                    if (tmpV.length() <= 0 || tmpL.length() != (long) w * h * 4) {
+                        throw new IOException("pezzo non valido");
+                    }
+                    //noinspection ResultOfMethodCallIgnored
+                    mp4[i].delete();
+                    //noinspection ResultOfMethodCallIgnored
+                    lf[i].delete();
+                    if (!tmpV.renameTo(mp4[i]) || !tmpL.renameTo(lf[i])) {
+                        throw new IOException("pezzo non salvabile");
+                    }
+                } finally {
+                    //noinspection ResultOfMethodCallIgnored
+                    tmpV.delete();
+                    //noinspection ResultOfMethodCallIgnored
+                    tmpL.delete();
+                }
+                doneUs += mine;
+                rebuilt++;
+            }
+
+            // ---------------- unione dei pezzi (senza ricodificare)
+            p.onProgress("Unione dei pezzi...", 96);
+            mx = new MediaMuxer(out.getAbsolutePath(), MediaMuxer.OutputFormat.MUXER_OUTPUT_MPEG_4);
+            ByteBuffer buf = ByteBuffer.allocateDirect(4 * 1024 * 1024);
+            MediaCodec.BufferInfo bi = new MediaCodec.BufferInfo();
+            MediaFormat vfmt = null;
+            int vTrack = -1, aTrack = -1;
+            long offset = 0, lastPts = 0;
+            for (int i = 0; i < n; i++) {
+                MediaExtractor bx = new MediaExtractor();
+                try {
+                    bx.setDataSource(mp4[i].getAbsolutePath());
+                    int t = VideoProcessor.findTrack(bx, "video/");
+                    if (t < 0) {
+                        throw new IOException("pezzo senza video");
+                    }
+                    bx.selectTrack(t);
+                    MediaFormat f = bx.getTrackFormat(t);
+                    if (vfmt == null) {
+                        vfmt = f;
+                        vTrack = mx.addTrack(f);
+                        if (af != null) {
+                            aTrack = mx.addTrack(af);
+                        }
+                        mx.start();
+                    } else if (!sameCsd(vfmt, f)) {
+                        throw new IOException("pezzi con parametri diversi");
+                    }
+                    boolean firstSample = true;
+                    while (true) {
+                        buf.clear();
+                        int size = bx.readSampleData(buf, 0);
+                        if (size < 0) {
+                            break;
+                        }
+                        boolean sync = (bx.getSampleFlags() & MediaExtractor.SAMPLE_FLAG_SYNC) != 0;
+                        if (firstSample && !sync) {
+                            throw new IOException("pezzo che non parte da un fotogramma chiave");
+                        }
+                        firstSample = false;
+                        long pts = offset + bx.getSampleTime();
+                        bi.set(0, size, pts, sync ? MediaCodec.BUFFER_FLAG_KEY_FRAME : 0);
+                        mx.writeSampleData(vTrack, buf, bi);
+                        lastPts = Math.max(lastPts, pts);
+                        bx.advance();
+                    }
+                    if (firstSample) {
+                        throw new IOException("pezzo vuoto");
+                    }
+                } finally {
+                    bx.release();
+                }
+                offset += lengthUs(segs.get(i), i == 0);
+            }
+            if (lastPts <= 0 || lastPts > offset + 300000) {
+                throw new IOException("durata dei pezzi incoerente");
+            }
+            if (aTrack >= 0) {
+                while (true) {
+                    buf.clear();
+                    int size = ae.readSampleData(buf, 0);
+                    if (size < 0) {
+                        break;
+                    }
+                    bi.set(0, size, ae.getSampleTime(), MediaCodec.BUFFER_FLAG_KEY_FRAME);
+                    mx.writeSampleData(aTrack, buf, bi);
+                    ae.advance();
+                }
+            }
+            mx.stop();
+            mx.release();
+            mx = null;
+        } finally {
+            if (mx != null) {
+                try {
+                    mx.release();
+                } catch (Exception ignored) {
+                }
+            }
+            if (ae != null) {
+                ae.release();
+            }
             //noinspection ResultOfMethodCallIgnored
             pcm.delete();
             //noinspection ResultOfMethodCallIgnored
             m4a.delete();
+        }
+        // i pezzi usati restano "recenti"; quelli vecchi, se la memoria e' piena, si eliminano
+        long now = System.currentTimeMillis();
+        java.util.Set<String> used = new java.util.HashSet<>();
+        for (int i = 0; i < n; i++) {
+            used.add(mp4[i].getName());
+            used.add(lf[i].getName());
+            //noinspection ResultOfMethodCallIgnored
+            mp4[i].setLastModified(now);
+            //noinspection ResultOfMethodCallIgnored
+            lf[i].setLastModified(now);
+        }
+        prune(dir, used);
+        return new int[]{rebuilt, reused};
+    }
+
+    private static void prune(File dir, java.util.Set<String> used) {
+        File[] fs = dir.listFiles();
+        if (fs == null) {
+            return;
+        }
+        java.util.Arrays.sort(fs, new java.util.Comparator<File>() {
+            @Override
+            public int compare(File a, File b) {
+                return Long.compare(a.lastModified(), b.lastModified());
+            }
+        });
+        long total = 0;
+        for (File f : fs) {
+            total += f.length();
+        }
+        for (File f : fs) {
+            if (f.getName().contains(".tmp.")) {
+                long tl = f.length();
+                if (f.delete()) {
+                    total -= tl;
+                }
+                continue;
+            }
+            if (total <= CACHE_LIMIT) {
+                break;
+            }
+            if (used.contains(f.getName())) {
+                continue;
+            }
+            long len = f.length();
+            if (f.delete()) {
+                total -= len;
+            }
         }
     }
 
