@@ -117,14 +117,187 @@ final class VideoStabilizer {
             base = 41;
         }
 
-        // ---- 3) rendering
-        long srcRate = vf.containsKey(MediaFormat.KEY_BIT_RATE) ? vf.getInteger(MediaFormat.KEY_BIT_RATE)
+        // ---- 3) rendering, con scala di tentativi sempre piu' prudenti se il codificatore del telefono si interrompe
+        final int[] want = levelBitrates(vf, w, h, fps);
+        int bitrate = want[Math.max(0, Math.min(3, quality))];
+        Caps cp = caps(w, h);
+        int[] size0 = {cp.w, cp.h};
+        int bucket = bucketOf(w, h);
+        int[][] ladder = {
+                {size0[0], size0[1], Math.min(bitrate, cp.maxBr)},
+                {size0[0], size0[1], Math.min(Math.min(bitrate, cp.maxBr), 25_000_000)},
+                {0, 2560, Math.min(bitrate, 16_000_000)},
+                {0, 1920, Math.min(bitrate, 10_000_000)},
+                {0, 1280, 6_000_000}};
+        Exception last = null;
+        for (int attempt = 0; attempt < ladder.length; attempt++) {
+            int rw = ladder[attempt][0], rh = ladder[attempt][1];
+            if (rw == 0) {
+                // lato lungo = rh: si riduce solo se il video e' piu' grande
+                float f = (float) rh / Math.max(size0[0], size0[1]);
+                if (f >= 0.999f) {
+                    continue;
+                }
+                rw = Math.max(16, Math.round(size0[0] * f) & ~1);
+                rh = Math.max(16, Math.round(size0[1] * f) & ~1);
+            }
+            try {
+                render(ctx, src, vf, at, out, rotation, rw, rh, fps, ladder[attempt][2], corr, est, items, base,
+                        durUs, crop, p);
+                learn(ctx, bucket, want, ladder, attempt, rw == size0[0] && rh == size0[1]);
+                return;
+            } catch (IllegalStateException | IOException e) {
+                String m = e.getMessage();
+                boolean encoderTrouble = e instanceof IllegalStateException
+                        || (m != null && m.startsWith("codificatore"));
+                if (!encoderTrouble || (m != null && m.contains("annullata"))) {
+                    throw e;
+                }
+                last = e;
+                p.onProgress("Il codificatore si e' interrotto: nuovo tentativo con impostazioni piu' prudenti...",
+                        base);
+                //noinspection ResultOfMethodCallIgnored
+                out.delete();
+            }
+        }
+        if (last instanceof IOException) {
+            throw (IOException) last;
+        }
+        throw new IOException("il telefono non riesce a codificare questo video"
+                + (last != null && last.getMessage() != null ? ": " + last.getMessage() : ""));
+    }
+
+    // =========================================================================== capacita' del codificatore
+
+    /** Bitrate dei quattro livelli di qualita' (Massima, Alta, Media, Bassa) per un video w x h. */
+    static int[] levelBitrates(MediaFormat vf, int w, int h, int fps) {
+        long srcRate = vf != null && vf.containsKey(MediaFormat.KEY_BIT_RATE) ? vf.getInteger(MediaFormat.KEY_BIT_RATE)
                 : (long) w * h * 5;
         long baseRate = Math.max(srcRate, (long) (0.15 * w * h * fps));
         double[] qf = {2.0, 1.2, 0.7, 0.4};
-        int bitrate = (int) Math.max(1_000_000L, Math.min(400_000_000L,
-                (long) (baseRate * qf[Math.max(0, Math.min(3, quality))])));
-        render(ctx, src, vf, at, out, rotation, w, h, fps, bitrate, corr, est, items, base, durUs, crop, p);
+        int[] r = new int[4];
+        for (int i = 0; i < 4; i++) {
+            long b = Math.max(1_000_000L, Math.min(400_000_000L, (long) (baseRate * qf[i])));
+            if ((long) w * h >= 6_000_000L) {
+                b = Math.min(b, 45_000_000L);
+            }
+            r[i] = (int) b;
+        }
+        return r;
+    }
+
+    static final class Caps {
+        int w, h, maxBr = 100_000_000;
+    }
+
+    /** Dimensione massima accettata dal codificatore H.264 del telefono (<= w x h) e bitrate massimo dichiarato. */
+    static Caps caps(int w, int h) {
+        Caps c = new Caps();
+        c.w = w;
+        c.h = h;
+        MediaCodec e = null;
+        try {
+            e = MediaCodec.createEncoderByType("video/avc");
+            MediaCodecInfo.VideoCapabilities vc = e.getCodecInfo().getCapabilitiesForType("video/avc")
+                    .getVideoCapabilities();
+            c.maxBr = Math.max(2_000_000, vc.getBitrateRange().getUpper());
+            float f = 1f;
+            for (int i = 0; i < 12 && !vc.isSizeSupported(c.w, c.h); i++) {
+                f *= 0.85f;
+                c.w = Math.max(16, Math.round(w * f) & ~1);
+                c.h = Math.max(16, Math.round(h * f) & ~1);
+            }
+        } catch (Exception ignored) {
+            c.w = w;
+            c.h = h;
+        } finally {
+            if (e != null) {
+                try {
+                    e.release();
+                } catch (Exception ignored) {
+                }
+            }
+        }
+        return c;
+    }
+
+    private static int bucketOf(int w, int h) {
+        return (int) Math.max(1, Math.round((double) w * h / 1_000_000d));
+    }
+
+    private static android.content.SharedPreferences encPrefs(Context ctx) {
+        return ctx.getSharedPreferences("encoder_limits", Context.MODE_PRIVATE);
+    }
+
+    /** Ricorda cosa ha funzionato (o no) su questo telefono per video di questa dimensione. */
+    private static void learn(Context ctx, int bucket, int[] want, int[][] ladder, int attempt, boolean fullSize) {
+        try {
+            android.content.SharedPreferences sp = encPrefs(ctx);
+            android.content.SharedPreferences.Editor ed = sp.edit();
+            int okNow = ladder[attempt][2];
+            if (fullSize) {
+                ed.putInt("ok_" + bucket, Math.max(sp.getInt("ok_" + bucket, 0), okNow));
+                if (attempt > 0) {
+                    int failed = ladder[attempt - 1][2];
+                    int prev = sp.getInt("fail_" + bucket, 0);
+                    ed.putInt("fail_" + bucket, prev == 0 ? failed : Math.min(prev, failed));
+                }
+            } else {
+                // e' riuscito solo a risoluzione ridotta: il bitrate pieno non va
+                int failed = ladder[0][2];
+                int prev = sp.getInt("fail_" + bucket, 0);
+                ed.putInt("fail_" + bucket, prev == 0 ? failed : Math.min(prev, failed));
+            }
+            ed.apply();
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** Quali livelli di qualita' il telefono regge per questo video (l'ultimo e' sempre disponibile). */
+    static boolean[] levelOk(Context ctx, Uri src, int[] sizeOut) {
+        boolean[] ok = {true, true, true, true};
+        MediaExtractor ex = new MediaExtractor();
+        try {
+            ex.setDataSource(ctx, src, null);
+            MediaFormat vf = null;
+            for (int i = 0; i < ex.getTrackCount(); i++) {
+                MediaFormat f = ex.getTrackFormat(i);
+                String m = f.getString(MediaFormat.KEY_MIME);
+                if (m != null && m.startsWith("video/")) {
+                    vf = f;
+                    break;
+                }
+            }
+            if (vf == null) {
+                return ok;
+            }
+            int w = vf.getInteger(MediaFormat.KEY_WIDTH) & ~1, h = vf.getInteger(MediaFormat.KEY_HEIGHT) & ~1;
+            int fps = vf.containsKey(MediaFormat.KEY_FRAME_RATE) ? vf.getInteger(MediaFormat.KEY_FRAME_RATE) : 30;
+            if (fps <= 0 || fps > 120) {
+                fps = 30;
+            }
+            int[] want = levelBitrates(vf, w, h, fps);
+            Caps cp = caps(w, h);
+            if (sizeOut != null && sizeOut.length >= 2) {
+                sizeOut[0] = cp.w == w && cp.h == h ? 0 : cp.w;
+                sizeOut[1] = cp.w == w && cp.h == h ? 0 : cp.h;
+            }
+            android.content.SharedPreferences sp = encPrefs(ctx);
+            int bucket = bucketOf(w, h);
+            int fail = sp.getInt("fail_" + bucket, 0), good = sp.getInt("ok_" + bucket, 0);
+            for (int q = 0; q < 3; q++) {
+                int b = want[q];
+                if (b > cp.maxBr) {
+                    ok[q] = false;
+                } else if (fail > 0 && b >= fail && good < b) {
+                    ok[q] = false;
+                }
+            }
+        } catch (Exception ignored) {
+        } finally {
+            ex.release();
+        }
+        return ok;
     }
 
     // =========================================================================== analisi

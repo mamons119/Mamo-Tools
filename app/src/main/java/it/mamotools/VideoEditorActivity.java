@@ -103,6 +103,9 @@ public class VideoEditorActivity extends Activity {
     private TextView[][] infoCells;
     private TextView[] qualChips;
     private TextView qualDesc;
+    private boolean[] qualOk = {true, true, true, true};
+    private int[] qualSize = {0, 0};   // dimensione massima dichiarata dal codificatore, se inferiore a quella del video
+    private Uri qualChecked;
     private int quality = 0;   // 0 massima (predefinita), 1 alta, 2 media, 3 bassa
     private final java.util.List<VideoFx.Item> fxItems = new java.util.ArrayList<>();
     private LinearLayout fxList;
@@ -656,6 +659,11 @@ public class VideoEditorActivity extends Activity {
             qualChips[i] = Ui.chip(this, qn[i]);
             qualChips[i].setTextSize(13);
             qualChips[i].setOnClickListener(v -> {
+                if (!qualOk[qi]) {
+                    Toast.makeText(this, "Questo livello non e' supportato dal codificatore del telefono per un video di questa "
+                            + "dimensione. Scegli un livello piu' basso.", Toast.LENGTH_LONG).show();
+                    return;
+                }
                 quality = qi;
                 styleQuality();
             });
@@ -3371,18 +3379,57 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void styleQuality() {
+        if (!qualOk[quality]) {
+            // livello non disponibile su questo telefono: si passa al migliore tra quelli disponibili
+            for (int i = quality; i < 4; i++) {
+                if (qualOk[i]) {
+                    quality = i;
+                    break;
+                }
+            }
+        }
         for (int i = 0; i < qualChips.length; i++) {
             Ui.styleChip(this, qualChips[i], i == quality);
+            qualChips[i].setAlpha(qualOk[i] ? 1f : 0.35f);
         }
         String[] d = {"Massima: bitrate molto alto, nessuna perdita visibile. File piu' grande.",
                 "Alta: simile all'originale.", "Media: file piu' leggero, lieve perdita.",
                 "Bassa: file piccolo, qualita' ridotta."};
-        qualDesc.setText(d[quality] + " Vale quando si usano effetti, testo o stabilizzazione.");
+        String extra = "";
+        for (int i = 0; i < 4; i++) {
+            if (!qualOk[i]) {
+                extra = " I livelli sfumati non sono supportati dal codificatore di questo telefono per un video cosi' grande.";
+                break;
+            }
+        }
+        if (qualSize[0] > 0) {
+            extra += " Il telefono non codifica questa risoluzione: il video verra' esportato a circa "
+                    + qualSize[0] + "x" + qualSize[1] + ".";
+        }
+        extra += " Se il codificatore si interrompe, l'app riprova da sola con impostazioni piu' prudenti.";
+        qualDesc.setText(d[quality] + " Vale quando si usano effetti, testo o stabilizzazione." + extra);
     }
 
     private void updateQualityVisibility() {
         if (qualBox != null) {
-            qualBox.setVisibility(stabOn || !fxItems.isEmpty() ? View.VISIBLE : View.GONE);
+            boolean vis = stabOn || !fxItems.isEmpty();
+            qualBox.setVisibility(vis ? View.VISIBLE : View.GONE);
+            if (vis && videoUri != null && !videoUri.equals(qualChecked)) {
+                qualChecked = videoUri;
+                final Uri chk = videoUri;
+                new Thread(() -> {
+                    final int[] sz = new int[2];
+                    final boolean[] ok = VideoStabilizer.levelOk(getApplicationContext(), chk, sz);
+                    runOnUiThread(() -> {
+                        if (!chk.equals(videoUri)) {
+                            return;
+                        }
+                        qualOk = ok;
+                        qualSize = sz;
+                        styleQuality();
+                    });
+                }).start();
+            }
         }
     }
 
@@ -4419,6 +4466,8 @@ public class VideoEditorActivity extends Activity {
                 busy = false;
                 cancelBtn.setVisibility(View.GONE);
                 exportBtn.setEnabled(true);
+                qualChecked = null;   // l'esportazione puo' aver imparato nuovi limiti del codificatore
+                updateQualityVisibility();
                 progress.setVisibility(View.GONE);
                 if (uri != null) {
                     resultUri = uri;
