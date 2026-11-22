@@ -201,7 +201,9 @@ final class FxDialog {
     private SeekBar vhsPlayBar;
     private TextView kText;
     private ZoomBox zoomBox;
-    private LinearLayout fishBox;
+    private LinearLayout fishBox, camBox;
+    private TextView camDateChip;
+    private EditText camDateEdit;
     private TextView fishText;
 
     private void buildEffect(LinearLayout root) {
@@ -318,8 +320,77 @@ final class FxDialog {
         settle(bsp, Math.max(0, Math.min(98, Math.round(it.crtBarSpeed * 100) - 2)));
         crtBox.addView(bsp);
         root.addView(crtBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
+        buildCam(root);
         buildVhs(root);
         styleFx();
+    }
+
+    private interface FloatSet {
+        void set(float v);
+    }
+
+    private void camSlider(String name, float init, FloatSet setter) {
+        final TextView tv = Ui.text(ctx, name + ": " + Math.round(init * 100) + "%", 14, Ui.TEXT, false);
+        camBox.addView(tv, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 8));
+        SeekBar sb = Ui.seek(ctx, new Ui.SimpleSeek() {
+            @Override
+            public void onProgressChanged(SeekBar s, int p, boolean user) {
+                if (!user) {
+                    return;
+                }
+                setter.set(p / 100f);
+                tv.setText(name + ": " + p + "%");
+            }
+        });
+        sb.setMax(100);
+        sb.setProgress(Math.round(init * 100));
+        settle(sb, Math.round(init * 100));
+        camBox.addView(sb);
+    }
+
+    private void buildCam(LinearLayout root) {
+        camBox = new LinearLayout(ctx);
+        camBox.setOrientation(LinearLayout.VERTICAL);
+        camBox.addView(Ui.text(ctx, "Look da videocamera anni '90/2000: colori caldi e sbiaditi, immagine morbida, "
+                + "grana. L'intensita' sopra regola l'effetto complessivo, qui sotto ogni parte singolarmente.",
+                12, Ui.DIM, false), Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
+        camSlider("Colori caldi", it.camWarm, v -> it.camWarm = v);
+        camSlider("Morbidezza", it.camSoft, v -> it.camSoft = v);
+        camSlider("Sbavatura dei colori", it.camBleed, v -> it.camBleed = v);
+        camSlider("Bagliore sulle luci", it.camGlow, v -> it.camGlow = v);
+        camSlider("Grana", it.camGrain, v -> it.camGrain = v);
+        camSlider("Linee orizzontali", it.camLines, v -> it.camLines = v);
+        camSlider("Tremolio dell'immagine", it.camJit, v -> it.camJit = v);
+        camDateChip = Ui.chip(ctx, "");
+        camDateChip.setOnClickListener(v -> {
+            it.camDate = !it.camDate;
+            styleFx();
+        });
+        camBox.addView(camDateChip, Ui.lp(ctx, Ui.MATCH, dp(Ui.H_CHIP), 0, 12));
+        camDateEdit = new EditText(ctx);
+        camDateEdit.setText(it.camDateText);
+        camDateEdit.setTextColor(Ui.TEXT);
+        camDateEdit.setHintTextColor(Ui.DIM);
+        camDateEdit.setHint("Testo della data (vuoto = data di oggi)");
+        camDateEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS);
+        camDateEdit.setBackground(Ui.round(ctx, Ui.CARD2, 12));
+        camDateEdit.setPadding(dp(14), dp(8), dp(14), dp(8));
+        camDateEdit.addTextChangedListener(new TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence s, int a, int b, int c) {
+            }
+
+            @Override
+            public void afterTextChanged(Editable ed) {
+                it.camDateText = ed.toString();
+            }
+        });
+        camBox.addView(camDateEdit, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 6));
+        root.addView(camBox, Ui.lp(ctx, Ui.MATCH, Ui.WRAP, 0, 4));
     }
 
     /** Fine dell'intervallo: se arriva (o supera) la fine del video, la porta 1 ms oltre, cosi' l'ultimo fotogramma e' incluso. */
@@ -492,6 +563,10 @@ final class FxDialog {
         fishBox.setVisibility(it.effect == VideoFx.EFFECT_FISH ? View.VISIBLE : View.GONE);
         fishText.setText("Diametro obiettivo: " + Math.round(it.fishD * 100) + "% dell'altezza");
         crtBox.setVisibility(it.effect == VideoFx.EFFECT_CRT ? View.VISIBLE : View.GONE);
+        camBox.setVisibility(it.effect == VideoFx.EFFECT_CAM ? View.VISIBLE : View.GONE);
+        camDateChip.setText(it.camDate ? "Data in sovraimpressione: si" : "Data in sovraimpressione: no");
+        Ui.styleChip(ctx, camDateChip, it.camDate);
+        camDateEdit.setVisibility(it.effect == VideoFx.EFFECT_CAM && it.camDate ? View.VISIBLE : View.GONE);
         crtChip.setText(it.crtWarp ? "Distorsioni CRT: attive" : "Distorsioni CRT: disattivate");
         Ui.styleChip(ctx, crtChip, it.crtWarp);
         barsText.setText(it.crtBars == 0 ? "Fasce scure che scorrono: nessuna"

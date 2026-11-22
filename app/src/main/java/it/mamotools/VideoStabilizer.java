@@ -555,6 +555,7 @@ final class VideoStabilizer {
             + "uniform float uCrt, uWarp, uSwap, uTime;\n"
             + "uniform vec4 uLin;\n"
             + "uniform float uBars, uBspd, uVhs, uRotI, uRw, uRwDir, uRwBlue, uFish, uFishD;\n"
+            + "uniform float uCam, uCSoft, uCBleed, uCGlow, uCGrain, uCLines, uCJit;\n"
             + "vec4 s(vec2 uv){ return texture2D(sTex, uv); }\n"
             + "float hsh(vec2 p){ return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }\n"
             + "vec2 dpos(vec2 p){\n"
@@ -591,6 +592,11 @@ final class VideoStabilizer {
             + "void main(){\n"
             + "  vec2 uv = vTc;\n"
             + "  if (uPix > 0.0) { vec2 b = texel * (4.0 + uPix * 40.0); uv = (floor(uv / b) + 0.5) * b; }\n"
+            + "  if (uCJit > 0.0) {\n"
+            + "    float ft = mod(floor(uTime * 25.0), 997.0);\n"
+            + "    uv += toTc(vec2(hsh(vec2(ft, 1.0)) - 0.5, hsh(vec2(ft, 2.0)) - 0.5) * 0.006 * uCJit);\n"
+            + "  }\n"
+            + "  vec3 camGlow = vec3(0.0);\n"
             + "  if (uVhs > 0.0) {\n"
             + "    vec2 dp0 = dpos(vPos);\n"
             + "    float row = floor(dp0.y * 240.0);\n"
@@ -673,6 +679,21 @@ final class VideoStabilizer {
             + "    vec2 dg = fishSrc(pdf, 0.0) - pdf;\n"
             + "    vec2 db = fishSrc(pdf, -0.02) - pdf;\n"
             + "    c = vec4(s(uv + toTc(dr)).r, s(uv + toTc(dg)).g, s(uv + toTc(db)).b, 1.0);\n"
+            + "  } else if (uCam > 0.0) {\n"
+            + "    vec2 sz = uSwap > 0.5 ? uOut.yx : uOut;\n"
+            + "    vec2 tx = toTc(vec2(1.0 / sz.x, 0.0)) * max(1.0, sz.x / 480.0);\n"
+            + "    vec2 ty = toTc(vec2(0.0, 1.0 / sz.y)) * max(1.0, sz.x / 480.0);\n"
+            + "    vec3 a = s(uv).rgb;\n"
+            + "    vec3 nb = (s(uv - tx).rgb + s(uv + tx).rgb + s(uv - ty).rgb + s(uv + ty).rgb) * 0.25;\n"
+            + "    vec3 w = mix(a, nb, 0.85 * uCSoft);\n"
+            + "    vec2 cs = tx * (1.0 + 3.0 * uCBleed);\n"
+            + "    vec3 sm = (s(uv - cs).rgb + s(uv - cs * 2.0).rgb + s(uv + cs).rgb) / 3.0;\n"
+            + "    float wl = dot(w, vec3(0.299, 0.587, 0.114));\n"
+            + "    vec3 cb = mix(w, vec3(wl) + (sm - vec3(dot(sm, vec3(0.299, 0.587, 0.114)))), uCBleed);\n"
+            + "    vec3 wide = (s(uv - tx * 4.0).rgb + s(uv + tx * 4.0).rgb + s(uv - ty * 4.0).rgb + s(uv + ty * 4.0).rgb) * 0.25;\n"
+            + "    float hl = max(dot(wide, vec3(0.299, 0.587, 0.114)) - 0.6, 0.0);\n"
+            + "    camGlow = vec3(1.0, 0.85, 0.65) * hl * 0.9 * uCGlow;\n"
+            + "    c = vec4(cb, 1.0);\n"
             + "  } else { c = s(uv); }\n"
             + "  vec3 col = c.rgb;\n"
             + "  float l = dot(col, vec3(0.299, 0.587, 0.114));\n"
@@ -686,6 +707,15 @@ final class VideoStabilizer {
             + "  float l2 = dot(col, vec3(0.299, 0.587, 0.114));\n"
             + "  col = mix(vec3(l2), col, uSat);\n"
             + "  col = (col - 0.5) * uCon + 0.5;\n"
+            + "  if (uCam > 0.0) {\n"
+            + "    vec2 pdc = uSwap > 0.5 ? vPos.yx : vPos;\n"
+            + "    vec2 szc = uSwap > 0.5 ? uOut.yx : uOut;\n"
+            + "    col = col * (1.0 - 0.07 * uCam) + vec3(1.0, 0.95, 0.85) * 0.07 * uCam;\n"
+            + "    col += camGlow;\n"
+            + "    float gn = hsh(pdc * szc * 0.5 + vec2(mod(floor(uTime * 25.0), 997.0) * 1.37, 3.1)) - 0.5;\n"
+            + "    col += gn * 0.22 * uCGrain * (1.0 - 0.5 * dot(col, vec3(0.333)));\n"
+            + "    col *= 1.0 - 0.14 * uCLines * (0.5 + 0.5 * sin(pdc.y * 240.0 * 6.2831853));\n"
+            + "  }\n"
             + "  if (uFish > 0.0) {\n"
             + "    vec2 pdf = uSwap > 0.5 ? vPos.yx : vPos;\n"
             + "    vec2 szf = uSwap > 0.5 ? uOut.yx : uOut;\n"
@@ -1076,7 +1106,7 @@ final class VideoStabilizer {
             int uSwapL = GLES20.glGetUniformLocation(prog, "uSwap"), uTimeL = GLES20.glGetUniformLocation(prog, "uTime");
             int uLinL = GLES20.glGetUniformLocation(prog, "uLin");
             int uRotIL = GLES20.glGetUniformLocation(prog, "uRotI");
-            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue", "uZxUnused", "uZyUnused", "uFish", "uCool", "uWarm", "uMirHUnused", "uMirVUnused", "uFishD"};
+            String[] un = {"uGray", "uSepia", "uInv", "uVig", "uBlur", "uPix", "uSat", "uCon", "uFade", "uSplit", "uZoomUnused", "uCrt", "uWarp", "uBars", "uBspd", "uVhs", "uRw", "uRwDir", "uRwBlue", "uZxUnused", "uZyUnused", "uFish", "uCool", "uWarm", "uMirHUnused", "uMirVUnused", "uFishD", "uCam", "uCSoft", "uCBleed", "uCGlow", "uCGrain", "uCLines", "uCJit"};
             int[] uFx = new int[un.length];
             for (int i = 0; i < un.length; i++) {
                 uFx[i] = GLES20.glGetUniformLocation(prog, un[i]);

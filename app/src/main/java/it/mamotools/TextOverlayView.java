@@ -2,6 +2,7 @@ package it.mamotools;
 
 import android.content.Context;
 import android.graphics.Bitmap;
+import android.graphics.BitmapShader;
 import android.graphics.Canvas;
 import android.graphics.ColorMatrix;
 import android.graphics.ColorMatrixColorFilter;
@@ -196,6 +197,8 @@ final class TextOverlayView extends View {
                 smooth = false;
             } else if (u[VideoFx.U_BLUR] > 0) {
                 gw = Math.max(6, Math.round(rw / (1 + u[VideoFx.U_BLUR] * 14 * 0.9f * s)));
+            } else if (u[VideoFx.U_CAM] > 0) {
+                gw = Math.max(6, Math.round(rw / (2f + 3f * u[VideoFx.U_CSOFT])));
             } else {
                 gw = Math.round(rw / 2);
             }
@@ -250,10 +253,25 @@ final class TextOverlayView extends View {
                 } else if (u[VideoFx.U_VHS] > 0 && u[VideoFx.U_PIX] == 0 && u[VideoFx.U_BLUR] == 0) {
                     drawVhsMesh(c, g, dst, l, t, rw, rh);
                 } else {
+                    if (u[VideoFx.U_CJIT] > 0) {
+                        long st = System.currentTimeMillis() / 40;
+                        dst.offset((VideoFx.hash1(st * 2) - 0.5f) * 0.006f * rw * u[VideoFx.U_CJIT],
+                                (VideoFx.hash1(st * 2 + 1) - 0.5f) * 0.006f * rh * u[VideoFx.U_CJIT]);
+                    }
                     fxPaint.setFilterBitmap(smooth);
                     fxPaint.setColorFilter(new ColorMatrixColorFilter(VideoFx.colorMatrix(u)));
                     c.drawBitmap(g, null, dst, fxPaint);
                     fxPaint.setColorFilter(null);
+                    if (u[VideoFx.U_CAM] > 0 && u[VideoFx.U_CGLOW] > 0) {
+                        Paint gp = new Paint(Paint.FILTER_BITMAP_FLAG);
+                        gp.setColorFilter(new ColorMatrixColorFilter(new ColorMatrix(new float[]{
+                                2.2f, 0, 0, 0, -330, 0, 1.9f, 0, 0, -290, 0, 0, 1.5f, 0, -240, 0, 0, 0, 1, 0})));
+                        gp.setXfermode(new PorterDuffXfermode(PorterDuff.Mode.ADD));
+                        gp.setAlpha(Math.min(255, (int) (255 * 0.8f * u[VideoFx.U_CGLOW])));
+                        c.saveLayer(l, t, l + rw, t + rh, null);
+                        c.drawBitmap(g, null, dst, gp);
+                        c.restore();
+                    }
                 }
                 if (u[VideoFx.U_CRT] > 0 && u[VideoFx.U_WARP] > 0 && !frameDone) {
                     drawCrtFrame(c, l, t, rw, rh);
@@ -282,6 +300,9 @@ final class TextOverlayView extends View {
         if (u[VideoFx.U_RW] > 0) {
             drawRewindOverlay(c, l, t, rw, rh);
         }
+        if (u[VideoFx.U_CAM] > 0) {
+            drawCamOverlay(c, l, t, rw, rh);
+        }
         if (u[VideoFx.U_VIG] > 0) {
             c.save();
             c.clipRect(l, t, l + rw, t + rh);
@@ -294,6 +315,53 @@ final class TextOverlayView extends View {
             c.drawRect(-0.5f, -0.5f, 0.5f, 0.5f, vp);
             c.restore();
         }
+    }
+
+    // ------------------------------------------------------------------ videocamera vintage (anteprima)
+
+    private Bitmap camNoise;
+
+    /** Linee sottili e grana (rumore che cambia a ogni fotogramma). */
+    private void drawCamOverlay(Canvas c, float l, float t, float rw, float rh) {
+        c.save();
+        c.clipRect(l, t, l + rw, t + rh);
+        float ln = u[VideoFx.U_CLINES];
+        if (ln > 0) {
+            Paint lp = new Paint();
+            lp.setColor(0xFF000000);
+            lp.setAlpha((int) (255 * 0.14f * ln));
+            float step = rh / 240f;
+            if (step >= 1.5f) {
+                for (float y = t + step * 0.5f; y < t + rh; y += step) {
+                    c.drawRect(l, y, l + rw, y + step * 0.5f, lp);
+                }
+            }
+        }
+        float gr = u[VideoFx.U_CGRAIN];
+        if (gr > 0) {
+            if (camNoise == null) {
+                int n = 96;
+                int[] px = new int[n * n];
+                java.util.Random r = new java.util.Random(7);
+                for (int i = 0; i < px.length; i++) {
+                    int v = r.nextInt(256);
+                    px[i] = 0xFF000000 | (v << 16) | (v << 8) | v;
+                }
+                camNoise = Bitmap.createBitmap(px, n, n, Bitmap.Config.ARGB_8888);
+            }
+            long st = System.currentTimeMillis() / 40;
+            Paint np = new Paint();
+            BitmapShader bs = new BitmapShader(camNoise, Shader.TileMode.REPEAT, Shader.TileMode.REPEAT);
+            android.graphics.Matrix m = new android.graphics.Matrix();
+            float px = Math.max(1.5f, rw / 360f);
+            m.setScale(px, px);
+            m.postTranslate(VideoFx.hash1(st) * 300f, VideoFx.hash1(st + 99) * 300f);
+            bs.setLocalMatrix(m);
+            np.setShader(bs);
+            np.setAlpha((int) (255 * 0.22f * gr));
+            c.drawRect(l, t, l + rw, t + rh, np);
+        }
+        c.restore();
     }
 
     // ------------------------------------------------------------------ schermo CRT (anteprima)

@@ -20,16 +20,16 @@ final class VideoFx {
 
     static final String[] EFFECT_NAMES = {"Bianco e nero", "Seppia", "Negativo", "Vintage", "Vignettatura",
             "Sfocatura", "Pixel", "Vivido", "Appare dal nero", "Sparisce al nero", "Zoom avanti", "Glitch RGB", "Schermo CRT", "VHS", "Zoom", "Fisheye",
-            "Freddo", "Caldo", "Specchio orizzontale", "Specchio verticale"};
-    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺", "🖥", "📼", "⤢", "🐟", "❄", "🔥", "↔", "↕"};
+            "Freddo", "Caldo", "Specchio orizzontale", "Specchio verticale", "Videocamera vintage"};
+    static final String[] EFFECT_ICONS = {"◐", "🟤", "◑", "📽", "◉", "🌫", "▦", "🌈", "⬆", "⬇", "🔍", "📺", "🖥", "📼", "⤢", "🐟", "❄", "🔥", "↔", "↕", "📹"};
     /** Se l'effetto ha un'intensita' regolabile. */
-    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true, true, true, false, true, true, true, false, false};
+    static final boolean[] EFFECT_HAS_K = {true, true, true, true, true, true, true, true, false, false, true, true, true, true, false, true, true, true, false, false, true};
     /** Effetti non piu' proposti nell'elenco ("Zoom avanti" e' un caso dello Zoom e viene convertito). */
     static boolean isHidden(int effect) {
         return effect == 10;
     }
 
-    static final int EFFECT_CRT = 12, EFFECT_VHS = 13, EFFECT_ZOOM = 14, EFFECT_FISH = 15;
+    static final int EFFECT_CRT = 12, EFFECT_VHS = 13, EFFECT_ZOOM = 14, EFFECT_FISH = 15, EFFECT_CAM = 20;
     static final String[] VHS_DEFAULT = {"PLAY ▶", "VHS", "01:35\nSEP. 03 1985", ""};
 
     static final String[] FONT_NAMES = {"Normale", "Condensato", "Sottile", "Nero", "Serif", "Macchina",
@@ -73,6 +73,10 @@ final class VideoFx {
         int vhsMode = 0;
         boolean vhsBlink = true;  // scritta REWIND / FAST FORWARD lampeggiante
         boolean vhsPlay = true;   // alla fine compare "PLAY"
+        // videocamera vintage (tutti 0..1)
+        float camWarm = 0.6f, camSoft = 0.5f, camBleed = 0.5f, camGlow = 0.4f, camGrain = 0.4f, camLines = 0.3f, camJit = 0f;
+        boolean camDate = false;
+        String camDateText = "";  // vuoto = data di oggi
         float fishD = 1f;         // diametro dell'obiettivo fisheye (1 = altezza del fotogramma)
         boolean vhsBlue = true;   // rewind/fast forward con dominante blu
         // zoom dinamico: {zoom iniziale, zoom finale, punto x, punto y, morbido}
@@ -120,6 +124,15 @@ final class VideoFx {
             i.vhsPlayUs = vhsPlayUs;
             i.vhsBlue = vhsBlue;
             i.fishD = fishD;
+            i.camWarm = camWarm;
+            i.camSoft = camSoft;
+            i.camBleed = camBleed;
+            i.camGlow = camGlow;
+            i.camGrain = camGrain;
+            i.camLines = camLines;
+            i.camJit = camJit;
+            i.camDate = camDate;
+            i.camDateText = camDateText;
             i.zoom = zoom.clone();
             i.animIn = animIn;
             i.animOut = animOut;
@@ -165,6 +178,15 @@ final class VideoFx {
             o.put("vhsPlayUs", vhsPlayUs);
             o.put("vhsBlue", vhsBlue);
             o.put("fishD", (double) fishD);
+            o.put("camWarm", (double) camWarm);
+            o.put("camSoft", (double) camSoft);
+            o.put("camBleed", (double) camBleed);
+            o.put("camGlow", (double) camGlow);
+            o.put("camGrain", (double) camGrain);
+            o.put("camLines", (double) camLines);
+            o.put("camJit", (double) camJit);
+            o.put("camDate", camDate);
+            o.put("camDateText", camDateText == null ? "" : camDateText);
             org.json.JSONArray za = new org.json.JSONArray();
             for (float f : zoom) {
                 za.put((double) f);
@@ -215,6 +237,15 @@ final class VideoFx {
             i.vhsPlayUs = o.optLong("vhsPlayUs", 2000000L);
             i.vhsBlue = o.optBoolean("vhsBlue", true);
             i.fishD = (float) o.optDouble("fishD", 1.0);
+            i.camWarm = (float) o.optDouble("camWarm", 0.6);
+            i.camSoft = (float) o.optDouble("camSoft", 0.5);
+            i.camBleed = (float) o.optDouble("camBleed", 0.5);
+            i.camGlow = (float) o.optDouble("camGlow", 0.4);
+            i.camGrain = (float) o.optDouble("camGrain", 0.4);
+            i.camLines = (float) o.optDouble("camLines", 0.3);
+            i.camJit = (float) o.optDouble("camJit", 0.0);
+            i.camDate = o.optBoolean("camDate", false);
+            i.camDateText = o.optString("camDateText", "");
             org.json.JSONArray za = o.optJSONArray("zoom");
             if (za != null && za.length() >= 5) {
                 for (int k = 0; k < 5; k++) {
@@ -405,7 +436,8 @@ final class VideoFx {
     // ------------------------------------------------------------------ parametri degli effetti
 
     static final int U_GRAY = 0, U_SEPIA = 1, U_INV = 2, U_VIG = 3, U_BLUR = 4, U_PIX = 5, U_SAT = 6, U_CON = 7,
-            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_ZX = 19, U_ZY = 20, U_FISH = 21, U_COOL = 22, U_WARM = 23, U_MIRH = 24, U_MIRV = 25, U_FISHD = 26, U_COUNT = 27;
+            U_FADE = 8, U_SPLIT = 9, U_ZOOM = 10, U_CRT = 11, U_WARP = 12, U_BARS = 13, U_BSPD = 14, U_VHS = 15, U_RW = 16, U_RWDIR = 17, U_RWBLUE = 18, U_ZX = 19, U_ZY = 20, U_FISH = 21, U_COOL = 22, U_WARM = 23, U_MIRH = 24, U_MIRV = 25, U_FISHD = 26,
+            U_CAM = 27, U_CSOFT = 28, U_CBLEED = 29, U_CGLOW = 30, U_CGRAIN = 31, U_CLINES = 32, U_CJIT = 33, U_COUNT = 34;
 
     /** Calcola i parametri dello shader per l'istante t combinando gli effetti attivi. */
     static void uniforms(List<Item> items, long tUs, float[] u) {
@@ -430,6 +462,13 @@ final class VideoFx {
         u[U_RWBLUE] = 0;
         u[U_FISH] = 0;
         u[U_FISHD] = 1;
+        u[U_CAM] = 0;
+        u[U_CSOFT] = 0;
+        u[U_CBLEED] = 0;
+        u[U_CGLOW] = 0;
+        u[U_CGRAIN] = 0;
+        u[U_CLINES] = 0;
+        u[U_CJIT] = 0;
         u[U_COOL] = 0;
         u[U_WARM] = 0;
         u[U_MIRH] = 0;
@@ -519,6 +558,19 @@ final class VideoFx {
                 case 19:
                     u[U_MIRV] = 1;
                     break;
+                case 20:
+                    u[U_CAM] = Math.max(u[U_CAM], k);
+                    u[U_WARM] = Math.max(u[U_WARM], k * it.camWarm);
+                    u[U_SAT] *= 1f - 0.18f * k;
+                    u[U_CON] *= 1f - 0.10f * k;
+                    u[U_VIG] = Math.max(u[U_VIG], 0.25f * k);
+                    u[U_CSOFT] = Math.max(u[U_CSOFT], k * it.camSoft);
+                    u[U_CBLEED] = Math.max(u[U_CBLEED], k * it.camBleed);
+                    u[U_CGLOW] = Math.max(u[U_CGLOW], k * it.camGlow);
+                    u[U_CGRAIN] = Math.max(u[U_CGRAIN], k * it.camGrain);
+                    u[U_CLINES] = Math.max(u[U_CLINES], k * it.camLines);
+                    u[U_CJIT] = Math.max(u[U_CJIT], k * it.camJit);
+                    break;
                 case 14:
                     u[U_ZOOM] *= zoomAt(it.zoom[0], it.zoom[1], it.zoom[4] >= 0.5f, p);
                     u[U_ZX] = it.zoom[2];
@@ -542,12 +594,35 @@ final class VideoFx {
             if (!i.isText && i.effect == EFFECT_VHS && (i.vhsText || (i.vhsMode != 0 && i.vhsPlay))) {
                 any = true;
             }
+            if (!i.isText && i.effect == EFFECT_CAM && i.camDate) {
+                any = true;
+            }
         }
         if (!any) {
             return in;
         }
         List<Item> out = new java.util.ArrayList<>(in);
         for (Item i : in) {
+            if (!i.isText && i.effect == EFFECT_CAM && i.camDate) {
+                Item t = new Item();
+                t.isText = true;
+                t.vhs = true;
+                t.vhsJit = i.camJit > 0f;
+                t.startUs = i.startUs;
+                t.endUs = i.endUs;
+                String ds = i.camDateText == null ? "" : i.camDateText.trim();
+                if (ds.isEmpty()) {
+                    ds = new java.text.SimpleDateFormat("d MMM yyyy", java.util.Locale.ENGLISH)
+                            .format(new java.util.Date()).toUpperCase(java.util.Locale.ENGLISH);
+                }
+                t.text = ds;
+                t.sizeFrac = 0.045f;
+                t.color = 0xFFFF9A2E;
+                t.align = 1;
+                t.ay = 1f;
+                t.salt = 7;
+                out.add(t);
+            }
             if (i.isText || i.effect != EFFECT_VHS) {
                 continue;
             }
@@ -831,8 +906,11 @@ final class VideoFx {
         float c = u[U_CON];
         float f = u[U_FADE];
         float off = 127.5f * (1 - c);
+        float lf = 1f - 0.07f * u[U_CAM];
+        float lo = 255f * 0.07f * u[U_CAM];
         cm.postConcat(new android.graphics.ColorMatrix(new float[]{
-                c * f, 0, 0, 0, off * f, 0, c * f, 0, 0, off * f, 0, 0, c * f, 0, off * f, 0, 0, 0, 1, 0}));
+                c * f * lf, 0, 0, 0, off * f * lf + lo, 0, c * f * lf, 0, 0, off * f * lf + lo * 0.95f,
+                0, 0, c * f * lf, 0, off * f * lf + lo * 0.85f, 0, 0, 0, 1, 0}));
         return cm;
     }
 
@@ -846,13 +924,13 @@ final class VideoFx {
     }
 
     static boolean needsGrab(float[] u) {
-        return u[U_PIX] > 0 || u[U_BLUR] > 0 || u[U_SPLIT] > 0 || (u[U_CRT] > 0 && u[U_WARP] > 0) || u[U_VHS] > 0 || u[U_FISH] > 0;
+        return u[U_PIX] > 0 || u[U_BLUR] > 0 || u[U_SPLIT] > 0 || (u[U_CRT] > 0 && u[U_WARP] > 0) || u[U_VHS] > 0 || u[U_FISH] > 0 || u[U_CAM] > 0;
     }
 
     static boolean isNeutral(float[] u) {
         return u[U_GRAY] == 0 && u[U_SEPIA] == 0 && u[U_INV] == 0 && u[U_VIG] == 0 && u[U_BLUR] == 0
                 && u[U_PIX] == 0 && u[U_SAT] == 1 && u[U_CON] == 1 && u[U_FADE] == 1 && u[U_SPLIT] == 0
                 && u[U_ZOOM] == 1 && u[U_CRT] == 0 && u[U_VHS] == 0 && u[U_FISH] == 0 && u[U_COOL] == 0
-                && u[U_WARM] == 0 && u[U_MIRH] == 0 && u[U_MIRV] == 0;
+                && u[U_CAM] == 0 && u[U_WARM] == 0 && u[U_MIRH] == 0 && u[U_MIRV] == 0;
     }
 }
