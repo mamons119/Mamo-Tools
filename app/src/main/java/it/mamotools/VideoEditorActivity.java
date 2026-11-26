@@ -30,6 +30,7 @@ import android.os.ParcelFileDescriptor;
 import android.provider.MediaStore;
 import android.provider.OpenableColumns;
 import android.view.Gravity;
+import android.view.KeyEvent;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -193,7 +194,11 @@ public class VideoEditorActivity extends Activity {
         root.setPadding(dp(16), dp(36), dp(16), dp(28));
         scroll.addView(root, new ViewGroup.LayoutParams(MATCH, WRAP));
 
-        root.addView(text("Video Editor", 28, R.color.text, true));
+        LinearLayout titleRow = new LinearLayout(this);
+        titleRow.setGravity(Gravity.CENTER_VERTICAL);
+        titleRow.addView(text("Video Editor", 28, R.color.text, true), new LinearLayout.LayoutParams(0, WRAP, 1f));
+        titleRow.addView(btn("i", C_CARD2, C_ACCENT, v -> showKeysDialog()), new LinearLayout.LayoutParams(dp(Ui.ICON_W), dp(Ui.ICON_H)));
+        root.addView(titleRow, new LinearLayout.LayoutParams(MATCH, WRAP));
         root.addView(new View(this), new LinearLayout.LayoutParams(MATCH, dp(16)));
 
         // ---- scelta del video
@@ -303,30 +308,13 @@ public class VideoEditorActivity extends Activity {
         tl.addView(markText);
 
         LinearLayout r1 = new LinearLayout(this);
-        r1.addView(btn("[  Inizio", C_CARD2, C_TEXT, v -> {
-            markA = timeline.pos;
-            if (markB >= 0 && markB <= markA) {
-                markB = -1;
-            }
-            refreshMarks();
-        }), lp(0, dp(Ui.H_BTN), 0, 0, 1f));
-        r1.addView(btn("Fine  ]", C_CARD2, C_TEXT, v -> {
-            markB = timeline.pos;
-            if (markA >= 0 && markA >= markB) {
-                markA = -1;
-            }
-            refreshMarks();
-        }), lp(0, dp(Ui.H_BTN), 8, 0, 1f));
+        r1.addView(btn("[  Inizio", C_CARD2, C_TEXT, v -> markStart()), lp(0, dp(Ui.H_BTN), 0, 0, 1f));
+        r1.addView(btn("Fine  ]", C_CARD2, C_TEXT, v -> markEnd()), lp(0, dp(Ui.H_BTN), 8, 0, 1f));
         tl.addView(r1, new LinearLayout.LayoutParams(MATCH, WRAP));
         LinearLayout r2 = new LinearLayout(this);
         r2.addView(btn("✂  Taglia la selezione", C_DANGER, Color.BLACK, v -> addCut()),
                 lp(0, dp(Ui.H_BTN), 0, 8, 1.6f));
-        r2.addView(btn("↶  Annulla", C_CARD2, C_TEXT, v -> {
-            if (!cuts.isEmpty()) {
-                cuts.remove(cuts.size() - 1);
-                refreshMarks();
-            }
-        }), lp(0, dp(Ui.H_BTN), 8, 8, 1f));
+        r2.addView(btn("↶  Annulla", C_CARD2, C_TEXT, v -> undoCut()), lp(0, dp(Ui.H_BTN), 8, 8, 1f));
         tl.addView(r2, new LinearLayout.LayoutParams(MATCH, WRAP));
         tl.addView(btn("🎞  Aggiungi clip nel punto del cursore", C_CARD2, C_ACCENT, v -> pickClip()),
                 lp(MATCH, dp(46), 0, 8));
@@ -4035,6 +4023,175 @@ public class VideoEditorActivity extends Activity {
     }
 
     // ------------------------------------------------------------------------ riproduzione
+
+    private void markStart() {
+        markA = timeline.pos;
+        if (markB >= 0 && markB <= markA) {
+            markB = -1;
+        }
+        refreshMarks();
+    }
+
+    private void markEnd() {
+        markB = timeline.pos;
+        if (markA >= 0 && markA >= markB) {
+            markA = -1;
+        }
+        refreshMarks();
+    }
+
+    private void undoCut() {
+        if (!cuts.isEmpty()) {
+            cuts.remove(cuts.size() - 1);
+            refreshMarks();
+        }
+    }
+
+    // ------------------------------------------------------------------ tastiera (Bluetooth o USB)
+
+    /** Scorciatoie da tastiera; non sono scritte sui pulsanti, l'elenco e' nella "i" accanto al titolo. */
+    @Override
+    public boolean dispatchKeyEvent(KeyEvent e) {
+        if (e.getAction() != KeyEvent.ACTION_DOWN || videoUri == null || busy || editorBox == null
+                || editorBox.getVisibility() != View.VISIBLE) {
+            return super.dispatchKeyEvent(e);
+        }
+        if (getCurrentFocus() instanceof android.widget.EditText) {
+            return super.dispatchKeyEvent(e);   // si sta scrivendo (per esempio il nome del file)
+        }
+        boolean ctrl = e.isCtrlPressed(), shift = e.isShiftPressed();
+        boolean rep = e.getRepeatCount() > 0;
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_SPACE:
+            case KeyEvent.KEYCODE_K:
+                if (!rep) {
+                    togglePlay();
+                }
+                return true;
+            case KeyEvent.KEYCODE_DPAD_LEFT:
+                seekRel(ctrl ? -5000 : shift ? -1000 : -33);
+                return true;
+            case KeyEvent.KEYCODE_DPAD_RIGHT:
+                seekRel(ctrl ? 5000 : shift ? 1000 : 33);
+                return true;
+            case KeyEvent.KEYCODE_MOVE_HOME:
+                seekRel(-durMs);
+                return true;
+            case KeyEvent.KEYCODE_MOVE_END:
+                seekRel(durMs);
+                return true;
+            case KeyEvent.KEYCODE_ESCAPE:
+                if (videoView.isPlaying()) {
+                    togglePlay();
+                    return true;
+                }
+                return super.dispatchKeyEvent(e);
+            default:
+                break;
+        }
+        if (rep) {
+            return super.dispatchKeyEvent(e);
+        }
+        switch (e.getKeyCode()) {
+            case KeyEvent.KEYCODE_I:
+                markStart();
+                return true;
+            case KeyEvent.KEYCODE_O:
+                if (ctrl) {
+                    pickVideo();
+                } else {
+                    markEnd();
+                }
+                return true;
+            case KeyEvent.KEYCODE_X:
+            case KeyEvent.KEYCODE_FORWARD_DEL:
+                addCut();
+                return true;
+            case KeyEvent.KEYCODE_Z:
+                if (ctrl) {
+                    undoCut();
+                    return true;
+                }
+                break;
+            case KeyEvent.KEYCODE_E:
+                if (ctrl) {
+                    export();
+                } else {
+                    addFx(false);
+                }
+                return true;
+            case KeyEvent.KEYCODE_T:
+                addFx(true);
+                return true;
+            case KeyEvent.KEYCODE_C:
+                cropDialog();
+                return true;
+            case KeyEvent.KEYCODE_S:
+                if (ctrl) {
+                    saveProject();
+                    return true;
+                }
+                break;
+            default:
+                break;
+        }
+        return super.dispatchKeyEvent(e);
+    }
+
+    private void showKeysDialog() {
+        final String[][] rows = {
+                {"Spazio  /  K", "Riproduci / pausa"},
+                {"←  →", "Un fotogramma indietro / avanti"},
+                {"Maiusc + ←  →", "1 secondo indietro / avanti"},
+                {"Ctrl + ←  →", "5 secondi indietro / avanti"},
+                {"Home  /  End", "All'inizio / alla fine del video"},
+                {"Esc", "Ferma la riproduzione"},
+                {"I", "Segna l'inizio della selezione"},
+                {"O", "Segna la fine della selezione"},
+                {"X  /  Canc", "Taglia la selezione"},
+                {"Ctrl + Z", "Annulla l'ultimo taglio"},
+                {"E", "Aggiungi un effetto"},
+                {"T", "Aggiungi un testo"},
+                {"C", "Ruota e ritaglia"},
+                {"Ctrl + O", "Scegli un altro video"},
+                {"Ctrl + S", "Salva il progetto"},
+                {"Ctrl + E", "Esporta il video"}};
+        final android.app.Dialog d = new android.app.Dialog(this);
+        d.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setBackground(round(C_CARD, 20));
+        box.setPadding(dp(18), dp(18), dp(18), dp(14));
+        box.addView(text("Scorciatoie da tastiera", 18, R.color.text, true));
+        box.addView(text("Funzionano con una tastiera Bluetooth o USB quando non stai scrivendo in un campo di testo.",
+                12, R.color.text_dim, false), lp(MATCH, WRAP, 0, 4));
+        ScrollView sv = new ScrollView(this);
+        android.widget.TableLayout tbl = new android.widget.TableLayout(this);
+        tbl.setColumnShrinkable(1, true);
+        for (String[] r : rows) {
+            android.widget.TableRow tr = new android.widget.TableRow(this);
+            TextView k = text(r[0], 13, R.color.accent, true);
+            k.setTypeface(android.graphics.Typeface.MONOSPACE, android.graphics.Typeface.BOLD);
+            k.setPadding(0, dp(7), dp(14), dp(7));
+            tr.addView(k);
+            TextView f = text(r[1], 13, R.color.text, false);
+            f.setPadding(0, dp(7), 0, dp(7));
+            tr.addView(f);
+            tbl.addView(tr);
+        }
+        sv.addView(tbl);
+        box.addView(sv, new LinearLayout.LayoutParams(MATCH, 0, 1f));
+        box.addView(btn("Chiudi", C_ACCENT, Color.BLACK, v -> d.dismiss()), lp(MATCH, dp(46), 0, 12));
+        d.setContentView(box);
+        android.view.Window w = d.getWindow();
+        if (w != null) {
+            w.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(0));
+            w.setDimAmount(0.6f);
+            w.setLayout((int) (getResources().getDisplayMetrics().widthPixels * 0.92f),
+                    (int) (getResources().getDisplayMetrics().heightPixels * 0.8f));
+        }
+        d.show();
+    }
 
     private void togglePlay() {
         if (videoUri == null) {
