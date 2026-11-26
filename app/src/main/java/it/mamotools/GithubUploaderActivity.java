@@ -182,27 +182,33 @@ public class GithubUploaderActivity extends Activity {
             repoList.addView(Ui.text(this, reposError, 12, Ui.DANGER, false));
         }
         String last = store.last();
+        java.util.Set<String> pins = store.pins();
         List<Repo> sorted = new ArrayList<>(repos);
         int shown = 0;
-        for (int pass = 0; pass < 2; pass++) {
+        // ordine: preferiti, poi l'ultimo usato, poi gli altri
+        for (int pass = 0; pass < 3; pass++) {
             for (Repo r : sorted) {
-                boolean isLast = (r.acct.id + "|" + r.full).equals(last);
-                if ((pass == 0) != isLast) {
+                String key = r.acct.id + "|" + r.full;
+                boolean pinned = pins.contains(key);
+                boolean isLast = key.equals(last);
+                int grp = pinned ? 0 : isLast ? 1 : 2;
+                if (grp != pass) {
                     continue;
                 }
                 if (!filter.isEmpty() && !r.full.toLowerCase().contains(filter)) {
                     continue;
                 }
-                repoList.addView(repoTile(r, isLast));
+                repoList.addView(repoTile(r, isLast, pinned));
                 shown++;
             }
         }
         if (shown == 0 && !reposLoading && reposError.isEmpty()) {
-            repoList.addView(Ui.text(this, "Nessun repository trovato con queste chiavi.", 13, Ui.DIM, false));
+            repoList.addView(Ui.text(this, "Nessun repository scrivibile trovato con queste chiavi (quelli in sola lettura "
+                    + "non vengono mostrati).", 13, Ui.DIM, false));
         }
     }
 
-    private View repoTile(final Repo r, boolean isLast) {
+    private View repoTile(final Repo r, boolean isLast, final boolean pinned) {
         LinearLayout t = new LinearLayout(this);
         t.setGravity(Gravity.CENTER_VERTICAL);
         t.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), Ui.dp(this, 12));
@@ -212,12 +218,21 @@ public class GithubUploaderActivity extends Activity {
         t.setOnClickListener(v -> openRepo(r));
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.addView(Ui.text(this, (isLast ? "★ " : "") + r.full, 15, Ui.TEXT, true));
+        col.addView(Ui.text(this, (pinned ? "📌 " : isLast ? "★ " : "") + r.full, 15, Ui.TEXT, true));
         String sub = (r.priv ? "privato" : "pubblico") + " · ramo " + r.branch
                 + (r.canPush ? "" : " · sola lettura") + " · chiave " + (r.acct.label.isEmpty() ? r.acct.login : r.acct.label);
         col.addView(Ui.text(this, sub, 11, Ui.DIM, false));
         t.addView(col, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
-        t.addView(Ui.text(this, "›", 24, Ui.DIM, false));
+        TextView pin = Ui.text(this, pinned ? "Togli" : "Fissa", 12, pinned ? Ui.DANGER : Ui.ACCENT, true);
+        pin.setGravity(Gravity.CENTER);
+        pin.setBackground(Ui.round(this, Ui.CARD2, 10));
+        pin.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+        pin.setOnClickListener(v -> {
+            store.togglePin(r.acct.id + "|" + r.full);
+            fillRepoList();
+        });
+        t.addView(pin, Ui.lp(this, Ui.WRAP, Ui.WRAP, 8, 0));
+        t.addView(Ui.text(this, "›", 24, Ui.DIM, false), Ui.lp(this, Ui.WRAP, Ui.WRAP, 6, 0));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP);
         lp.bottomMargin = Ui.dp(this, 8);
         t.setLayoutParams(lp);
@@ -250,7 +265,9 @@ public class GithubUploaderActivity extends Activity {
                         r.pushed = o.optString("pushed_at");
                         JSONObject pm = o.optJSONObject("permissions");
                         r.canPush = pm == null || pm.optBoolean("push", false);
-                        all.add(r);
+                        if (r.canPush) {   // i repository in sola lettura non servono: non si possono modificare
+                            all.add(r);
+                        }
                     }
                 } catch (Exception e) {
                     err.append("Chiave ").append(a.label.isEmpty() ? a.login : a.label).append(": ")

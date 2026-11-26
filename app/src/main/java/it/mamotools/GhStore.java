@@ -76,6 +76,21 @@ final class GhStore {
         }
     }
 
+    /** Repository preferiti ("idChiave|proprietario/nome"). */
+    java.util.Set<String> pins() {
+        return new java.util.HashSet<>(sp.getStringSet("pins", new java.util.HashSet<String>()));
+    }
+
+    boolean togglePin(String key) {
+        java.util.Set<String> p = pins();
+        boolean on = !p.remove(key);
+        if (on) {
+            p.add(key);
+        }
+        sp.edit().putStringSet("pins", p).apply();
+        return on;
+    }
+
     String last() {
         return sp.getString("last", "");
     }
