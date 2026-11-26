@@ -18,6 +18,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -264,6 +265,86 @@ final class GhApi {
             call(token, "PATCH", "/repos/" + full + "/git/refs/heads/" + branch,
                     new JSONObject().put("sha", commit).toString());
             return commit;
+        } catch (org.json.JSONException e) {
+            throw new IOException("risposta inattesa da GitHub");
+        }
+    }
+
+    // ------------------------------------------------------------------ storico
+
+    static final class Cm {
+        String sha, msg, author;
+        long time;
+        final List<String> parents = new ArrayList<>();
+        final List<String> refs = new ArrayList<>();   // rami che puntano a questo commit
+    }
+
+    private static Cm parseCm(JSONObject o) throws org.json.JSONException {
+        Cm c = new Cm();
+        c.sha = o.getString("sha");
+        JSONObject cm = o.getJSONObject("commit");
+        c.msg = cm.optString("message", "");
+        JSONObject au = cm.optJSONObject("author");
+        c.author = au == null ? "" : au.optString("name", "");
+        String d = au == null ? "" : au.optString("date", "");
+        JSONObject cu = cm.optJSONObject("committer");
+        if (cu != null && !cu.optString("date", "").isEmpty()) {
+            d = cu.optString("date");
+        }
+        try {
+            java.text.SimpleDateFormat f = new java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss'Z'", Locale.US);
+            f.setTimeZone(java.util.TimeZone.getTimeZone("UTC"));
+            c.time = f.parse(d).getTime();
+        } catch (Exception e) {
+            c.time = 0;
+        }
+        JSONArray ps = o.optJSONArray("parents");
+        for (int i = 0; ps != null && i < ps.length(); i++) {
+            c.parents.add(ps.getJSONObject(i).getString("sha"));
+        }
+        return c;
+    }
+
+    /** Nome e commit di punta di ogni ramo. */
+    static List<String[]> branchHeads(String token, String full) throws IOException {
+        List<String[]> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(call(token, "GET", "/repos/" + full + "/branches?per_page=100", null));
+            for (int i = 0; i < a.length(); i++) {
+                JSONObject b = a.getJSONObject(i);
+                out.add(new String[]{b.getString("name"), b.getJSONObject("commit").getString("sha")});
+            }
+        } catch (org.json.JSONException e) {
+            throw new IOException("risposta inattesa da GitHub");
+        }
+        return out;
+    }
+
+    /** Ultimi commit raggiungibili da un ramo (o da uno SHA). */
+    static List<Cm> commits(String token, String full, String ref, int perPage) throws IOException {
+        List<Cm> out = new ArrayList<>();
+        try {
+            JSONArray a = new JSONArray(call(token, "GET", "/repos/" + full + "/commits?sha="
+                    + java.net.URLEncoder.encode(ref, "UTF-8") + "&per_page=" + perPage, null));
+            for (int i = 0; i < a.length(); i++) {
+                out.add(parseCm(a.getJSONObject(i)));
+            }
+        } catch (org.json.JSONException e) {
+            throw new IOException("risposta inattesa da GitHub");
+        }
+        return out;
+    }
+
+    /** Dettaglio di un commit: nomi dei file modificati come {stato, nome}. */
+    static Cm commitFiles(String token, String full, String sha, List<String[]> files) throws IOException {
+        try {
+            JSONObject o = new JSONObject(call(token, "GET", "/repos/" + full + "/commits/" + sha, null));
+            JSONArray fs = o.optJSONArray("files");
+            for (int i = 0; fs != null && i < fs.length(); i++) {
+                JSONObject f = fs.getJSONObject(i);
+                files.add(new String[]{f.optString("status", "modified"), f.optString("filename")});
+            }
+            return parseCm(o);
         } catch (org.json.JSONException e) {
             throw new IOException("risposta inattesa da GitHub");
         }

@@ -25,6 +25,7 @@ import java.io.InputStream;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.LinkedHashMap;
+import java.util.Locale;
 import java.util.List;
 import java.util.Map;
 import java.util.TreeMap;
@@ -73,6 +74,12 @@ public class GithubUploaderActivity extends Activity {
     private String runText = "";
     private int polls = 0;
     private boolean inRepo = false;
+    private int sub = 0;                 // 0 schermata del repository, 1 storico, 2 dettaglio commit
+    private int histLimit = 40;
+    private List<GhGraph.Row> histRows = new ArrayList<>();
+    private String histErr = "";
+    private boolean histLoading = false;
+    private int histGen = 0;
     private String installMsg = "";
     private boolean installing = false;
     private java.io.File pendingApk;
@@ -98,6 +105,17 @@ public class GithubUploaderActivity extends Activity {
 
     @Override
     public void onBackPressed() {
+        if (inRepo && sub == 2) {
+            sub = 1;
+            renderHistory();
+            return;
+        }
+        if (inRepo && sub == 1) {
+            sub = 0;
+            histGen++;
+            repoScreen();
+            return;
+        }
         if (inRepo) {
             h.removeCallbacksAndMessages(null);
             inRepo = false;
@@ -466,6 +484,9 @@ public class GithubUploaderActivity extends Activity {
         publishMsg = "";
         remote = null;
         inRepo = true;
+        sub = 0;
+        histRows = new ArrayList<>();
+        histLimit = 40;
         loadRemote();
         repoScreen();
     }
@@ -512,6 +533,9 @@ public class GithubUploaderActivity extends Activity {
     }
 
     private void repoScreen() {
+        if (sub != 0) {
+            return;   // si sta guardando lo storico: la schermata del repository si ridisegna al ritorno
+        }
         body.removeAllViews();
         body.addView(Ui.text(this, cur.full, 18, Ui.TEXT, true));
         body.addView(Ui.text(this, (cur.priv ? "privato" : "pubblico") + " · chiave "
@@ -525,6 +549,8 @@ public class GithubUploaderActivity extends Activity {
         row.addView(Ui.btn(this, "Cambia ramo", Ui.CARD2, Ui.ACCENT, v -> chooseBranch()),
                 Ui.lp(this, Ui.WRAP, Ui.dp(this, 38), 8, 0));
         c1.addView(row);
+        c1.addView(Ui.btn(this, "Storico dei commit", Ui.CARD2, Ui.ACCENT, v -> openHistory()),
+                Ui.lp(this, Ui.MATCH, Ui.dp(this, Ui.H_CHIP), 0, 10));
         if (remoteLoading) {
             c1.addView(Ui.text(this, "Lettura del contenuto del repository...", 12, Ui.DIM, false),
                     Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
@@ -598,6 +624,192 @@ public class GithubUploaderActivity extends Activity {
                     Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
         }
         body.addView(c4, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+    }
+
+    // =========================================================================== storico dei commit
+
+    private void openHistory() {
+        sub = 1;
+        loadHistory();
+    }
+
+    private void loadHistory() {
+        histLoading = true;
+        histErr = "";
+        final int gen = ++histGen;
+        final Repo r = cur;
+        final String br = curBranch;
+        final int limit = histLimit;
+        renderHistory();
+        new Thread(() -> {
+            String err = "";
+            List<GhGraph.Row> rows = new ArrayList<>();
+            try {
+                List<String[]> heads = GhApi.branchHeads(r.acct.token, r.full);
+                // il ramo aperto per primo, poi gli altri (al massimo 20 in tutto)
+                final List<String[]> pick = new ArrayList<>();
+                for (String[] hd : heads) {
+                    if (hd[0].equals(br)) {
+                        pick.add(hd);
+                    }
+                }
+                for (String[] hd : heads) {
+                    if (!hd[0].equals(br) && pick.size() < 20) {
+                        pick.add(hd);
+                    }
+                }
+                final Map<String, GhApi.Cm> all = new java.util.concurrent.ConcurrentHashMap<>();
+                final List<String> errs = Collections.synchronizedList(new ArrayList<String>());
+                java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(4);
+                for (final String[] hd : pick) {
+                    ex.submit(() -> {
+                        try {
+                            for (GhApi.Cm c : GhApi.commits(r.acct.token, r.full, hd[0], Math.min(100, limit))) {
+                                all.putIfAbsent(c.sha, c);
+                            }
+                        } catch (Exception e) {
+                            errs.add(hd[0] + ": " + e.getMessage());
+                        }
+                    });
+                }
+                ex.shutdown();
+                ex.awaitTermination(120, java.util.concurrent.TimeUnit.SECONDS);
+                if (all.isEmpty()) {
+                    throw new java.io.IOException(errs.isEmpty() ? "nessun commit trovato" : errs.get(0));
+                }
+                for (String[] hd : heads) {
+                    GhApi.Cm c = all.get(hd[1]);
+                    if (c != null) {
+                        c.refs.add(hd[0]);
+                    }
+                }
+                rows = GhGraph.layout(new java.util.HashMap<>(all));
+            } catch (Exception e) {
+                err = e.getMessage() == null ? "errore sconosciuto" : e.getMessage();
+            }
+            final String ferr = err;
+            final List<GhGraph.Row> frows = rows;
+            runOnUiThread(() -> {
+                if (gen != histGen) {
+                    return;
+                }
+                histLoading = false;
+                histErr = ferr;
+                histRows = frows;
+                if (sub == 1) {
+                    renderHistory();
+                }
+            });
+        }).start();
+    }
+
+    private static String when(long t) {
+        return new java.text.SimpleDateFormat("d MMM yyyy HH:mm", Locale.ITALY).format(new java.util.Date(t));
+    }
+
+    private static String firstLine(String m) {
+        int i = m.indexOf('\n');
+        return (i < 0 ? m : m.substring(0, i)).trim();
+    }
+
+    private void renderHistory() {
+        body.removeAllViews();
+        body.addView(Ui.text(this, "Storico — " + cur.full, 18, Ui.TEXT, true));
+        body.addView(Ui.text(this, "Tutti i rami, dal più recente. Tocca un commit per vedere i file modificati. "
+                + "Indietro per tornare al repository.", 12, Ui.DIM, false));
+        if (histLoading) {
+            body.addView(Ui.text(this, "Caricamento dei commit...", 13, Ui.DIM, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+            return;
+        }
+        if (!histErr.isEmpty()) {
+            body.addView(Ui.text(this, "Non riuscito: " + histErr, 13, Ui.DANGER, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+            return;
+        }
+        final int lanes = GhGraph.maxLanes(histRows);
+        LinearLayout list = new LinearLayout(this);
+        list.setOrientation(LinearLayout.VERTICAL);
+        list.setBackground(Ui.round(this, Ui.CARD, 16));
+        list.setPadding(Ui.dp(this, 6), Ui.dp(this, 6), Ui.dp(this, 10), Ui.dp(this, 6));
+        for (final GhGraph.Row r : histRows) {
+            LinearLayout row = new LinearLayout(this);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setClickable(true);
+            row.setBackground(new android.graphics.drawable.RippleDrawable(
+                    android.content.res.ColorStateList.valueOf(0x334DD0E1), null, null));
+            row.setOnClickListener(v -> openCommit(r.c));
+            row.addView(new GhGraph.RowView(this, r, lanes),
+                    new LinearLayout.LayoutParams(GhGraph.RowView.widthFor(this, lanes), Ui.dp(this, 62)));
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.setPadding(Ui.dp(this, 6), 0, 0, 0);
+            StringBuilder refs = new StringBuilder();
+            for (String rf : r.c.refs) {
+                refs.append("[").append(rf).append("] ");
+            }
+            TextView t1 = Ui.text(this, refs + firstLine(r.c.msg), 14, Ui.TEXT, true);
+            t1.setMaxLines(2);
+            t1.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            col.addView(t1);
+            TextView t2 = Ui.text(this, r.c.sha.substring(0, 7) + " · " + r.c.author + " · " + when(r.c.time),
+                    11, Ui.DIM, false);
+            t2.setSingleLine(true);
+            t2.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            col.addView(t2);
+            row.addView(col, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+            list.addView(row, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
+        }
+        body.addView(list, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+        if (histLimit < 100) {
+            body.addView(Ui.btn(this, "Carica altri commit", Ui.CARD2, Ui.ACCENT, v -> {
+                histLimit = Math.min(100, histLimit + 40);
+                loadHistory();
+            }), Ui.lp(this, Ui.MATCH, Ui.dp(this, Ui.H_BTN), 0, 12));
+        }
+    }
+
+    private void openCommit(final GhApi.Cm c) {
+        sub = 2;
+        body.removeAllViews();
+        body.addView(Ui.text(this, "Commit " + c.sha.substring(0, 7), 18, Ui.TEXT, true));
+        body.addView(Ui.text(this, c.author + " · " + when(c.time), 12, Ui.DIM, false));
+        body.addView(Ui.text(this, c.msg.trim(), 14, Ui.TEXT, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+        final TextView st = Ui.text(this, "Caricamento dei file...", 13, Ui.DIM, false);
+        body.addView(st, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+        final Repo r = cur;
+        new Thread(() -> {
+            final List<String[]> files = new ArrayList<>();
+            String err = "";
+            try {
+                GhApi.commitFiles(r.acct.token, r.full, c.sha, files);
+            } catch (Exception e) {
+                err = e.getMessage();
+            }
+            final String ferr = err;
+            runOnUiThread(() -> {
+                if (sub != 2) {
+                    return;
+                }
+                if (!ferr.isEmpty()) {
+                    st.setText("Non riuscito: " + ferr);
+                    st.setTextColor(Ui.DANGER);
+                    return;
+                }
+                st.setText(files.size() + (files.size() == 1 ? " file modificato" : " file modificati"));
+                LinearLayout card = Ui.card(this);
+                for (String[] f : files) {
+                    String s = f[0];
+                    String sym = "added".equals(s) ? "+" : "removed".equals(s) ? "−" : "renamed".equals(s) ? "→" : "~";
+                    int col = "added".equals(s) ? Ui.OK : "removed".equals(s) ? Ui.DANGER : Ui.ACCENT;
+                    LinearLayout line = new LinearLayout(this);
+                    line.addView(Ui.text(this, sym, 14, col, true), new LinearLayout.LayoutParams(Ui.dp(this, 22), Ui.WRAP));
+                    TextView nm = Ui.text(this, f[1], 12, Ui.TEXT, false);
+                    nm.setTypeface(android.graphics.Typeface.MONOSPACE);
+                    line.addView(nm, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+                    card.addView(line, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+                }
+                body.addView(card, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+            });
+        }).start();
     }
 
     // =========================================================================== download e installazione
