@@ -52,6 +52,9 @@ public class GithubUploaderActivity extends Activity {
     private boolean reposLoading = false;
     private String reposError = "";
     private String filter = "";
+    private int probeDone = 0, probeTotal = 0;
+    private int loadGen = 0;
+    private static final Map<String, Long> NEG = new java.util.concurrent.ConcurrentHashMap<>();
 
     // schermata del repository
     private Repo cur;
@@ -176,29 +179,27 @@ public class GithubUploaderActivity extends Activity {
         }
         repoList.removeAllViews();
         if (reposLoading) {
-            repoList.addView(Ui.text(this, "Caricamento dei repository...", 13, Ui.DIM, false));
+            repoList.addView(Ui.text(this, probeTotal > 0
+                    ? "Verifica dei permessi di scrittura: " + probeDone + "/" + probeTotal + "..."
+                    : "Caricamento dei repository...", 13, Ui.DIM, false));
         }
         if (!reposError.isEmpty()) {
             repoList.addView(Ui.text(this, reposError, 12, Ui.DANGER, false));
         }
-        String last = store.last();
         java.util.Set<String> pins = store.pins();
         List<Repo> sorted = new ArrayList<>(repos);
         int shown = 0;
-        // ordine: preferiti, poi l'ultimo usato, poi gli altri
-        for (int pass = 0; pass < 3; pass++) {
+        // prima i preferiti, poi gli altri
+        for (int pass = 0; pass < 2; pass++) {
             for (Repo r : sorted) {
-                String key = r.acct.id + "|" + r.full;
-                boolean pinned = pins.contains(key);
-                boolean isLast = key.equals(last);
-                int grp = pinned ? 0 : isLast ? 1 : 2;
-                if (grp != pass) {
+                boolean pinned = pins.contains(r.acct.id + "|" + r.full);
+                if ((pass == 0) != pinned) {
                     continue;
                 }
                 if (!filter.isEmpty() && !r.full.toLowerCase().contains(filter)) {
                     continue;
                 }
-                repoList.addView(repoTile(r, isLast, pinned));
+                repoList.addView(repoTile(r, pinned));
                 shown++;
             }
         }
@@ -208,7 +209,7 @@ public class GithubUploaderActivity extends Activity {
         }
     }
 
-    private View repoTile(final Repo r, boolean isLast, final boolean pinned) {
+    private View repoTile(final Repo r, final boolean pinned) {
         LinearLayout t = new LinearLayout(this);
         t.setGravity(Gravity.CENTER_VERTICAL);
         t.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), Ui.dp(this, 12));
@@ -218,15 +219,14 @@ public class GithubUploaderActivity extends Activity {
         t.setOnClickListener(v -> openRepo(r));
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.addView(Ui.text(this, (pinned ? "📌 " : isLast ? "★ " : "") + r.full, 15, Ui.TEXT, true));
+        col.addView(Ui.text(this, r.full, 15, Ui.TEXT, true));
         String sub = (r.priv ? "privato" : "pubblico") + " · ramo " + r.branch
                 + (r.canPush ? "" : " · sola lettura") + " · chiave " + (r.acct.label.isEmpty() ? r.acct.login : r.acct.label);
         col.addView(Ui.text(this, sub, 11, Ui.DIM, false));
         t.addView(col, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
-        TextView pin = Ui.text(this, pinned ? "Togli" : "Fissa", 12, pinned ? Ui.DANGER : Ui.ACCENT, true);
+        TextView pin = Ui.text(this, "★", 26, pinned ? 0xFFFFC107 : 0xFF5C6370, false);
         pin.setGravity(Gravity.CENTER);
-        pin.setBackground(Ui.round(this, Ui.CARD2, 10));
-        pin.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+        pin.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 4));
         pin.setOnClickListener(v -> {
             store.togglePin(r.acct.id + "|" + r.full);
             fillRepoList();
@@ -247,6 +247,8 @@ public class GithubUploaderActivity extends Activity {
             return;
         }
         reposLoading = true;
+        probeDone = probeTotal = 0;
+        final int gen = ++loadGen;
         fillRepoList();
         new Thread(() -> {
             final List<Repo> all = new ArrayList<>();
@@ -274,13 +276,69 @@ public class GithubUploaderActivity extends Activity {
                             .append(e.getMessage()).append("\n");
                 }
             }
+            // prova reale del permesso: GitHub elenca anche i repository pubblici non inclusi nella chiave
+            final java.util.Set<String> okKeys = store.okRepos();
+            final List<Repo> todo = new ArrayList<>();
+            final List<Repo> known = new ArrayList<>();
+            long now = System.currentTimeMillis();
+            for (Repo r : all) {
+                String key = r.acct.id + "|" + r.full;
+                if (okKeys.contains(key)) {
+                    known.add(r);
+                } else {
+                    Long neg = NEG.get(key);
+                    if (neg == null || now - neg > 3600_000L) {
+                        todo.add(r);
+                    }
+                }
+            }
             runOnUiThread(() -> {
-                reposLoading = false;
+                if (gen != loadGen) {
+                    return;
+                }
                 repos.clear();
-                repos.addAll(all);
+                repos.addAll(known);
+                probeTotal = todo.size();
                 reposError = err.toString().trim();
+                reposLoading = !todo.isEmpty();
                 fillRepoList();
             });
+            if (todo.isEmpty()) {
+                return;
+            }
+            java.util.concurrent.ExecutorService ex = java.util.concurrent.Executors.newFixedThreadPool(6);
+            for (final Repo r : todo) {
+                ex.submit(() -> {
+                    boolean ok = false;
+                    boolean sure = true;
+                    try {
+                        ok = GhApi.canWrite(r.acct.token, r.full);
+                    } catch (Exception e) {
+                        sure = false;
+                    }
+                    final boolean fok = ok, fsure = sure;
+                    String key = r.acct.id + "|" + r.full;
+                    if (fok) {
+                        store.addOkRepo(key);
+                    } else if (fsure) {
+                        NEG.put(key, System.currentTimeMillis());
+                    }
+                    runOnUiThread(() -> {
+                        if (gen != loadGen) {
+                            return;
+                        }
+                        probeDone++;
+                        if (fok) {
+                            repos.add(r);
+                        }
+                        if (probeDone >= probeTotal) {
+                            reposLoading = false;
+                        }
+                        fillRepoList();
+                    });
+                });
+            }
+            ex.shutdown();
         }).start();
     }
 
@@ -408,7 +466,6 @@ public class GithubUploaderActivity extends Activity {
         publishMsg = "";
         remote = null;
         inRepo = true;
-        store.setLast(r.acct.id + "|" + r.full);
         loadRemote();
         repoScreen();
     }

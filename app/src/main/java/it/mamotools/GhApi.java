@@ -164,6 +164,19 @@ final class GhApi {
         return out;
     }
 
+    /**
+     * Prova reale del permesso di scrittura: crea il file vuoto (identico in ogni repository, quindi senza effetti
+     * visibili). Una chiave in sola lettura, o che non include il repository, viene rifiutata da GitHub.
+     */
+    static boolean canWrite(String token, String full) throws IOException {
+        try {
+            call(token, "POST", "/repos/" + full + "/git/blobs", "{\"content\":\"\",\"encoding\":\"utf-8\"}");
+            return true;
+        } catch (ApiError e) {
+            return false;
+        }
+    }
+
     static List<String> branches(String token, String full) throws IOException {
         List<String> out = new ArrayList<>();
         try {

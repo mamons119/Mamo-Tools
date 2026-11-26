@@ -91,6 +91,17 @@ final class GhStore {
         return on;
     }
 
+    /** Repository gia' verificati come scrivibili con una certa chiave (evita di riprovarli a ogni apertura). */
+    java.util.Set<String> okRepos() {
+        return new java.util.HashSet<>(sp.getStringSet("okrepos", new java.util.HashSet<String>()));
+    }
+
+    void addOkRepo(String key) {
+        java.util.Set<String> s = okRepos();
+        s.add(key);
+        sp.edit().putStringSet("okrepos", s).apply();
+    }
+
     String last() {
         return sp.getString("last", "");
     }
