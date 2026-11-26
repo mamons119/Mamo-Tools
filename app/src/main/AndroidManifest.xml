@@ -99,6 +99,21 @@
             android:exported="false" />
 
         <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".SportToolsActivity"
+            android:label="Sport"
+            android:exported="false" />
+
+        <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".BasketPlaysActivity"
+            android:label="Schemi Basket"
+            android:exported="false" />
+
+        <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".BasketBoardActivity"
+            android:label="Schemi Basket"
+            android:exported="false" />
+
+        <activity
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".LightMeterActivity"
             android:label="Intensità luminosa"
             android:screenOrientation="portrait"

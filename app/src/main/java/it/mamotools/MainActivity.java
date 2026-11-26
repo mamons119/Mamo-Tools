@@ -73,6 +73,9 @@ public class MainActivity extends Activity {
             new Tool("📐", "Strumenti di Misura",
                     "Calcolo miscela 2 tempi, righello a grandezza reale e livello a bolla.",
                     MeasureToolsActivity.class),
+            new Tool("🏅", "Sport",
+                    "Schemi di basket da disegnare su un campo realistico e vedere in animazione.",
+                    SportToolsActivity.class),
     };
 
     private static final int MATCH = ViewGroup.LayoutParams.MATCH_PARENT;

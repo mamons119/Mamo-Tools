@@ -32,7 +32,8 @@ final class ProjStore {
         dir = new File(c.getFilesDir(), "progetti_" + kind);
         //noinspection ResultOfMethodCallIgnored
         dir.mkdirs();
-        ext = "video".equals(kind) ? ".mamovideo" : "hyper".equals(kind) ? ".mamotext" : ".mamoaudio";
+        ext = "video".equals(kind) ? ".mamovideo" : "hyper".equals(kind) ? ".mamotext"
+                : "basket".equals(kind) ? ".mamobasket" : ".mamoaudio";
     }
 
     static String newId() {
