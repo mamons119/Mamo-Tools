@@ -17,6 +17,7 @@ import android.text.style.ForegroundColorSpan;
 import android.view.Gravity;
 import android.view.KeyEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
@@ -66,7 +67,7 @@ public class HyperTextActivity extends Activity {
     private String id, title = "", langName = "Testo semplice";
     private CodeLang lang;
     private CodeEditText ed;
-    private TextView titleView, langChip, status;
+    private TextView titleView, langChip, status, subView;
     private LinearLayout findBar;
     private EditText findIn, replIn;
     private TextView findCount;
@@ -134,19 +135,25 @@ public class HyperTextActivity extends Activity {
         root.setBackgroundColor(Ui.BG);
         root.setPadding(0, Ui.dp(this, 6), 0, 0);
 
-        // Intestazione: indietro, nome, linguaggio
+        // Intestazione: indietro, nome + stato, linguaggio
         LinearLayout head = new LinearLayout(this);
         head.setGravity(Gravity.CENTER_VERTICAL);
-        head.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 10), Ui.dp(this, 4));
-        TextView back = Ui.text(this, "‹", 30, Ui.ACCENT, true);
-        back.setPadding(Ui.dp(this, 10), 0, Ui.dp(this, 14), Ui.dp(this, 4));
+        head.setPadding(Ui.dp(this, 10), Ui.dp(this, 2), Ui.dp(this, 12), Ui.dp(this, 8));
+        TextView back = Ui.text(this, "‹", 26, Ui.ACCENT, true);
+        back.setGravity(Gravity.CENTER);
+        back.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x44FFFFFF), Ui.round(this, Ui.CARD2, 100), null));
+        back.setClickable(true);
         back.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 finish();
             }
         });
-        head.addView(back);
+        head.addView(back, new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)));
+        LinearLayout tc = new LinearLayout(this);
+        tc.setOrientation(LinearLayout.VERTICAL);
+        tc.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 8), 0);
         titleView = Ui.text(this, title, 17, Ui.TEXT, true);
         titleView.setSingleLine(true);
         titleView.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
@@ -156,28 +163,42 @@ public class HyperTextActivity extends Activity {
                 rename();
             }
         });
-        head.addView(titleView, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
-        langChip = Ui.chip(this, lang.name);
+        tc.addView(titleView);
+        subView = Ui.text(this, "", 11, Ui.DIM, false);
+        subView.setSingleLine(true);
+        tc.addView(subView);
+        head.addView(tc, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        langChip = Ui.chip(this, lang.name + " ▾");
+        langChip.setTextSize(13);
+        langChip.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), 0);
         langChip.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
                 pickLang();
             }
         });
-        head.addView(langChip, Ui.lp(this, Ui.WRAP, Ui.dp(this, 34), 8, 0));
+        head.addView(langChip, new LinearLayout.LayoutParams(Ui.WRAP, Ui.dp(this, 34)));
         root.addView(head, new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP));
 
-        // Barra dei menu (stile programmi per PC)
+        // Barra dei menu (stile programmi per PC): voci scorrevoli, annulla/ripeti sempre visibili
         LinearLayout menuBar = new LinearLayout(this);
         menuBar.setGravity(Gravity.CENTER_VERTICAL);
         menuBar.setBackgroundColor(0xFF14171D);
-        menuBar.setPadding(Ui.dp(this, 4), 0, Ui.dp(this, 4), 0);
-        menuBtn(menuBar, "File", 0);
-        menuBtn(menuBar, "Modifica", 1);
-        menuBtn(menuBar, "Cerca", 2);
-        menuBtn(menuBar, "Visualizza", 3);
-        menuBtn(menuBar, "Strumenti", 4);
-        menuBar.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        HorizontalScrollView ms = new HorizontalScrollView(this);
+        ms.setHorizontalScrollBarEnabled(false);
+        LinearLayout mrow = new LinearLayout(this);
+        mrow.setGravity(Gravity.CENTER_VERTICAL);
+        mrow.setPadding(Ui.dp(this, 4), 0, Ui.dp(this, 4), 0);
+        menuBtn(mrow, "File", 0);
+        menuBtn(mrow, "Modifica", 1);
+        menuBtn(mrow, "Cerca", 2);
+        menuBtn(mrow, "Visualizza", 3);
+        menuBtn(mrow, "Strumenti", 4);
+        ms.addView(mrow, new ViewGroup.LayoutParams(Ui.WRAP, Ui.MATCH));
+        menuBar.addView(ms, new LinearLayout.LayoutParams(0, Ui.MATCH, 1f));
+        View vdiv = new View(this);
+        vdiv.setBackgroundColor(0xFF2A303B);
+        menuBar.addView(vdiv, new LinearLayout.LayoutParams(1, Ui.dp(this, 22)));
         menuBar.addView(iconBtn("↶", new Runnable() {
             public void run() {
                 doUndo();
@@ -188,13 +209,16 @@ public class HyperTextActivity extends Activity {
                 doRedo();
             }
         }));
-        root.addView(menuBar, new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 42)));
+        root.addView(menuBar, new LinearLayout.LayoutParams(Ui.MATCH, Ui.dp(this, 44)));
+        View mline = new View(this);
+        mline.setBackgroundColor(0xFF262B35);
+        root.addView(mline, new LinearLayout.LayoutParams(Ui.MATCH, 1));
 
         // Barra di ricerca
         findBar = new LinearLayout(this);
         findBar.setOrientation(LinearLayout.VERTICAL);
         findBar.setBackgroundColor(Ui.CARD);
-        findBar.setPadding(Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8), Ui.dp(this, 6));
+        findBar.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 6), Ui.dp(this, 8));
         findBar.setVisibility(View.GONE);
         LinearLayout r1 = new LinearLayout(this);
         r1.setGravity(Gravity.CENTER_VERTICAL);
@@ -304,7 +328,8 @@ public class HyperTextActivity extends Activity {
         sy.setHorizontalScrollBarEnabled(false);
         sy.setBackgroundColor(Ui.CARD);
         LinearLayout sym = new LinearLayout(this);
-        sym.setPadding(Ui.dp(this, 4), Ui.dp(this, 3), Ui.dp(this, 4), Ui.dp(this, 3));
+        sym.setGravity(Gravity.CENTER_VERTICAL);
+        sym.setPadding(Ui.dp(this, 6), Ui.dp(this, 5), Ui.dp(this, 6), Ui.dp(this, 5));
         sy.addView(sym);
         sym.addView(symBtn("⇥", "    "));
         String[] chars = {"{", "}", "(", ")", "[", "]", "<", ">", ";", ":", "\"", "'", "=", "/", "\\", "#", "$", "&",
@@ -316,7 +341,8 @@ public class HyperTextActivity extends Activity {
 
         status = Ui.text(this, "", 12, Ui.DIM, false);
         status.setBackgroundColor(0xFF14171D);
-        status.setPadding(Ui.dp(this, 12), Ui.dp(this, 6), Ui.dp(this, 12), Ui.dp(this, 6));
+        status.setPadding(Ui.dp(this, 14), Ui.dp(this, 7), Ui.dp(this, 14), Ui.dp(this, 7));
+        status.setTextSize(11.5f);
         status.setSingleLine(true);
         status.setEllipsize(android.text.TextUtils.TruncateAt.END);
         status.setOnClickListener(new View.OnClickListener() {
@@ -374,9 +400,12 @@ public class HyperTextActivity extends Activity {
     }
 
     private void menuBtn(LinearLayout bar, String label, final int which) {
-        final TextView t = Ui.text(this, label, 14, Ui.TEXT, false);
+        final TextView t = Ui.text(this, label, 14, Ui.TEXT, true);
         t.setGravity(Gravity.CENTER);
-        t.setPadding(Ui.dp(this, 12), 0, Ui.dp(this, 12), 0);
+        t.setSingleLine(true);
+        t.setPadding(Ui.dp(this, 14), 0, Ui.dp(this, 14), 0);
+        t.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x334DD0E1), null, null));
         t.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -389,7 +418,9 @@ public class HyperTextActivity extends Activity {
     private View iconBtn(String label, final Runnable r) {
         TextView t = Ui.text(this, label, 20, Ui.ACCENT, true);
         t.setGravity(Gravity.CENTER);
-        t.setMinWidth(Ui.dp(this, 42));
+        t.setMinWidth(Ui.dp(this, 46));
+        t.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x334DD0E1), null, null));
         t.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -676,6 +707,8 @@ public class HyperTextActivity extends Activity {
         TextView t = Ui.text(this, label, 13, Ui.ACCENT, true);
         t.setGravity(Gravity.CENTER);
         t.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 8));
+        t.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x334DD0E1), null, null));
         t.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -693,6 +726,9 @@ public class HyperTextActivity extends Activity {
         e.setTextColor(Ui.TEXT);
         e.setHintTextColor(Ui.DIM);
         e.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_NO_SUGGESTIONS);
+        e.setBackground(Ui.round(this, Ui.BG, 10));
+        e.setPadding(Ui.dp(this, 12), Ui.dp(this, 8), Ui.dp(this, 12), Ui.dp(this, 8));
+        e.setLayoutParams(new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
         return e;
     }
 
@@ -700,8 +736,13 @@ public class HyperTextActivity extends Activity {
         TextView t = Ui.text(this, label, 16, Ui.TEXT, true);
         t.setGravity(Gravity.CENTER);
         t.setTypeface(Typeface.MONOSPACE, Typeface.BOLD);
-        t.setMinWidth(Ui.dp(this, 36));
-        t.setPadding(Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8), Ui.dp(this, 8));
+        t.setMinWidth(Ui.dp(this, 38));
+        t.setPadding(Ui.dp(this, 8), 0, Ui.dp(this, 8), 0);
+        t.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x554DD0E1), Ui.round(this, Ui.CARD2, 8), null));
+        LinearLayout.LayoutParams slp = new LinearLayout.LayoutParams(Ui.WRAP, Ui.dp(this, 36));
+        slp.rightMargin = Ui.dp(this, 4);
+        t.setLayoutParams(slp);
         t.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -737,6 +778,10 @@ public class HyperTextActivity extends Activity {
         prevText = s.toString();
         version++;
         dirty = true;
+        if (subView != null) {
+            subView.setText("● modifiche in salvataggio");
+            subView.setTextColor(0xFFFFB74D);
+        }
         ed.updateLines();
         if (!restoring && !indenting) {
             if (chCount == 1 && chBefore == 0 && chStart < prevText.length()) {
@@ -1562,6 +1607,10 @@ public class HyperTextActivity extends Activity {
             status.setTextColor(Ui.DIM);
         }
         status.setText(s);
+        if (subView != null) {
+            subView.setText(dirty ? "● modifiche in salvataggio" : "✓ salvato automaticamente");
+            subView.setTextColor(dirty ? 0xFFFFB74D : Ui.DIM);
+        }
     }
 
     // ---------- varie ----------
@@ -1604,7 +1653,7 @@ public class HyperTextActivity extends Activity {
                     public void onClick(DialogInterface d, int w) {
                         lang = CodeLang.ALL.get(w);
                         langName = lang.name;
-                        langChip.setText(lang.name);
+                        langChip.setText(lang.name + " ▾");
                         dirty = true;
                         version++;
                         recolor();
@@ -1634,7 +1683,7 @@ public class HyperTextActivity extends Activity {
                         titleView.setText(n);
                         lang = CodeLang.detect(n, ed.getText().toString());
                         langName = lang.name;
-                        langChip.setText(lang.name);
+                        langChip.setText(lang.name + " ▾");
                         version++;
                         recolor();
                         dirty = true;
@@ -1664,6 +1713,7 @@ public class HyperTextActivity extends Activity {
             o.put("summary", langName + " · " + lines + (lines == 1 ? " riga" : " righe"));
             store.write(id, o);
             dirty = false;
+            updateStatus();
         } catch (Exception e) {
             Toast.makeText(this, "Salvataggio non riuscito.", Toast.LENGTH_LONG).show();
         }
