@@ -964,6 +964,42 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void doSaveProject(String title) {
+        doSaveProject(title, false);
+    }
+
+    private boolean autoOk = true;
+    private final Runnable autoSaveRun = this::autoSave;
+
+    /** Salva il lavoro dopo qualche secondo senza modifiche (e in uscita), senza dialoghi. */
+    private void scheduleAutoSave() {
+        handler.removeCallbacks(autoSaveRun);
+        handler.postDelayed(autoSaveRun, 4000);
+    }
+
+    /** Ci sono modifiche che meritano di essere salvate anche se il progetto non e' mai stato salvato? */
+    private boolean hasEdits() {
+        if (!fxItems.isEmpty() || !cuts.isEmpty() || pieces.size() != 1 || stabOn || crop != null
+                || extraRot != 0 || soundUri != null || markA >= 0 || markB >= 0) {
+            return true;
+        }
+        VideoComposer.Seg s = pieces.get(0).s;
+        return !s.isPlain() || s.startUs != 0 || s.endUs != origDurMs * 1000 || s.snd != null;
+    }
+
+    /** Salvataggio automatico: il progetto esistente viene aggiornato, uno nuovo nasce solo se ci sono modifiche. */
+    private void autoSave() {
+        handler.removeCallbacks(autoSaveRun);
+        if (!autoOk || videoUri == null || origUri == null || pieces.isEmpty() || timeline == null) {
+            return;
+        }
+        if (projectId != null) {
+            doSaveProject(projectTitle != null ? projectTitle : "Progetto", true);
+        } else if (hasEdits()) {
+            doSaveProject(FileUtil.baseName(videoName == null ? "Progetto" : videoName), true);
+        }
+    }
+
+    private void doSaveProject(String title, boolean silent) {
         try {
             String id = projectId != null ? projectId : ProjStore.newId();
             org.json.JSONObject o = new org.json.JSONObject();
@@ -1059,9 +1095,13 @@ public class VideoEditorActivity extends Activity {
             store.write(id, o);
             projectId = id;
             projectTitle = title;
-            Toast.makeText(this, "Progetto salvato: " + title, Toast.LENGTH_SHORT).show();
+            if (!silent) {
+                Toast.makeText(this, "Progetto salvato: " + title, Toast.LENGTH_SHORT).show();
+            }
         } catch (Exception e) {
-            Toast.makeText(this, "Salvataggio del progetto non riuscito.", Toast.LENGTH_LONG).show();
+            if (!silent) {
+                Toast.makeText(this, "Salvataggio del progetto non riuscito.", Toast.LENGTH_LONG).show();
+            }
         }
     }
 
@@ -1149,6 +1189,7 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void loadProject(String id) {
+        autoOk = false;   // finche' il caricamento non e' finito non si salva (si rischierebbe di sovrascrivere con dati parziali)
         try {
             org.json.JSONObject o = store.read(id);
             Uri ou = Uri.parse(o.getString("origUri"));
@@ -1302,6 +1343,7 @@ public class VideoEditorActivity extends Activity {
                 rebuild(pos, plain);
             }
             updateTexts();
+            autoOk = true;
         } catch (Exception e) {
             Ui.infoDialog(this, "Progetto non leggibile", "Non riesco ad aprire questo progetto"
                     + (e.getMessage() != null ? ": " + e.getMessage() : "."));
@@ -1647,6 +1689,7 @@ public class VideoEditorActivity extends Activity {
 
     /** Ricostruisce il video montato (o torna all'originale) e aggiorna anteprima e timeline. */
     private void rebuild(final long seekMs, final Snap undo) {
+        scheduleAutoSave();
         final int gen = ++rebuildGen;
         boolean plain = pieces.size() == 1 && pieces.get(0).s.uri.equals(origUri)
                 && pieces.get(0).s.startUs == 0 && pieces.get(0).s.endUs == origDurMs * 1000 && pieces.get(0).s.isPlain();
@@ -1746,6 +1789,7 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void rebuildPlain() {
+        scheduleAutoSave();
         refreshMarks();
         refreshFx();
         refreshClips();
@@ -3438,6 +3482,7 @@ public class VideoEditorActivity extends Activity {
     }
 
     private void refreshFx() {
+        scheduleAutoSave();
         if (fxList == null) {
             return;
         }
@@ -3518,6 +3563,7 @@ public class VideoEditorActivity extends Activity {
             return;
         }
         origUri = uri;
+        autoOk = true;
         origDurMs = durMs;
         origVw = baseVw;
         origVh = baseVh;
@@ -4572,6 +4618,7 @@ public class VideoEditorActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        autoSave();   // uscita con lo swipe, tasto indietro, home o chiusura dell'app
         if (videoUri != null && videoView.isPlaying()) {
             videoView.pause();
             playBtn.setText("▶");

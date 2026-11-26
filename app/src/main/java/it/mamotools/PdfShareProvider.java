@@ -59,6 +59,9 @@ public class PdfShareProvider extends ContentProvider {
     @Override
     public String getType(Uri uri) {
         String n = uri.getLastPathSegment();
+        if (n != null && n.endsWith(".apk")) {
+            return "application/vnd.android.package-archive";
+        }
         if (n != null && n.endsWith(".mamotel")) {
             return "application/x-mamotools-telemetry";
         }

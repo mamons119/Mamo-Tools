@@ -1091,6 +1091,7 @@ public class AudioEditorActivity extends Activity {
         }
         projectId = id;
         projectTitle = o.optString("title", "Progetto audio");
+        autoOk = false;   // si riabilita a caricamento finito
         eng.clearAll();
         filters.clear();
         fUndo.clear();
@@ -1228,6 +1229,7 @@ public class AudioEditorActivity extends Activity {
         wave.refreshModel();
         wave.zoomAll();
         wave.setCursor(Math.min(o.optLong("cursor", 0), eng.total()));
+        autoOk = true;
         updateAll();
         wave.ensureVisible(wave.cursor);
     }
@@ -1266,6 +1268,7 @@ public class AudioEditorActivity extends Activity {
         if (!add) {
             origUri = uri;
             projectId = null;
+            autoOk = true;
             projectTitle = null;
             eng.clearAll();
             filters.clear();
@@ -1629,7 +1632,120 @@ public class AudioEditorActivity extends Activity {
         }
     }
 
+    // ---- salvataggio automatico (in uscita e dopo qualche secondo senza modifiche)
+
+    private volatile boolean autoSaving = false, destroyedFlag = false;
+    private boolean autoOk = true;
+    private final Runnable autoSaveRun = this::autoSave;
+
+    private void scheduleAutoSave() {
+        h.removeCallbacks(autoSaveRun);
+        h.postDelayed(autoSaveRun, 5000);
+    }
+
+    private boolean audioEdited() {
+        if (!copyFilters().isEmpty() || eng.tl.size() != 1) {
+            return true;
+        }
+        AudioEngine.Clip c = eng.tl.get(0);
+        return c.a != 0 || c.src >= eng.srcs.size() || c.b != eng.srcs.get(c.src).frames;
+    }
+
+    /** Aggiorna il progetto (o ne crea uno se ci sono modifiche) senza dialoghi e senza bloccare l'editor. */
+    private void autoSave() {
+        h.removeCallbacks(autoSaveRun);
+        if (!autoOk || busy || autoSaving || eng.total() <= 0 || eng.srcs.isEmpty()) {
+            return;
+        }
+        if (projectId == null && !audioEdited()) {
+            return;
+        }
+        final String title = projectId != null ? (projectTitle != null ? projectTitle : "Progetto audio")
+                : (projectName == null || projectName.isEmpty() ? "Progetto audio" : projectName);
+        final String id = projectId != null ? projectId : ProjStore.newId();
+        // istantanea dello stato (veloce, sul thread principale); la copia dei file audio avviene in background
+        final List<AudioEngine.Filt> fcopy = copyFilters();
+        final List<AudioEngine.Src> srcs = new ArrayList<>(eng.srcs);
+        final List<AudioEngine.Clip> tl = new ArrayList<>(eng.tl);
+        final int gainV = seekGain.getProgress();
+        final long total = eng.total();
+        final long cur = wave.cursor;
+        final String outNm = nameEdited ? nameEdit.getText().toString() : null;
+        final boolean ne = nameEdited;
+        final String origS = origUri != null ? origUri.toString() : null;
+        final boolean wo = wavOut, lp = loop;
+        final String pn = projectName;
+        autoSaving = true;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    org.json.JSONObject o = new org.json.JSONObject();
+                    o.put("title", title);
+                    org.json.JSONArray sa = new org.json.JSONArray();
+                    String[] names = new String[srcs.size()];
+                    for (int i = 0; i < srcs.size(); i++) {
+                        AudioEngine.Src sr = srcs.get(i);
+                        String fn = "s" + i + ".pcm";
+                        if (!fn.equals(sr.projFile) || !store.asset(id, fn).exists()) {
+                            ProjStore.copy(sr.pcm, store.asset(id, fn));
+                        }
+                        names[i] = fn;
+                        sa.put(new org.json.JSONObject().put("file", fn).put("frames", sr.frames));
+                    }
+                    o.put("srcs", sa);
+                    org.json.JSONArray ta = new org.json.JSONArray();
+                    for (AudioEngine.Clip c : tl) {
+                        ta.put(new org.json.JSONArray().put(c.src).put(c.a).put(c.b));
+                    }
+                    o.put("tl", ta);
+                    org.json.JSONArray fja = new org.json.JSONArray();
+                    for (AudioEngine.Filt ft : fcopy) {
+                        fja.put(new org.json.JSONObject().put("mode", ft.mode).put("lo", (double) ft.lo)
+                                .put("hi", (double) ft.hi).put("order", ft.order).put("a", ft.a).put("b", ft.b));
+                    }
+                    o.put("filters", fja);
+                    o.put("gain", gainV);
+                    o.put("wavOut", wo);
+                    o.put("loop", lp);
+                    o.put("cursor", cur);
+                    o.put("projectName", pn);
+                    if (origS != null) {
+                        o.put("origUri", origS);
+                    }
+                    o.put("nameEdited", ne);
+                    if (ne) {
+                        o.put("outName", outNm);
+                    }
+                    o.put("summary", fmtTime(total * 1000L / AudioEngine.RATE) + " · "
+                            + tl.size() + (tl.size() == 1 ? " tratto" : " tratti")
+                            + (fcopy.isEmpty() ? "" : " · " + fcopy.size() + (fcopy.size() == 1 ? " filtro" : " filtri")));
+                    store.write(id, o);
+                    for (int i = 0; i < srcs.size(); i++) {
+                        srcs.get(i).projFile = names[i];
+                    }
+                    runOnUiThread(new Runnable() {
+                        @Override
+                        public void run() {
+                            projectId = id;
+                            projectTitle = title;
+                        }
+                    });
+                } catch (Throwable ignored) {
+                } finally {
+                    autoSaving = false;
+                    if (destroyedFlag && !busy) {
+                        eng.clearAll();   // la pulizia in uscita era stata rimandata per non cancellare i file in copia
+                    }
+                }
+            }
+        }).start();
+    }
+
     private void updateAll() {
+        if (eng.total() > 0) {
+            scheduleAutoSave();
+        }
         boolean has = eng.total() > 0;
         boolean sel = selValid();
         for (View v : needsAudio) {
@@ -1722,6 +1838,7 @@ public class AudioEditorActivity extends Activity {
     @Override
     protected void onPause() {
         super.onPause();
+        autoSave();   // uscita con lo swipe, tasto indietro, home o chiusura dell'app
         stopPlay();
     }
 
@@ -1730,7 +1847,8 @@ public class AudioEditorActivity extends Activity {
         super.onDestroy();
         stopPlay();
         h.removeCallbacksAndMessages(null);
-        if (!busy) {
+        destroyedFlag = true;
+        if (!busy && !autoSaving) {
             eng.clearAll();
         }
     }

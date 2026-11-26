@@ -53,6 +53,11 @@ public class FileToolsActivity extends Activity {
         root.addView(Ui.section(this, "Immagini"));
         root.addView(tile("🖼", "Image Converter", "Converti in JPG, PNG, WEBP, BMP, ICO oppure crea un PDF dalle foto",
                 new Intent(this, ImageConverterActivity.class)));
+
+        root.addView(space());
+        root.addView(Ui.section(this, "Github mobile"));
+        root.addView(tile("🐙", "Github uploader", "Carica un aggiornamento (zip) su GitHub con un solo commit, con piu' chiavi e repository",
+                new Intent(this, GithubUploaderActivity.class)));
     }
 
     private View space() {
