@@ -54,7 +54,9 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
 
     private AutoFitTextureView tv;
     private Reticle reticle;
-    private TextView bigTv, luxTv, evTv, spotTv, descTv, minTv, maxTv, phoneTv, expTv, msgTv;
+    private TextView bigTv, luxTv, evTv, spotTv, descTv, minTv, maxTv, phoneTv, msgTv;
+    private KvTable camTable;
+    private String camSig = "";
     private ScaleBar scaleBar;
     private LinearLayout details;
     private TextView holdBtn, detailsBtn;
@@ -147,22 +149,23 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
 
         // misure principali
         LinearLayout r1 = new LinearLayout(this);
-        luxTv = tile("ILLUMINAMENTO", r1, 0);
+        luxTv = tile("Illuminamento", r1, 0);
         evTv = tile("EV (ISO 100)", r1, 8);
-        spotTv = tile("LUMINOSITÀ PUNTO", r1, 8);
+        spotTv = tile("Punto", r1, 8);
         panel.addView(r1, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
         // dettagli (comprimibili)
         details = new LinearLayout(this);
         details.setOrientation(LinearLayout.VERTICAL);
         LinearLayout r2 = new LinearLayout(this);
-        minTv = tile("MINIMO", r2, 0);
-        maxTv = tile("MASSIMO", r2, 8);
-        phoneTv = tile("SENSORE TELEFONO", r2, 8);
+        minTv = tile("Minimo", r2, 0);
+        maxTv = tile("Massimo", r2, 8);
+        phoneTv = tile("Sensore tel.", r2, 8);
         details.addView(r2, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-        expTv = Ui.text(this, "", 12, Ui.DIM, false);
-        expTv.setGravity(Gravity.CENTER);
-        details.addView(expTv, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+        camTable = new KvTable(this);
+        camTable.setBackground(Ui.round(this, Ui.BG, 12));
+        camTable.setPadding(Ui.dp(this, 12), Ui.dp(this, 10), Ui.dp(this, 12), Ui.dp(this, 8));
+        details.addView(camTable, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
         panel.addView(details);
         msgTv = Ui.text(this, "", 12, Ui.DANGER, false);
         panel.addView(msgTv);
@@ -216,9 +219,8 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
         c.setOrientation(LinearLayout.VERTICAL);
         c.setBackground(Ui.round(this, Ui.CARD2, 12));
         c.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 9));
-        TextView l = Ui.text(this, label, 10, Ui.DIM, true);
+        TextView l = Ui.text(this, label, 11, Ui.DIM, false);
         l.setSingleLine(true);
-        l.setLetterSpacing(0.04f);
         c.addView(l);
         TextView v = Ui.text(this, "—", 18, Ui.TEXT, true);
         v.setSingleLine(true);
@@ -633,8 +635,16 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
         minTv.setText(fmt(minL));
         maxTv.setText(fmt(maxL));
         phoneTv.setText(lightSensor >= 0 ? fmt(lightSensor) + " lx" : "n.d.");
-        expTv.setText("Tempo 1/" + Math.round(1.0 / t) + " s   ·   ISO " + Math.round(s) + "   ·   f/"
-                + String.format(Locale.ITALY, "%.1f", n) + "     (min e max in cd/m²)");
+        String sig = Math.round(1.0 / t) + "|" + Math.round(s) + "|" + String.format(Locale.ITALY, "%.1f", n);
+        if (!sig.equals(camSig)) {
+            camSig = sig;
+            camTable.set(new String[][]{
+                    {"Fotocamera"},
+                    {"Tempo di posa", "1/" + Math.round(1.0 / t) + " s"},
+                    {"Sensibilità ISO", String.valueOf(Math.round(s))},
+                    {"Diaframma", "f/" + String.format(Locale.ITALY, "%.1f", n)},
+                    {"Minimo e massimo", "in cd/m²"}});
+        }
         scaleBar.set(frac(smoothL), minL == Float.MAX_VALUE ? -1 : frac(minL), maxL <= 0 ? -1 : frac(maxL));
     }
 
