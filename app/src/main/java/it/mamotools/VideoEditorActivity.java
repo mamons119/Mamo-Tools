@@ -183,6 +183,81 @@ public class VideoEditorActivity extends Activity {
 
     private TextView pickTitle, pickSub;
 
+    // ------------------------------------------------------------------ layout orizzontale
+    // In verticale tutto scorre in una colonna. In orizzontale anteprima, comandi di riproduzione e
+    // timeline restano fissi a sinistra; il resto sta a destra in una colonna che scorre.
+    private ScrollView scrollPortrait;
+    private LinearLayout rootBox, prevCard, tlCard, ctlBox, landRoot, landLeft;
+    private ScrollView rightScroll;
+    private FrameLayout vfBox;
+    private LinearLayout timeRowBox;
+    private int layoutMode = -1;   // 0 verticale, 1 orizzontale
+
+    @Override
+    public void onConfigurationChanged(android.content.res.Configuration nc) {
+        super.onConfigurationChanged(nc);
+        applyLayout();
+    }
+
+    private void syncLand() {
+        if (landLeft != null) {
+            landLeft.setVisibility(editorBox.getVisibility() == View.VISIBLE ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    private static void detach(View v) {
+        if (v != null && v.getParent() instanceof ViewGroup) {
+            ((ViewGroup) v.getParent()).removeView(v);
+        }
+    }
+
+    private void applyLayout() {
+        int mode = getResources().getConfiguration().orientation
+                == android.content.res.Configuration.ORIENTATION_LANDSCAPE ? 1 : 0;
+        if (mode == layoutMode || rootBox == null) {
+            return;
+        }
+        layoutMode = mode;
+        detach(vfBox);
+        detach(ctlBox);
+        detach(timeline);
+        detach(timeRowBox);
+        detach(rootBox);
+        if (mode == 0) {
+            prevCard.addView(vfBox, 0, new LinearLayout.LayoutParams(MATCH, dp(220)));
+            prevCard.addView(ctlBox, 1, new LinearLayout.LayoutParams(MATCH, WRAP));
+            tlCard.addView(timeline, 1, new LinearLayout.LayoutParams(MATCH, dp(68)));
+            tlCard.addView(timeRowBox, 2, new LinearLayout.LayoutParams(MATCH, WRAP));
+            rootBox.setPadding(dp(16), dp(36), dp(16), dp(28));
+            scrollPortrait.addView(rootBox, new ViewGroup.LayoutParams(MATCH, WRAP));
+            setContentView(scrollPortrait);
+        } else {
+            if (landRoot == null) {
+                landRoot = new LinearLayout(this);
+                landRoot.setOrientation(LinearLayout.HORIZONTAL);
+                landLeft = new LinearLayout(this);
+                landLeft.setOrientation(LinearLayout.VERTICAL);
+                landLeft.setPadding(dp(16), dp(12), dp(8), dp(10));
+                rightScroll = new ScrollView(this);
+                rightScroll.setFillViewport(true);
+                landRoot.addView(landLeft, new LinearLayout.LayoutParams(0, MATCH, 1.35f));
+                landRoot.addView(rightScroll, new LinearLayout.LayoutParams(0, MATCH, 1f));
+            }
+            landLeft.removeAllViews();
+            landLeft.addView(vfBox, new LinearLayout.LayoutParams(MATCH, 0, 1f));
+            landLeft.addView(ctlBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(MATCH, dp(68));
+            tlp.topMargin = dp(8);
+            landLeft.addView(timeline, tlp);
+            landLeft.addView(timeRowBox, new LinearLayout.LayoutParams(MATCH, WRAP));
+            rootBox.setPadding(dp(8), dp(16), dp(16), dp(28));
+            rightScroll.removeAllViews();
+            rightScroll.addView(rootBox, new ViewGroup.LayoutParams(MATCH, WRAP));
+            setContentView(landRoot);
+            syncLand();
+        }
+    }
+
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -722,7 +797,14 @@ public class VideoEditorActivity extends Activity {
 
 
 
-        setContentView(scroll);
+        scrollPortrait = scroll;
+        rootBox = root;
+        vfBox = vf;
+        ctlBox = ctl;
+        timeRowBox = timeRow;
+        prevCard = prev;
+        tlCard = tl;
+        applyLayout();
         updateTexts();
 
         // aperto da "Apri con" dal telefono
@@ -3548,6 +3630,7 @@ public class VideoEditorActivity extends Activity {
         if (durMs <= 0) {
             pickSub.setText("Questo video non sembra leggibile dal telefono.");
             editorBox.setVisibility(View.GONE);
+            syncLand();
             return;
         }
         origUri = uri;
@@ -3565,6 +3648,7 @@ public class VideoEditorActivity extends Activity {
         }
         refreshClips();
         editorBox.setVisibility(View.VISIBLE);
+        syncLand();
         timeline.setDuration(durMs);
         timeline.setPos(0);
         videoView.setDisplaySize(dispVw, dispVh);
