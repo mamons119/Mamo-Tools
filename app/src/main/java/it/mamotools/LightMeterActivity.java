@@ -54,9 +54,13 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
 
     private AutoFitTextureView tv;
     private Reticle reticle;
-    private TextView bigTv, luxTv, evTv, spotTv, descTv, rangeTv, sensTv, msgTv;
-    private View barFill;
-    private android.widget.Button holdBtn;
+    private TextView bigTv, luxTv, evTv, spotTv, descTv, minTv, maxTv, phoneTv, expTv, msgTv;
+    private ScaleBar scaleBar;
+    private LinearLayout details;
+    private TextView holdBtn, detailsBtn;
+    // quanta parte dell'immagine della camera e' visibile nella vista (l'anteprima riempie lo schermo ritagliando i bordi)
+    private volatile float imgSx = 1f, imgSy = 1f;
+    private int bufW = 1080, bufH = 1920;
 
     private CameraManager manager;
     private CameraDevice camera;
@@ -93,7 +97,8 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
         root.setBackgroundColor(Color.BLACK);
         tv = new AutoFitTextureView(this);
         tv.setSurfaceTextureListener(texListener);
-        root.addView(tv, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH, Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        tv.addOnLayoutChangeListener((v, l, t, r, bt, ol, ot, or, ob) -> fitPreview());
+        root.addView(tv, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
         reticle = new Reticle(this);
         root.addView(reticle, new FrameLayout.LayoutParams(Ui.MATCH, Ui.MATCH));
         reticle.setOnTouchListener((v, e) -> {
@@ -103,48 +108,90 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
             return true;
         });
 
+        // barra in alto: indietro + titolo
+        LinearLayout top = new LinearLayout(this);
+        top.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back = Ui.text(this, "‹", 26, Ui.TEXT, true);
+        back.setGravity(Gravity.CENTER);
+        back.setBackground(Ui.round(this, 0xAA0F1115, 100));
+        back.setClickable(true);
+        back.setOnClickListener(v -> finish());
+        top.addView(back, new LinearLayout.LayoutParams(Ui.dp(this, 40), Ui.dp(this, 40)));
+        TextView ttl = Ui.text(this, "Intensità luminosa", 14, Ui.TEXT, true);
+        ttl.setPadding(Ui.dp(this, 14), 0, Ui.dp(this, 14), 0);
+        ttl.setGravity(Gravity.CENTER);
+        ttl.setBackground(Ui.round(this, 0xAA0F1115, 100));
+        top.addView(ttl, Ui.lp(this, Ui.WRAP, Ui.dp(this, 40), 8, 0));
+        FrameLayout.LayoutParams tl = new FrameLayout.LayoutParams(Ui.WRAP, Ui.WRAP, Gravity.TOP | Gravity.START);
+        tl.setMargins(Ui.dp(this, 12), Ui.dp(this, 12), 0, 0);
+        root.addView(top, tl);
+
         LinearLayout panel = new LinearLayout(this);
         panel.setOrientation(LinearLayout.VERTICAL);
-        panel.setBackground(Ui.round(this, 0xE60F1115, 22));
-        panel.setPadding(Ui.dp(this, 16), Ui.dp(this, 12), Ui.dp(this, 16), Ui.dp(this, 14));
-        panel.addView(Ui.text(this, "Intensità luminosa", 13, Ui.ACCENT, true));
-        bigTv = Ui.text(this, "—", 38, Ui.TEXT, true);
-        panel.addView(bigTv);
-        descTv = Ui.text(this, "Tocca lo schermo per scegliere il punto da misurare", 12, Ui.DIM, false);
-        panel.addView(descTv);
-        LinearLayout bar = new LinearLayout(this);
-        bar.setBackground(Ui.round(this, Ui.CARD2, 6));
-        barFill = new View(this);
-        barFill.setBackground(Ui.round(this, Ui.ACCENT, 6));
-        bar.addView(barFill, new LinearLayout.LayoutParams(0, Ui.dp(this, 8)));
-        panel.addView(bar, Ui.lp(this, Ui.MATCH, Ui.dp(this, 8), 0, 8));
+        panel.setBackground(Ui.round(this, 0xEB0F1115, 24));
+        panel.setPadding(Ui.dp(this, 16), Ui.dp(this, 14), Ui.dp(this, 16), Ui.dp(this, 14));
+
+        // valore principale
+        LinearLayout head = new LinearLayout(this);
+        head.setGravity(Gravity.BOTTOM);
+        bigTv = Ui.text(this, "—", 44, Ui.TEXT, true);
+        head.addView(bigTv);
+        TextView unit = Ui.text(this, "cd/m²", 16, Ui.DIM, true);
+        unit.setPadding(Ui.dp(this, 8), 0, 0, Ui.dp(this, 9));
+        head.addView(unit);
+        panel.addView(head);
+        descTv = Ui.text(this, "Tocca lo schermo per scegliere il punto da misurare", 13, Ui.ACCENT, true);
+        panel.addView(descTv, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 2));
+        scaleBar = new ScaleBar(this);
+        panel.addView(scaleBar, Ui.lp(this, Ui.MATCH, Ui.dp(this, 38), 0, 10));
+
+        // misure principali
         LinearLayout r1 = new LinearLayout(this);
-        luxTv = cell("Illuminamento", r1);
-        evTv = cell("EV (ISO 100)", r1);
-        spotTv = cell("Luminosità punto", r1);
-        panel.addView(r1, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
-        rangeTv = Ui.text(this, "", 12, Ui.DIM, false);
-        panel.addView(rangeTv, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-        sensTv = Ui.text(this, "", 12, Ui.DIM, false);
-        panel.addView(sensTv);
+        luxTv = tile("ILLUMINAMENTO", r1, 0);
+        evTv = tile("EV (ISO 100)", r1, 8);
+        spotTv = tile("LUMINOSITÀ PUNTO", r1, 8);
+        panel.addView(r1, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+
+        // dettagli (comprimibili)
+        details = new LinearLayout(this);
+        details.setOrientation(LinearLayout.VERTICAL);
+        LinearLayout r2 = new LinearLayout(this);
+        minTv = tile("MINIMO", r2, 0);
+        maxTv = tile("MASSIMO", r2, 8);
+        phoneTv = tile("SENSORE TELEFONO", r2, 8);
+        details.addView(r2, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+        expTv = Ui.text(this, "", 12, Ui.DIM, false);
+        expTv.setGravity(Gravity.CENTER);
+        details.addView(expTv, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+        panel.addView(details);
         msgTv = Ui.text(this, "", 12, Ui.DANGER, false);
         panel.addView(msgTv);
+
+        // pulsanti
         LinearLayout br = new LinearLayout(this);
-        br.addView(Ui.btn(this, "Centro", Ui.CARD2, Ui.ACCENT, v -> {
+        br.addView(pill("⌖  Centro", v -> {
             spotU = 0.5f;
             spotV = 0.5f;
             applyRegions(true);
             reticle.invalidate();
-        }), Ui.lp(this, 0, Ui.dp(this, Ui.H_CHIP), 0, 0, 1f));
-        br.addView(Ui.btn(this, "Azzera min/max", Ui.CARD2, Ui.ACCENT, v -> {
+        }), Ui.lp(this, 0, Ui.dp(this, 46), 0, 0, 1f));
+        br.addView(pill("↺  Azzera", v -> {
             minL = Float.MAX_VALUE;
             maxL = 0;
-        }), Ui.lp(this, 0, Ui.dp(this, Ui.H_CHIP), 8, 0, 1f));
-        holdBtn = Ui.btn(this, "Blocca", Ui.CARD2, Ui.ACCENT, v -> {
+        }), Ui.lp(this, 0, Ui.dp(this, 46), 8, 0, 1f));
+        holdBtn = pill("⏸  Blocca", v -> {
             hold = !hold;
-            holdBtn.setText(hold ? "Sblocca" : "Blocca");
+            holdBtn.setText(hold ? "▶  Sblocca" : "⏸  Blocca");
+            holdBtn.setBackground(Ui.round(this, hold ? Ui.ACCENT : Ui.CARD2, 14));
+            holdBtn.setTextColor(hold ? 0xFF000000 : Ui.ACCENT);
         });
-        br.addView(holdBtn, Ui.lp(this, 0, Ui.dp(this, Ui.H_CHIP), 8, 0, 1f));
+        br.addView(holdBtn, Ui.lp(this, 0, Ui.dp(this, 46), 8, 0, 1f));
+        detailsBtn = pill("▾", v -> {
+            boolean open = details.getVisibility() != View.VISIBLE;
+            details.setVisibility(open ? View.VISIBLE : View.GONE);
+            detailsBtn.setText(open ? "▾" : "▴");
+        });
+        br.addView(detailsBtn, Ui.lp(this, Ui.dp(this, 46), Ui.dp(this, 46), 8, 0));
         panel.addView(br, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         FrameLayout.LayoutParams pl = new FrameLayout.LayoutParams(Ui.MATCH, Ui.WRAP, Gravity.BOTTOM);
         pl.setMargins(Ui.dp(this, 10), 0, Ui.dp(this, 10), Ui.dp(this, 10));
@@ -152,13 +199,32 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
         setContentView(root);
     }
 
-    private TextView cell(String label, LinearLayout row) {
+    private TextView pill(String label, View.OnClickListener l) {
+        TextView t = Ui.text(this, label, 14, Ui.ACCENT, true);
+        t.setGravity(Gravity.CENTER);
+        t.setSingleLine(true);
+        t.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x44FFFFFF), Ui.round(this, Ui.CARD2, 14), null));
+        t.setClickable(true);
+        t.setOnClickListener(l);
+        return t;
+    }
+
+    /** Riquadro con etichetta piccola e valore grande. */
+    private TextView tile(String label, LinearLayout row, int leftMargin) {
         LinearLayout c = new LinearLayout(this);
         c.setOrientation(LinearLayout.VERTICAL);
-        c.addView(Ui.text(this, label, 11, Ui.DIM, false));
-        TextView v = Ui.text(this, "—", 15, Ui.TEXT, true);
+        c.setBackground(Ui.round(this, Ui.CARD2, 12));
+        c.setPadding(Ui.dp(this, 10), Ui.dp(this, 8), Ui.dp(this, 10), Ui.dp(this, 9));
+        TextView l = Ui.text(this, label, 10, Ui.DIM, true);
+        l.setSingleLine(true);
+        l.setLetterSpacing(0.04f);
+        c.addView(l);
+        TextView v = Ui.text(this, "—", 18, Ui.TEXT, true);
+        v.setSingleLine(true);
+        v.setPadding(0, Ui.dp(this, 2), 0, 0);
         c.addView(v);
-        row.addView(c, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        row.addView(c, Ui.lp(this, 0, Ui.WRAP, leftMargin, 0, 1f));
         return v;
     }
 
@@ -187,7 +253,7 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
         if (bd == null || ss == null || ch == null) {
             return;
         }
-        final float u = spotU, v = spotV;
+        final float u = 0.5f + (spotU - 0.5f) / imgSx, v = 0.5f + (spotV - 0.5f) / imgSy;
         bg.post(() -> {
             try {
                 android.graphics.Rect act = ch.get(CameraCharacteristics.SENSOR_INFO_ACTIVE_ARRAY_SIZE);
@@ -247,6 +313,7 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
 
         @Override
         public void onSurfaceTextureSizeChanged(SurfaceTexture st, int w, int h) {
+            fitPreview();
         }
 
         @Override
@@ -292,14 +359,35 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
             previewSize = pickSize(map == null ? null : map.getOutputSizes(SurfaceTexture.class));
             // schermo in verticale: larghezza e altezza dell'anteprima si scambiano
             if (sensorOrientation == 90 || sensorOrientation == 270) {
-                tv.setAspectRatio(previewSize.getHeight(), previewSize.getWidth());
+                bufW = previewSize.getHeight();
+                bufH = previewSize.getWidth();
             } else {
-                tv.setAspectRatio(previewSize.getWidth(), previewSize.getHeight());
+                bufW = previewSize.getWidth();
+                bufH = previewSize.getHeight();
             }
+            ui.post(this::fitPreview);
             manager.openCamera(id, stateCb, bg);
         } catch (SecurityException | CameraAccessException e) {
             msgTv.setText("Impossibile aprire la fotocamera.");
         }
+    }
+
+    /**
+     * L'anteprima riempie tutto lo schermo senza deformarsi: la TextureView stira il frame sulla propria area, quindi
+     * si applica una scala uniforme (la stessa in larghezza e altezza) e si ritagliano i bordi in eccesso.
+     */
+    private void fitPreview() {
+        int vw = tv.getWidth(), vh = tv.getHeight();
+        if (vw <= 0 || vh <= 0 || bufW <= 0 || bufH <= 0) {
+            return;
+        }
+        float s = Math.max(vw / (float) bufW, vh / (float) bufH);
+        float sx = bufW * s / vw, sy = bufH * s / vh;
+        android.graphics.Matrix m = new android.graphics.Matrix();
+        m.setScale(sx, sy, vw / 2f, vh / 2f);
+        tv.setTransform(m);
+        imgSx = sx;
+        imgSy = sy;
     }
 
     private Size pickSize(Size[] sizes) {
@@ -535,21 +623,46 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
         minL = Math.min(minL, smoothL);
         maxL = Math.max(maxL, smoothL);
 
-        bigTv.setText(fmt(smoothL) + " cd/m²");
-        luxTv.setText(fmt(smoothL * 20f) + " lux");
-        evTv.setText(String.format(Locale.US, "%.1f", evAdj));
+        float luxV = smoothL * 20f;
+        bigTv.setText(fmt(smoothL));
+        luxTv.setText(fmt(luxV) + " lx");
+        evTv.setText(String.format(Locale.ITALY, "%.1f", evAdj));
         spotTv.setText(smoothY < 0 ? "—" : Math.round(smoothY / 255f * 100) + "%");
-        descTv.setText(describe(smoothL * 20f) + (sat ? " · punto fuori scala, misura incerta" : ""));
-        rangeTv.setText("Min " + fmt(minL) + " · Max " + fmt(maxL) + " cd/m²");
-        sensTv.setText("Tempo 1/" + Math.round(1.0 / t) + " s · ISO " + Math.round(s) + " · f/" + String.format(Locale.US, "%.1f", n)
-                + (lightSensor >= 0 ? " · sensore di luce del telefono: " + fmt(lightSensor) + " lux" : ""));
-        // barra su scala logaritmica (0.1 .. 100000 cd/m2)
-        double frac = (Math.log10(Math.max(0.1, smoothL)) + 1) / 6.0;
-        frac = Math.max(0, Math.min(1, frac));
-        View parent = (View) barFill.getParent();
-        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) barFill.getLayoutParams();
-        lp.width = (int) (parent.getWidth() * frac);
-        barFill.setLayoutParams(lp);
+        descTv.setText(icon(luxV) + "  " + describe(luxV) + (sat ? "  ·  punto fuori scala" : ""));
+        descTv.setTextColor(sat ? 0xFFFFB74D : Ui.ACCENT);
+        minTv.setText(fmt(minL));
+        maxTv.setText(fmt(maxL));
+        phoneTv.setText(lightSensor >= 0 ? fmt(lightSensor) + " lx" : "n.d.");
+        expTv.setText("Tempo 1/" + Math.round(1.0 / t) + " s   ·   ISO " + Math.round(s) + "   ·   f/"
+                + String.format(Locale.ITALY, "%.1f", n) + "     (min e max in cd/m²)");
+        scaleBar.set(frac(smoothL), minL == Float.MAX_VALUE ? -1 : frac(minL), maxL <= 0 ? -1 : frac(maxL));
+    }
+
+    /** Posizione sulla barra (scala logaritmica da 0,1 a 100.000 cd/m²). */
+    private static float frac(float l) {
+        double f = (Math.log10(Math.max(0.1, l)) + 1) / 6.0;
+        return (float) Math.max(0, Math.min(1, f));
+    }
+
+    private static String icon(float lux) {
+        if (lux < 1) {
+            return "🌑";
+        } else if (lux < 10) {
+            return "🌘";
+        } else if (lux < 50) {
+            return "🌙";
+        } else if (lux < 200) {
+            return "💡";
+        } else if (lux < 800) {
+            return "🏠";
+        } else if (lux < 3000) {
+            return "🔆";
+        } else if (lux < 20000) {
+            return "⛅";
+        } else if (lux < 60000) {
+            return "🌤";
+        }
+        return "☀️";
     }
 
     private static String fmt(float v) {
@@ -587,6 +700,54 @@ public class LightMeterActivity extends Activity implements SensorEventListener 
     }
 
     // =========================================================================== mirino
+
+    /** Barra logaritmica con gradiente, segni di minimo/massimo e tacche con i valori. */
+    private final class ScaleBar extends View {
+        private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float v = 0, mn = -1, mx = -1;
+        private final String[] lab = {"0,1", "1", "10", "100", "1k", "10k", "100k"};
+
+        ScaleBar(Context c) {
+            super(c);
+        }
+
+        void set(float v, float mn, float mx) {
+            this.v = v;
+            this.mn = mn;
+            this.mx = mx;
+            invalidate();
+        }
+
+        @Override
+        protected void onDraw(Canvas c) {
+            float w = getWidth(), d = Ui.dp(getContext(), 1), bh = 10 * d, r = bh / 2;
+            p.setShader(null);
+            p.setStyle(Paint.Style.FILL);
+            p.setColor(Ui.CARD2);
+            c.drawRoundRect(0, 0, w, bh, r, r, p);
+            if (v > 0) {
+                p.setShader(new android.graphics.LinearGradient(0, 0, w, 0, new int[]{0xFF1E88E5, Ui.ACCENT, 0xFFFFE082},
+                        null, android.graphics.Shader.TileMode.CLAMP));
+                c.drawRoundRect(0, 0, Math.max(bh, w * v), bh, r, r, p);
+                p.setShader(null);
+            }
+            p.setColor(0xFFFFFFFF);
+            if (mn >= 0) {
+                c.drawRect(w * mn - d, -2 * d, w * mn + d, bh + 2 * d, p);
+            }
+            if (mx >= 0) {
+                c.drawRect(w * mx - d, -2 * d, w * mx + d, bh + 2 * d, p);
+            }
+            p.setTextSize(Ui.dp(getContext(), 10));
+            p.setColor(Ui.DIM);
+            for (int i = 0; i < lab.length; i++) {
+                float x = w * i / 6f;
+                p.setTextAlign(i == 0 ? Paint.Align.LEFT : i == 6 ? Paint.Align.RIGHT : Paint.Align.CENTER);
+                c.drawText(lab[i], x, bh + 15 * d, p);
+            }
+        }
+
+    }
 
     private final class Reticle extends View {
         private final Paint p = new Paint(Paint.ANTI_ALIAS_FLAG);
