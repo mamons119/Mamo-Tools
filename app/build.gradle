@@ -10,8 +10,8 @@ android {
         applicationId "it.mamotools"
         minSdk 29             // Android 10+ (salvataggio in Galleria senza permessi di archiviazione)
         targetSdk 33
-        versionCode 90
-        versionName "3.49"
+        versionCode 91
+        versionName "3.50"
     }
 
     signingConfigs {

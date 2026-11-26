@@ -14,6 +14,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
+import android.widget.ProgressBar;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
@@ -125,47 +126,174 @@ public class GithubUploaderActivity extends Activity {
         super.onBackPressed();
     }
 
+    // ------------------------------------------------------------------ elementi grafici comuni
+
+    private int dp(int v) {
+        return Ui.dp(this, v);
+    }
+
+    private void showHeader(boolean on) {
+        for (int i = 0; i < 2 && i < root.getChildCount(); i++) {
+            root.getChildAt(i).setVisibility(on ? View.VISIBLE : View.GONE);
+        }
+    }
+
+    /** Etichetta piccola e colorata (stato, ramo, chiave...). */
+    private TextView pill(String t, int fg) {
+        TextView p = Ui.text(this, t, 11, fg, true);
+        p.setSingleLine(true);
+        p.setPadding(dp(8), dp(3), dp(8), dp(3));
+        p.setBackground(Ui.round(this, (fg & 0x00FFFFFF) | 0x2A000000, 8));
+        return p;
+    }
+
+    private LinearLayout pillRow(TextView... ps) {
+        LinearLayout r = new LinearLayout(this);
+        for (int i = 0; i < ps.length; i++) {
+            r.addView(ps[i], Ui.lp(this, Ui.WRAP, Ui.WRAP, i == 0 ? 0 : 6, 0));
+        }
+        return r;
+    }
+
+    private static final int[] AV = {0xFF4DD0E1, 0xFFFFB74D, 0xFF81C784, 0xFFBA68C8, 0xFFFF8A80, 0xFF64B5F6};
+
+    /** Cerchio con l'iniziale. */
+    private TextView avatar(String name, int sizeDp) {
+        int col = AV[Math.abs(name.hashCode()) % AV.length];
+        TextView a = Ui.text(this, name.isEmpty() ? "?" : name.substring(0, 1).toUpperCase(Locale.ITALY),
+                sizeDp / 2 + 1, col, true);
+        a.setGravity(Gravity.CENTER);
+        a.setBackground(Ui.round(this, (col & 0x00FFFFFF) | 0x26000000, 100));
+        a.setLayoutParams(new LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)));
+        return a;
+    }
+
+    private TextView roundBtn(String label, View.OnClickListener l) {
+        TextView b = Ui.text(this, label, 20, Ui.TEXT, true);
+        b.setGravity(Gravity.CENTER);
+        b.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x44FFFFFF), Ui.round(this, Ui.CARD2, 100), null));
+        b.setClickable(true);
+        b.setOnClickListener(l);
+        return b;
+    }
+
+    /** Barra in alto con il tasto indietro, il titolo e un sottotitolo. */
+    private LinearLayout topBar(String title, String subtitle) {
+        LinearLayout r = new LinearLayout(this);
+        r.setGravity(Gravity.CENTER_VERTICAL);
+        TextView back = roundBtn("‹", v -> onBackPressed());
+        back.setTextSize(26);
+        r.addView(back, new LinearLayout.LayoutParams(dp(42), dp(42)));
+        LinearLayout col = new LinearLayout(this);
+        col.setOrientation(LinearLayout.VERTICAL);
+        col.setPadding(dp(12), 0, 0, 0);
+        TextView t = Ui.text(this, title, 20, Ui.TEXT, true);
+        t.setSingleLine(true);
+        t.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        col.addView(t);
+        if (subtitle != null && !subtitle.isEmpty()) {
+            TextView st = Ui.text(this, subtitle, 12, Ui.DIM, false);
+            st.setSingleLine(true);
+            st.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            col.addView(st);
+        }
+        r.addView(col, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        r.setPadding(0, 0, 0, dp(14));
+        return r;
+    }
+
+    /** Scheda con intestazione (icona + titolo + azione facoltativa a destra). */
+    private LinearLayout card(String icon, String title, String action, View.OnClickListener onAction) {
+        LinearLayout c = Ui.card(this);
+        LinearLayout h2 = new LinearLayout(this);
+        h2.setGravity(Gravity.CENTER_VERTICAL);
+        TextView ic = Ui.text(this, icon, 16, Ui.TEXT, false);
+        ic.setGravity(Gravity.CENTER);
+        ic.setBackground(Ui.round(this, Ui.BG, 100));
+        h2.addView(ic, new LinearLayout.LayoutParams(dp(32), dp(32)));
+        TextView t = Ui.text(this, title, 15, Ui.TEXT, true);
+        t.setPadding(dp(10), 0, 0, 0);
+        h2.addView(t, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        if (action != null) {
+            TextView a = Ui.text(this, action, 13, Ui.ACCENT, true);
+            a.setPadding(dp(12), dp(6), dp(12), dp(6));
+            a.setBackground(Ui.round(this, Ui.CARD2, 10));
+            a.setClickable(true);
+            a.setOnClickListener(onAction);
+            h2.addView(a);
+        }
+        c.addView(h2);
+        return c;
+    }
+
+    private android.widget.Button primary(String label, View.OnClickListener l) {
+        return Ui.btn(this, label, Ui.ACCENT, 0xFF000000, l);
+    }
+
+    private ProgressBar spinner(int sizeDp) {
+        ProgressBar p = new ProgressBar(this);
+        p.setIndeterminate(true);
+        p.setIndeterminateTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+        p.setLayoutParams(new LinearLayout.LayoutParams(dp(sizeDp), dp(sizeDp)));
+        return p;
+    }
+
+    private static String fmtSize(long b) {
+        if (b < 1024) {
+            return b + " B";
+        } else if (b < 1024 * 1024) {
+            return (b / 1024) + " KB";
+        }
+        return String.format(Locale.ITALY, "%.1f MB", b / 1048576.0);
+    }
+
     // =========================================================================== schermata iniziale
 
     private void home() {
         inRepo = false;
+        showHeader(true);
         body.removeAllViews();
         accts.clear();
         accts.addAll(store.list());
 
-        body.addView(Ui.section(this, "Chiavi di accesso"));
-        LinearLayout kc = Ui.card(this);
+        LinearLayout kc = card("🔑", "Chiavi di accesso", "+ Aggiungi", v -> addKeyDialog());
         if (accts.isEmpty()) {
-            kc.addView(Ui.text(this, "Nessuna chiave. Crea su GitHub un token (Impostazioni → Developer settings → "
-                    + "Personal access tokens → Fine-grained tokens) con permesso Contents: lettura e scrittura "
-                    + "sul repository, poi incollalo qui. Puoi aggiungere piu' chiavi, anche di account diversi.",
-                    12, Ui.DIM, false));
+            TextView hint = Ui.text(this, "Per cominciare serve un token di GitHub:\n"
+                    + "1. github.com → Settings → Developer settings\n"
+                    + "2. Personal access tokens → Fine-grained tokens\n"
+                    + "3. Scegli i repository e il permesso Contents: lettura e scrittura\n"
+                    + "4. Copia il token e premi + Aggiungi.\n"
+                    + "Puoi usare più chiavi, anche di account diversi.", 12, Ui.DIM, false);
+            hint.setLineSpacing(0, 1.2f);
+            kc.addView(hint, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         }
         for (final GhStore.Acct a : accts) {
             LinearLayout row = new LinearLayout(this);
             row.setGravity(Gravity.CENTER_VERTICAL);
+            String nm = a.label.isEmpty() ? a.login : a.label;
+            row.addView(avatar(nm, 36));
             LinearLayout col = new LinearLayout(this);
             col.setOrientation(LinearLayout.VERTICAL);
-            col.addView(Ui.text(this, a.label.isEmpty() ? a.login : a.label, 15, Ui.TEXT, true));
+            col.setPadding(dp(12), 0, 0, 0);
+            col.addView(Ui.text(this, nm, 14, Ui.TEXT, true));
             col.addView(Ui.text(this, a.token == null ? "chiave illeggibile: rimuovila e reinseriscila"
-                    : "account " + a.login, 12, a.token == null ? Ui.DANGER : Ui.DIM, false));
+                    : "@" + a.login, 12, a.token == null ? Ui.DANGER : Ui.DIM, false));
             row.addView(col, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
-            row.addView(Ui.btn(this, "Rimuovi", Ui.CARD2, Ui.DANGER, v -> confirmRemove(a)),
-                    Ui.lp(this, Ui.WRAP, Ui.dp(this, 38), 8, 0));
-            kc.addView(row, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+            TextView rm = roundBtn("✕", v -> confirmRemove(a));
+            rm.setTextSize(14);
+            rm.setTextColor(Ui.DANGER);
+            row.addView(rm, new LinearLayout.LayoutParams(dp(36), dp(36)));
+            kc.addView(row, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         }
-        kc.addView(Ui.btn(this, "Aggiungi chiave", Ui.ACCENT, 0xFF000000, v -> addKeyDialog()),
-                Ui.lp(this, Ui.MATCH, Ui.dp(this, Ui.H_BTN), 0, 12));
         body.addView(kc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0));
-
-        TextView rs = Ui.section(this, "Repository");
-        rs.setPadding(0, Ui.dp(this, 20), 0, Ui.dp(this, 10));
-        body.addView(rs);
         if (accts.isEmpty()) {
-            body.addView(Ui.text(this, "Aggiungi una chiave per vedere i repository.", 13, Ui.DIM, false));
             return;
         }
-        final EditText fe = field("Cerca un repository", false);
+
+        LinearLayout sr = new LinearLayout(this);
+        sr.setGravity(Gravity.CENTER_VERTICAL);
+        final EditText fe = field("🔍  Cerca un repository", false);
         fe.setText(filter);
         fe.addTextChangedListener(new TextWatcher() {
             @Override
@@ -182,14 +310,26 @@ public class GithubUploaderActivity extends Activity {
                 fillRepoList();
             }
         });
-        body.addView(fe, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0));
+        sr.addView(fe, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        TextView rf = roundBtn("↻", v -> {
+            NEG.clear();
+            loadRepos();
+        });
+        sr.addView(rf, Ui.lp(this, dp(44), dp(44), 8, 0));
+        body.addView(sr, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 16));
         repoList = new LinearLayout(this);
         repoList.setOrientation(LinearLayout.VERTICAL);
-        body.addView(repoList, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+        body.addView(repoList, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
         fillRepoList();
     }
 
     private LinearLayout repoList;
+
+    private TextView listHeader(String s) {
+        TextView t = Ui.text(this, s, 12, Ui.DIM, true);
+        t.setPadding(dp(4), dp(10), 0, dp(8));
+        return t;
+    }
 
     private void fillRepoList() {
         if (repoList == null) {
@@ -197,19 +337,25 @@ public class GithubUploaderActivity extends Activity {
         }
         repoList.removeAllViews();
         if (reposLoading) {
-            repoList.addView(Ui.text(this, probeTotal > 0
-                    ? "Verifica dei permessi di scrittura: " + probeDone + "/" + probeTotal + "..."
-                    : "Caricamento dei repository...", 13, Ui.DIM, false));
+            LinearLayout ld = new LinearLayout(this);
+            ld.setGravity(Gravity.CENTER_VERTICAL);
+            ld.addView(spinner(18));
+            ld.addView(Ui.text(this, probeTotal > 0
+                    ? "Verifica dei permessi di scrittura: " + probeDone + "/" + probeTotal
+                    : "Caricamento dei repository...", 12, Ui.DIM, false), Ui.lp(this, Ui.WRAP, Ui.WRAP, 10, 0));
+            ld.setPadding(dp(4), dp(4), 0, dp(8));
+            repoList.addView(ld);
         }
         if (!reposError.isEmpty()) {
-            repoList.addView(Ui.text(this, reposError, 12, Ui.DANGER, false));
+            TextView er = Ui.text(this, reposError, 12, Ui.DANGER, false);
+            er.setPadding(dp(4), 0, 0, dp(8));
+            repoList.addView(er);
         }
         java.util.Set<String> pins = store.pins();
-        List<Repo> sorted = new ArrayList<>(repos);
-        int shown = 0;
-        // prima i preferiti, poi gli altri
+        int nPin = 0, nOther = 0;
         for (int pass = 0; pass < 2; pass++) {
-            for (Repo r : sorted) {
+            boolean headerDone = false;
+            for (Repo r : repos) {
                 boolean pinned = pins.contains(r.acct.id + "|" + r.full);
                 if ((pass == 0) != pinned) {
                     continue;
@@ -217,42 +363,68 @@ public class GithubUploaderActivity extends Activity {
                 if (!filter.isEmpty() && !r.full.toLowerCase().contains(filter)) {
                     continue;
                 }
+                if (!headerDone) {
+                    headerDone = true;
+                    if (pass == 0) {
+                        repoList.addView(listHeader("★  PREFERITI"));
+                    } else if (nPin > 0) {
+                        repoList.addView(listHeader("TUTTI I REPOSITORY"));
+                    }
+                }
                 repoList.addView(repoTile(r, pinned));
-                shown++;
+                if (pass == 0) {
+                    nPin++;
+                } else {
+                    nOther++;
+                }
             }
         }
-        if (shown == 0 && !reposLoading && reposError.isEmpty()) {
-            repoList.addView(Ui.text(this, "Nessun repository scrivibile trovato con queste chiavi (quelli in sola lettura "
-                    + "non vengono mostrati).", 13, Ui.DIM, false));
+        if (nPin + nOther == 0 && !reposLoading && reposError.isEmpty()) {
+            TextView em = Ui.text(this, filter.isEmpty()
+                    ? "Nessun repository scrivibile trovato con queste chiavi (quelli in sola lettura non vengono mostrati)."
+                    : "Nessun repository corrisponde alla ricerca.", 13, Ui.DIM, false);
+            em.setPadding(dp(4), dp(8), 0, 0);
+            repoList.addView(em);
         }
     }
 
     private View repoTile(final Repo r, final boolean pinned) {
         LinearLayout t = new LinearLayout(this);
         t.setGravity(Gravity.CENTER_VERTICAL);
-        t.setPadding(Ui.dp(this, 14), Ui.dp(this, 12), Ui.dp(this, 14), Ui.dp(this, 12));
+        t.setPadding(dp(12), dp(12), dp(8), dp(12));
         t.setBackground(new android.graphics.drawable.RippleDrawable(
-                android.content.res.ColorStateList.valueOf(0x334DD0E1), Ui.round(this, Ui.CARD, 14), null));
+                android.content.res.ColorStateList.valueOf(0x334DD0E1), Ui.round(this, Ui.CARD, 16), null));
         t.setClickable(true);
         t.setOnClickListener(v -> openRepo(r));
+        String owner = r.full.contains("/") ? r.full.substring(0, r.full.indexOf('/')) : "";
+        String name = r.full.contains("/") ? r.full.substring(r.full.indexOf('/') + 1) : r.full;
+        t.addView(avatar(name, 42));
         LinearLayout col = new LinearLayout(this);
         col.setOrientation(LinearLayout.VERTICAL);
-        col.addView(Ui.text(this, r.full, 15, Ui.TEXT, true));
-        String sub = (r.priv ? "privato" : "pubblico") + " · ramo " + r.branch
-                + (r.canPush ? "" : " · sola lettura") + " · chiave " + (r.acct.label.isEmpty() ? r.acct.login : r.acct.label);
-        col.addView(Ui.text(this, sub, 11, Ui.DIM, false));
+        col.setPadding(dp(12), 0, dp(4), 0);
+        col.addView(Ui.text(this, owner, 11, Ui.DIM, false));
+        TextView nm = Ui.text(this, name, 16, Ui.TEXT, true);
+        nm.setSingleLine(true);
+        nm.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        col.addView(nm);
+        LinearLayout pr = pillRow(pill(r.priv ? "🔒 privato" : "pubblico", r.priv ? 0xFFFFB74D : 0xFF81C784),
+                pill("⎇ " + r.branch, Ui.ACCENT));
+        if (accts.size() > 1) {
+            pr.addView(pill(r.acct.label.isEmpty() ? r.acct.login : r.acct.label, Ui.DIM), Ui.lp(this, Ui.WRAP, Ui.WRAP, 6, 0));
+        }
+        col.addView(pr, Ui.lp(this, Ui.WRAP, Ui.WRAP, 0, 6));
         t.addView(col, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
         TextView pin = Ui.text(this, "★", 26, pinned ? 0xFFFFC107 : 0xFF5C6370, false);
         pin.setGravity(Gravity.CENTER);
-        pin.setPadding(Ui.dp(this, 10), Ui.dp(this, 4), Ui.dp(this, 10), Ui.dp(this, 4));
+        pin.setPadding(dp(10), dp(6), dp(10), dp(6));
         pin.setOnClickListener(v -> {
             store.togglePin(r.acct.id + "|" + r.full);
             fillRepoList();
         });
-        t.addView(pin, Ui.lp(this, Ui.WRAP, Ui.WRAP, 8, 0));
-        t.addView(Ui.text(this, "›", 24, Ui.DIM, false), Ui.lp(this, Ui.WRAP, Ui.WRAP, 6, 0));
+        t.addView(pin);
+        t.addView(Ui.text(this, "›", 24, Ui.DIM, false));
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(Ui.MATCH, Ui.WRAP);
-        lp.bottomMargin = Ui.dp(this, 8);
+        lp.bottomMargin = dp(8);
         t.setLayoutParams(lp);
         return t;
     }
@@ -532,98 +704,164 @@ public class GithubUploaderActivity extends Activity {
         return p;
     }
 
+    private TextView quick(String icon, String label, View.OnClickListener l) {
+        LinearLayout box = new LinearLayout(this);
+        TextView t = Ui.text(this, icon + "\n" + label, 12, Ui.TEXT, true);
+        t.setGravity(Gravity.CENTER);
+        t.setLineSpacing(0, 1.15f);
+        t.setPadding(dp(4), dp(12), dp(4), dp(10));
+        t.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x334DD0E1), Ui.round(this, Ui.CARD, 14), null));
+        t.setClickable(true);
+        t.setOnClickListener(l);
+        return t;
+    }
+
     private void repoScreen() {
         if (sub != 0) {
             return;   // si sta guardando lo storico: la schermata del repository si ridisegna al ritorno
         }
+        showHeader(false);
         body.removeAllViews();
-        body.addView(Ui.text(this, cur.full, 18, Ui.TEXT, true));
-        body.addView(Ui.text(this, (cur.priv ? "privato" : "pubblico") + " · chiave "
-                + (cur.acct.label.isEmpty() ? cur.acct.login : cur.acct.label), 12, Ui.DIM, false));
+        String owner = cur.full.contains("/") ? cur.full.substring(0, cur.full.indexOf('/')) : "";
+        String name = cur.full.contains("/") ? cur.full.substring(cur.full.indexOf('/') + 1) : cur.full;
+        body.addView(topBar(name, owner + (accts.size() > 1 ? " · chiave "
+                + (cur.acct.label.isEmpty() ? cur.acct.login : cur.acct.label) : "")));
 
+        // azioni rapide
+        LinearLayout qa = new LinearLayout(this);
+        TextView[] qs = {
+                quick("🕘", "Storico", v -> openHistory()),
+                quick("🚀", "Release", v -> openUrl("https://github.com/" + cur.full + "/releases/latest")),
+                quick("↗", "GitHub", v -> openUrl("https://github.com/" + cur.full)),
+                quick("📲", installing ? "Scarico..." : "Installa", v -> downloadInstall())};
+        for (int i = 0; i < qs.length; i++) {
+            qa.addView(qs[i], Ui.lp(this, 0, Ui.WRAP, i == 0 ? 0 : 8, 0, 1f));
+        }
+        body.addView(qa);
+
+        // ramo
         LinearLayout c1 = Ui.card(this);
-        c1.addView(Ui.text(this, "Ramo", 12, Ui.DIM, false));
         LinearLayout row = new LinearLayout(this);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        row.addView(Ui.text(this, curBranch, 16, Ui.TEXT, true), new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
-        row.addView(Ui.btn(this, "Cambia ramo", Ui.CARD2, Ui.ACCENT, v -> chooseBranch()),
-                Ui.lp(this, Ui.WRAP, Ui.dp(this, 38), 8, 0));
+        TextView bi = Ui.text(this, "⎇", 18, Ui.ACCENT, true);
+        bi.setGravity(Gravity.CENTER);
+        bi.setBackground(Ui.round(this, Ui.BG, 100));
+        row.addView(bi, new LinearLayout.LayoutParams(dp(36), dp(36)));
+        LinearLayout bc = new LinearLayout(this);
+        bc.setOrientation(LinearLayout.VERTICAL);
+        bc.setPadding(dp(12), 0, 0, 0);
+        bc.addView(Ui.text(this, "Ramo di destinazione", 11, Ui.DIM, false));
+        bc.addView(Ui.text(this, curBranch, 16, Ui.TEXT, true));
+        row.addView(bc, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+        TextView chg = Ui.text(this, "Cambia", 13, Ui.ACCENT, true);
+        chg.setPadding(dp(14), dp(8), dp(14), dp(8));
+        chg.setBackground(Ui.round(this, Ui.CARD2, 10));
+        chg.setClickable(true);
+        chg.setOnClickListener(v -> chooseBranch());
+        row.addView(chg);
         c1.addView(row);
-        c1.addView(Ui.btn(this, "Storico dei commit", Ui.CARD2, Ui.ACCENT, v -> openHistory()),
-                Ui.lp(this, Ui.MATCH, Ui.dp(this, Ui.H_CHIP), 0, 10));
         if (remoteLoading) {
-            c1.addView(Ui.text(this, "Lettura del contenuto del repository...", 12, Ui.DIM, false),
-                    Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+            LinearLayout ld = new LinearLayout(this);
+            ld.setGravity(Gravity.CENTER_VERTICAL);
+            ld.addView(spinner(16));
+            ld.addView(Ui.text(this, "Lettura del contenuto del repository...", 12, Ui.DIM, false),
+                    Ui.lp(this, Ui.WRAP, Ui.WRAP, 8, 0));
+            c1.addView(ld, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
         } else if (!remoteErr.isEmpty()) {
-            c1.addView(Ui.text(this, remoteErr, 12, Ui.DANGER, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+            c1.addView(Ui.text(this, remoteErr, 12, Ui.DANGER, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
         } else if (remote != null && remote.truncated) {
-            c1.addView(Ui.text(this, "Repository molto grande: il confronto con i file esistenti e' parziale.",
-                    12, Ui.DIM, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-        }
-        if (!cur.canPush) {
-            c1.addView(Ui.text(this, "Questa chiave ha accesso in sola lettura: la pubblicazione verra' rifiutata.",
-                    12, Ui.DANGER, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+            c1.addView(Ui.text(this, "Repository molto grande: il confronto con i file esistenti è parziale.",
+                    12, Ui.DIM, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
         }
         body.addView(c1, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
-        LinearLayout c2 = Ui.card(this);
-        c2.addView(Ui.text(this, "Aggiornamento", 15, Ui.ACCENT, true));
-        c2.addView(Ui.btn(this, zipFiles == null ? "Scegli lo zip" : "Scegli un altro zip", Ui.ACCENT, 0xFF000000,
-                v -> pickZip()), Ui.lp(this, Ui.MATCH, Ui.dp(this, Ui.H_BTN), 0, 10));
-        if (zipFiles != null) {
-            c2.addView(Ui.text(this, zipName + " · " + zipFiles.size() + " file", 12, Ui.DIM, false),
-                    Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-            if (!zipRoot.isEmpty()) {
-                final TextView chip = Ui.chip(this, "");
-                chip.setText("Rimuovi la cartella «" + zipRoot + "» dai percorsi: " + (stripRoot ? "si" : "no"));
-                Ui.styleChip(this, chip, stripRoot);
-                chip.setOnClickListener(v -> {
-                    stripRoot = !stripRoot;
-                    repoScreen();
-                });
-                c2.addView(chip, Ui.lp(this, Ui.MATCH, Ui.dp(this, Ui.H_CHIP), 0, 8));
+        // 1. scelta dello zip
+        LinearLayout c2 = card("📦", "Aggiornamento", zipFiles == null ? null : "Cambia", v -> pickZip());
+        if (zipFiles == null) {
+            TextView drop = Ui.text(this, "Tocca per scegliere lo zip\nviene scompattato e confrontato col repository",
+                    13, Ui.ACCENT, true);
+            drop.setGravity(Gravity.CENTER);
+            drop.setLineSpacing(0, 1.2f);
+            drop.setPadding(dp(12), dp(28), dp(12), dp(28));
+            drop.setBackground(Ui.round(this, Ui.CARD2, 14));
+            drop.setClickable(true);
+            drop.setOnClickListener(v -> pickZip());
+            c2.addView(drop, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
+        } else {
+            long tot = 0;
+            for (byte[] bb : zipFiles.values()) {
+                tot += bb.length;
             }
+            TextView zn = Ui.text(this, zipName, 14, Ui.TEXT, true);
+            zn.setSingleLine(true);
+            zn.setEllipsize(android.text.TextUtils.TruncateAt.MIDDLE);
+            c2.addView(zn, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+            c2.addView(Ui.text(this, zipFiles.size() + " file · " + fmtSize(tot), 12, Ui.DIM, false));
             addPreview(c2);
         }
         body.addView(c2, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
 
+        // esito della pubblicazione e della compilazione
         if (!doneSha.isEmpty() || publishing || !publishMsg.isEmpty()) {
-            LinearLayout c3 = Ui.card(this);
-            c3.addView(Ui.text(this, publishMsg, 13, doneSha.isEmpty() && !publishing ? Ui.DANGER : Ui.TEXT, false));
+            boolean failed = doneSha.isEmpty() && !publishing;
+            LinearLayout c3 = card(failed ? "⚠" : publishing ? "⏳" : "✅",
+                    failed ? "Pubblicazione non riuscita" : publishing ? "Pubblicazione" : "Commit creato", null, null);
+            LinearLayout st = new LinearLayout(this);
+            st.setGravity(Gravity.CENTER_VERTICAL);
+            if (publishing) {
+                st.addView(spinner(18));
+            }
+            TextView pm = Ui.text(this, publishMsg, 13, failed ? Ui.DANGER : Ui.TEXT, false);
+            st.addView(pm, Ui.lp(this, Ui.MATCH, Ui.WRAP, publishing ? 10 : 0, 0));
+            c3.addView(st, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
             if (!runText.isEmpty()) {
-                c3.addView(Ui.text(this, runText, 13, Ui.TEXT, true), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+                int col = runText.startsWith("Compilazione riuscita") ? Ui.OK
+                        : runText.contains("esito") || runText.startsWith("Stato") ? Ui.DANGER : 0xFFFFB74D;
+                LinearLayout rl = new LinearLayout(this);
+                rl.setGravity(Gravity.CENTER_VERTICAL);
+                rl.setBackground(Ui.round(this, (col & 0x00FFFFFF) | 0x1F000000, 12));
+                rl.setPadding(dp(12), dp(10), dp(12), dp(10));
+                if (col == 0xFFFFB74D) {
+                    rl.addView(spinner(16));
+                } else {
+                    rl.addView(Ui.text(this, col == Ui.OK ? "●" : "●", 14, col, true));
+                }
+                rl.addView(Ui.text(this, runText, 13, Ui.TEXT, true), Ui.lp(this, Ui.WRAP, Ui.WRAP, 10, 0));
+                c3.addView(rl, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
             }
             if (!doneSha.isEmpty()) {
                 LinearLayout lr = new LinearLayout(this);
                 lr.addView(Ui.btn(this, "Apri il commit", Ui.CARD2, Ui.ACCENT,
                         v -> openUrl("https://github.com/" + cur.full + "/commit/" + doneSha)),
-                        Ui.lp(this, 0, Ui.dp(this, Ui.H_BTN), 0, 0, 1f));
-                lr.addView(Ui.btn(this, "Apri le Release", Ui.CARD2, Ui.ACCENT,
-                        v -> openUrl("https://github.com/" + cur.full + "/releases/latest")),
-                        Ui.lp(this, 0, Ui.dp(this, Ui.H_BTN), 8, 0, 1f));
+                        Ui.lp(this, 0, dp(Ui.H_BTN), 0, 0, 1f));
+                lr.addView(Ui.btn(this, "Scarica e installa", Ui.ACCENT, 0xFF000000, v -> downloadInstall()),
+                        Ui.lp(this, 0, dp(Ui.H_BTN), 8, 0, 1f));
                 c3.addView(lr, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
             }
             body.addView(c3, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         }
 
-        LinearLayout c4 = Ui.card(this);
-        c4.addView(Ui.text(this, "Installa l'app", 15, Ui.ACCENT, true));
-        String cv = "";
-        try {
-            cv = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
-        } catch (Exception ignored) {
+        // installazione dell'app
+        if (installing || !installMsg.isEmpty()) {
+            boolean bad = installMsg.startsWith("Non riuscito");
+            LinearLayout c4 = card(bad ? "⚠" : "📲", "Installazione dell'app", null, null);
+            String cv = "";
+            try {
+                cv = getPackageManager().getPackageInfo(getPackageName(), 0).versionName;
+            } catch (Exception ignored) {
+            }
+            LinearLayout il = new LinearLayout(this);
+            il.setGravity(Gravity.CENTER_VERTICAL);
+            if (installing) {
+                il.addView(spinner(18));
+            }
+            il.addView(Ui.text(this, installMsg, 13, bad ? Ui.DANGER : Ui.TEXT, false),
+                    Ui.lp(this, Ui.MATCH, Ui.WRAP, installing ? 10 : 0, 0));
+            c4.addView(il, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+            c4.addView(Ui.text(this, "Versione installata ora: " + cv, 11, Ui.DIM, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+            body.addView(c4, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         }
-        c4.addView(Ui.text(this, "Scarica l'APK dell'ultima Release di questo repository e avvia l'installazione. "
-                + "Versione installata ora: " + cv + ".", 12, Ui.DIM, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
-        android.widget.Button ib = Ui.btn(this, installing ? "Download in corso..." : "Scarica e installa",
-                Ui.ACCENT, 0xFF000000, v -> downloadInstall());
-        ib.setEnabled(!installing);
-        c4.addView(ib, Ui.lp(this, Ui.MATCH, Ui.dp(this, Ui.H_BTN), 0, 10));
-        if (!installMsg.isEmpty()) {
-            c4.addView(Ui.text(this, installMsg, 12, installMsg.startsWith("Non riuscito") ? Ui.DANGER : Ui.TEXT, false),
-                    Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
-        }
-        body.addView(c4, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
     }
 
     // =========================================================================== storico dei commit
@@ -714,9 +952,8 @@ public class GithubUploaderActivity extends Activity {
 
     private void renderHistory() {
         body.removeAllViews();
-        body.addView(Ui.text(this, "Storico — " + cur.full, 18, Ui.TEXT, true));
-        body.addView(Ui.text(this, "Tutti i rami, dal più recente. Tocca un commit per vedere i file modificati. "
-                + "Indietro per tornare al repository.", 12, Ui.DIM, false));
+        showHeader(false);
+        body.addView(topBar("Storico dei commit", cur.full + " · tutti i rami"));
         if (histLoading) {
             body.addView(Ui.text(this, "Caricamento dei commit...", 13, Ui.DIM, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
             return;
@@ -770,9 +1007,11 @@ public class GithubUploaderActivity extends Activity {
     private void openCommit(final GhApi.Cm c) {
         sub = 2;
         body.removeAllViews();
-        body.addView(Ui.text(this, "Commit " + c.sha.substring(0, 7), 18, Ui.TEXT, true));
-        body.addView(Ui.text(this, c.author + " · " + when(c.time), 12, Ui.DIM, false));
-        body.addView(Ui.text(this, c.msg.trim(), 14, Ui.TEXT, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+        showHeader(false);
+        body.addView(topBar("Commit " + c.sha.substring(0, 7), c.author + " · " + when(c.time)));
+        LinearLayout mc = Ui.card(this);
+        mc.addView(Ui.text(this, c.msg.trim(), 14, Ui.TEXT, false));
+        body.addView(mc, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 0));
         final TextView st = Ui.text(this, "Caricamento dei file...", 13, Ui.DIM, false);
         body.addView(st, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         final Repo r = cur;
@@ -896,12 +1135,28 @@ public class GithubUploaderActivity extends Activity {
     }
 
     private int nNew, nMod, nSame;
+    private boolean showAllFiles = false;
     private Map<String, byte[]> toSend = new LinkedHashMap<>();
+
+    private LinearLayout stat(String num, String label, int col) {
+        LinearLayout b = new LinearLayout(this);
+        b.setOrientation(LinearLayout.VERTICAL);
+        b.setGravity(Gravity.CENTER);
+        b.setPadding(dp(4), dp(10), dp(4), dp(10));
+        b.setBackground(Ui.round(this, (col & 0x00FFFFFF) | 0x22000000, 12));
+        TextView n = Ui.text(this, num, 22, col, true);
+        n.setGravity(Gravity.CENTER);
+        b.addView(n);
+        TextView l = Ui.text(this, label, 11, Ui.DIM, false);
+        l.setGravity(Gravity.CENTER);
+        b.addView(l);
+        return b;
+    }
 
     private void addPreview(LinearLayout c) {
         toSend = new LinkedHashMap<>();
         nNew = nMod = nSame = 0;
-        TreeMap<String, String> lines = new TreeMap<>();
+        TreeMap<String, Integer> lines = new TreeMap<>();   // percorso -> 0 nuovo, 1 modificato
         for (Map.Entry<String, byte[]> e : zipFiles.entrySet()) {
             String p = target(e.getKey());
             if (p.isEmpty()) {
@@ -910,37 +1165,78 @@ public class GithubUploaderActivity extends Activity {
             String[] old = remote == null ? null : remote.files.get(p);
             if (old == null) {
                 nNew++;
-                lines.put(p, "+ nuovo   ");
+                lines.put(p, 0);
                 toSend.put(p, e.getValue());
             } else if (!old[0].equals(GhApi.blobSha(e.getValue()))) {
                 nMod++;
-                lines.put(p, "~ modificato   ");
+                lines.put(p, 1);
                 toSend.put(p, e.getValue());
             } else {
                 nSame++;
             }
         }
-        c.addView(Ui.text(this, nNew + " nuovi · " + nMod + " modificati · " + nSame + " uguali (non vengono inviati)",
-                13, Ui.TEXT, true), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
-        StringBuilder sb = new StringBuilder();
-        int n = 0;
-        for (Map.Entry<String, String> e : lines.entrySet()) {
-            if (n++ >= 60) {
-                sb.append("... e altri ").append(lines.size() - 60).append(" file\n");
-                break;
-            }
-            sb.append(e.getValue()).append(e.getKey()).append('\n');
+        if (!zipRoot.isEmpty()) {
+            LinearLayout sw = new LinearLayout(this);
+            sw.setGravity(Gravity.CENTER_VERTICAL);
+            TextView sl = Ui.text(this, "Togli la cartella «" + zipRoot + "» dai percorsi", 13, Ui.TEXT, false);
+            sw.addView(sl, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+            android.widget.Switch sc = new android.widget.Switch(this);
+            sc.setChecked(stripRoot);
+            sc.setThumbTintList(android.content.res.ColorStateList.valueOf(Ui.ACCENT));
+            sc.setTrackTintList(android.content.res.ColorStateList.valueOf(0x664DD0E1));
+            sc.setOnCheckedChangeListener((bv, on) -> {
+                stripRoot = on;
+                repoScreen();
+            });
+            sw.addView(sc);
+            c.addView(sw, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
         }
-        if (sb.length() > 0) {
-            TextView lt = Ui.text(this, sb.toString().trim(), 11, Ui.DIM, false);
-            lt.setTypeface(android.graphics.Typeface.MONOSPACE);
-            c.addView(lt, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        LinearLayout st = new LinearLayout(this);
+        st.addView(stat("+" + nNew, "nuovi", Ui.OK), Ui.lp(this, 0, Ui.WRAP, 0, 0, 1f));
+        st.addView(stat("~" + nMod, "modificati", Ui.ACCENT), Ui.lp(this, 0, Ui.WRAP, 8, 0, 1f));
+        st.addView(stat("=" + nSame, "invariati", Ui.DIM), Ui.lp(this, 0, Ui.WRAP, 8, 0, 1f));
+        c.addView(st, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 14));
+        if (!lines.isEmpty()) {
+            int limit = showAllFiles ? Integer.MAX_VALUE : 8;
+            LinearLayout list = new LinearLayout(this);
+            list.setOrientation(LinearLayout.VERTICAL);
+            list.setBackground(Ui.round(this, Ui.BG, 12));
+            list.setPadding(dp(12), dp(8), dp(12), dp(8));
+            int n = 0;
+            for (Map.Entry<String, Integer> e : lines.entrySet()) {
+                if (n++ >= limit) {
+                    break;
+                }
+                LinearLayout line = new LinearLayout(this);
+                line.addView(Ui.text(this, e.getValue() == 0 ? "+" : "~", 13, e.getValue() == 0 ? Ui.OK : Ui.ACCENT, true),
+                        new LinearLayout.LayoutParams(dp(18), Ui.WRAP));
+                TextView pn = Ui.text(this, e.getKey(), 11, Ui.TEXT, false);
+                pn.setTypeface(android.graphics.Typeface.MONOSPACE);
+                line.addView(pn, new LinearLayout.LayoutParams(0, Ui.WRAP, 1f));
+                list.addView(line, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 4));
+            }
+            if (lines.size() > 8) {
+                TextView more = Ui.text(this, showAllFiles ? "Mostra meno" : "Mostra tutti i " + lines.size() + " file",
+                        12, Ui.ACCENT, true);
+                more.setPadding(0, dp(8), 0, dp(4));
+                more.setClickable(true);
+                more.setOnClickListener(v -> {
+                    showAllFiles = !showAllFiles;
+                    repoScreen();
+                });
+                list.addView(more);
+            }
+            c.addView(list, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
+        } else {
+            c.addView(Ui.text(this, "Nessuna differenza: i file dello zip sono già nel repository.", 12, Ui.DIM, false),
+                    Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
         }
         if (remote == null) {
             c.addView(Ui.text(this, "Attendi la lettura del repository per poter pubblicare.", 12, Ui.DIM, false),
-                    Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 8));
+                    Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 10));
             return;
         }
+        c.addView(Ui.text(this, "Messaggio del commit", 11, Ui.DIM, false), Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 16));
         final EditText me = field("Messaggio del commit", false);
         me.setText(message);
         me.addTextChangedListener(new TextWatcher() {
@@ -957,10 +1253,12 @@ public class GithubUploaderActivity extends Activity {
                 message = ed.toString();
             }
         });
-        c.addView(me, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 12));
-        android.widget.Button pub = Ui.btn(this, "Pubblica su " + curBranch, Ui.ACCENT, 0xFF000000, v -> publish());
+        c.addView(me, Ui.lp(this, Ui.MATCH, Ui.WRAP, 0, 6));
+        android.widget.Button pub = primary(toSend.isEmpty() ? "Niente da pubblicare"
+                : "Pubblica " + toSend.size() + (toSend.size() == 1 ? " file" : " file") + " su " + curBranch, v -> publish());
+        pub.setTextSize(15);
         pub.setEnabled(!toSend.isEmpty() && !publishing && cur.canPush);
-        c.addView(pub, Ui.lp(this, Ui.MATCH, Ui.dp(this, 52), 0, 12));
+        c.addView(pub, Ui.lp(this, Ui.MATCH, dp(52), 0, 12));
     }
 
     private void chooseBranch() {
