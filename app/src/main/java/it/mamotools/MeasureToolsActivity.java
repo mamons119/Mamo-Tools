@@ -26,6 +26,8 @@ public class MeasureToolsActivity extends Activity {
                 "GPS e sensori: 0–100, piega, G-meter, registratore con mappa", TelemetryActivity.class));
         root.addView(tile("🎯", "Livello",
                 "Livella a bolla con il sensore di inclinazione del telefono", LevelActivity.class));
+        root.addView(tile("💡", "Intensità luminosa",
+                "Esposimetro con la fotocamera: tocca un punto per misurare la luce li'", LightMeterActivity.class));
     }
 
     private View tile(String icon, String title, String desc, final Class<? extends Activity> target) {

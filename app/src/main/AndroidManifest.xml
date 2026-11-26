@@ -99,6 +99,12 @@
             android:exported="false" />
 
         <activity
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".LightMeterActivity"
+            android:label="Intensità luminosa"
+            android:screenOrientation="portrait"
+            android:exported="false" />
+
+        <activity
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|keyboard|uiMode" android:name=".LevelActivity"
             android:label="Livello"
             android:exported="false" />
