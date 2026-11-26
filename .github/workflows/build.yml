@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
 
+permissions:
+  contents: write   # serve per pubblicare la Release
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -23,3 +26,17 @@ jobs:
         with:
           name: MamoTools-apk
           path: app/build/outputs/apk/release/*.apk
+
+      # Pubblica l'APK in una Release (github.com/<utente>/<repo>/releases): si scarica con un tocco dal telefono
+      - name: Pubblica la Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          VER=$(grep -oP 'versionName\s+"\K[^"]+' app/build.gradle)
+          APK=$(ls app/build/outputs/apk/release/*.apk | head -n 1)
+          cp "$APK" "MamoTools-$VER.apk"
+          gh release delete "v$VER" --yes --cleanup-tag || true
+          gh release create "v$VER" "MamoTools-$VER.apk" \
+            --title "Mamo Tools $VER" \
+            --notes "APK di Mamo Tools $VER (compilato automaticamente)." \
+            --latest
