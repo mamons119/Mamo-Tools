@@ -127,7 +127,8 @@ public class VideoEditorActivity extends Activity {
     private Timeline timeline;
     private TextView timeCur, timeTot, markText, soundName, soundStartText, dbText, status;
     private Button playBtn, exportBtn, openBtn, soundTestBtn;
-    private SeekBar soundStartBar, dbBar;
+    private MarkSeekBar soundStartBar;
+    private SeekBar dbBar;
     private RadioGroup modeGroup;
     private RadioButton modeMix;
     private LinearLayout editorBox, soundBox;
@@ -192,7 +193,8 @@ public class VideoEditorActivity extends Activity {
     private FrameLayout vfBox;
     private LinearLayout timeRowBox;
     private int layoutMode = -1;
-    private FrameLayout tlWrap;
+    private LinearLayout tlWrap;
+    private FrameLayout restoreSlot;
     private TextView restoreBtn;   // 0 verticale, 1 orizzontale
 
     @Override
@@ -372,17 +374,19 @@ public class VideoEditorActivity extends Activity {
             updateTexts();
         });
         timeline.setOnCutTap((a, b) -> updateRestoreBtn());
-        tlWrap = new FrameLayout(this);
-        tlWrap.setClipChildren(false);
-        tlWrap.addView(timeline, new FrameLayout.LayoutParams(MATCH, dp(68), Gravity.BOTTOM));
+        tlWrap = new LinearLayout(this);
+        tlWrap.setOrientation(LinearLayout.VERTICAL);
+        restoreSlot = new FrameLayout(this);
+        restoreSlot.setVisibility(View.GONE);
+        tlWrap.addView(restoreSlot, new LinearLayout.LayoutParams(MATCH, dp(34)));
+        tlWrap.addView(timeline, new LinearLayout.LayoutParams(MATCH, dp(68)));
         restoreBtn = text("↩  Ripristina", 12, R.color.accent, true);
         restoreBtn.setGravity(Gravity.CENTER);
         restoreBtn.setPadding(dp(12), 0, dp(12), 0);
         restoreBtn.setBackground(Ui.round(this, Ui.CARD2, 100));
         restoreBtn.setClickable(true);
-        restoreBtn.setVisibility(View.GONE);
         restoreBtn.setOnClickListener(v -> restoreSelectedCut());
-        tlWrap.addView(restoreBtn, new FrameLayout.LayoutParams(WRAP, dp(28), Gravity.TOP | Gravity.START));
+        restoreSlot.addView(restoreBtn, new FrameLayout.LayoutParams(WRAP, dp(28), Gravity.TOP | Gravity.START));
         tl.addView(tlWrap, new LinearLayout.LayoutParams(MATCH, WRAP));
         LinearLayout timeRow = new LinearLayout(this);
         timeRow.setPadding(dp(2), dp(8), dp(2), 0);
@@ -466,7 +470,10 @@ public class VideoEditorActivity extends Activity {
         soundStartText = text("", 14, R.color.text, false);
         soundStartText.setPadding(0, dp(14), 0, 0);
         soundBox.addView(soundStartText);
-        soundStartBar = seek(new SimpleSeek() {
+        soundStartBar = new MarkSeekBar(this);
+        soundStartBar.setProgressTintList(ColorStateList.valueOf(C_ACCENT));
+        soundStartBar.setThumbTintList(ColorStateList.valueOf(C_ACCENT));
+        soundStartBar.setOnSeekBarChangeListener(new SimpleSeek() {
             @Override
             public void onProgressChanged(SeekBar sb, int p, boolean user) {
                 if (soundBarSync) {
@@ -929,6 +936,44 @@ public class VideoEditorActivity extends Activity {
         p.leftMargin = dp(leftDp);
         p.topMargin = dp(topDp);
         return p;
+    }
+
+    /** Barra di scorrimento con un segno (bandierina) nel punto scelto come inizio della colonna sonora. */
+    private static final class MarkSeekBar extends SeekBar {
+        private long mark = -1;       // in unita' di avanzamento della barra
+        private final Paint mp = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+        MarkSeekBar(Context c) {
+            super(c);
+        }
+
+        void setMark(long m) {
+            if (m != mark) {
+                mark = m;
+                invalidate();
+            }
+        }
+
+        @Override
+        protected synchronized void onDraw(Canvas c) {
+            super.onDraw(c);
+            if (mark < 0 || getMax() <= 0) {
+                return;
+            }
+            float d = getResources().getDisplayMetrics().density;
+            float l = getPaddingLeft(), r = getWidth() - getPaddingRight();
+            float x = l + (r - l) * Math.min(1f, mark / (float) getMax());
+            float cy = getHeight() / 2f;
+            mp.setColor(0xFFFFB74D);
+            mp.setStyle(Paint.Style.FILL);
+            c.drawRect(x - 1.5f * d, cy - 11 * d, x + 1.5f * d, cy + 11 * d, mp);
+            android.graphics.Path flag = new android.graphics.Path();
+            flag.moveTo(x + 1.5f * d, cy - 11 * d);
+            flag.lineTo(x + 10 * d, cy - 7 * d);
+            flag.lineTo(x + 1.5f * d, cy - 3 * d);
+            flag.close();
+            c.drawPath(flag, mp);
+        }
     }
 
     private SeekBar seek(SeekBar.OnSeekBarChangeListener l) {
@@ -4520,10 +4565,11 @@ public class VideoEditorActivity extends Activity {
             return;
         }
         if (timeline.selCutA < 0 || timeline.selCutB < 0) {
-            restoreBtn.setVisibility(View.GONE);
+            restoreSlot.setVisibility(View.GONE);
             return;
         }
-        restoreBtn.setVisibility(View.VISIBLE);
+        // lo spazio per il pulsante c'e' solo mentre un taglio e' selezionato: sta sopra la timeline, senza coprirla
+        restoreSlot.setVisibility(View.VISIBLE);
         timeline.post(() -> {
             int w = timeline.getWidth();
             restoreBtn.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
@@ -4532,7 +4578,7 @@ public class VideoEditorActivity extends Activity {
             float cx = timeline.cutCenterX();
             FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) restoreBtn.getLayoutParams();
             lp.leftMargin = Math.max(0, Math.min(Math.max(0, w - bw), Math.round(cx - bw / 2f)));
-            lp.topMargin = dp(2);
+            lp.topMargin = dp(0);
             restoreBtn.setLayoutParams(lp);
         });
     }
@@ -4770,11 +4816,6 @@ public class VideoEditorActivity extends Activity {
     private void refreshMarks() {
         timeline.setCuts(cuts);
         if (tlWrap != null) {
-            // con dei tagli si lascia sopra la timeline lo spazio per il pulsante "Ripristina"
-            int top = cuts.isEmpty() ? 0 : dp(34);
-            if (tlWrap.getPaddingTop() != top) {
-                tlWrap.setPadding(0, top, 0, 0);
-            }
             updateRestoreBtn();
         }
         timeline.setSelection(markA, markB);
@@ -4808,6 +4849,9 @@ public class VideoEditorActivity extends Activity {
         }
         timeCur.setText(fmt(timeline == null ? 0 : timeline.pos));
         timeTot.setText(fmt(durMs));
+        if (soundStartBar != null) {
+            soundStartBar.setMark(soundUri == null ? -1 : soundStartMs / 100);
+        }
         if (soundStartText != null) {
             soundStartText.setText("Ascolto: " + fmt(soundPrevMs) + " (su " + fmt(soundDurMs)
                     + ")\nLa colonna sonora parte da: " + fmt(soundStartMs));
