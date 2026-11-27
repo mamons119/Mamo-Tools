@@ -191,7 +191,9 @@ public class VideoEditorActivity extends Activity {
     private ScrollView rightScroll;
     private FrameLayout vfBox;
     private LinearLayout timeRowBox;
-    private int layoutMode = -1;   // 0 verticale, 1 orizzontale
+    private int layoutMode = -1;
+    private FrameLayout tlWrap;
+    private TextView restoreBtn;   // 0 verticale, 1 orizzontale
 
     @Override
     public void onConfigurationChanged(android.content.res.Configuration nc) {
@@ -220,13 +222,13 @@ public class VideoEditorActivity extends Activity {
         layoutMode = mode;
         detach(vfBox);
         detach(ctlBox);
-        detach(timeline);
+        detach(tlWrap);
         detach(timeRowBox);
         detach(rootBox);
         if (mode == 0) {
             prevCard.addView(vfBox, 0, new LinearLayout.LayoutParams(MATCH, dp(220)));
             prevCard.addView(ctlBox, 1, new LinearLayout.LayoutParams(MATCH, WRAP));
-            tlCard.addView(timeline, 1, new LinearLayout.LayoutParams(MATCH, dp(68)));
+            tlCard.addView(tlWrap, 1, new LinearLayout.LayoutParams(MATCH, WRAP));
             tlCard.addView(timeRowBox, 2, new LinearLayout.LayoutParams(MATCH, WRAP));
             rootBox.setPadding(dp(16), dp(36), dp(16), dp(28));
             scrollPortrait.addView(rootBox, new ViewGroup.LayoutParams(MATCH, WRAP));
@@ -246,9 +248,9 @@ public class VideoEditorActivity extends Activity {
             landLeft.removeAllViews();
             landLeft.addView(vfBox, new LinearLayout.LayoutParams(MATCH, 0, 1f));
             landLeft.addView(ctlBox, new LinearLayout.LayoutParams(MATCH, WRAP));
-            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(MATCH, dp(68));
+            LinearLayout.LayoutParams tlp = new LinearLayout.LayoutParams(MATCH, WRAP);
             tlp.topMargin = dp(8);
-            landLeft.addView(timeline, tlp);
+            landLeft.addView(tlWrap, tlp);
             landLeft.addView(timeRowBox, new LinearLayout.LayoutParams(MATCH, WRAP));
             rootBox.setPadding(dp(8), dp(16), dp(16), dp(28));
             rightScroll.removeAllViews();
@@ -369,7 +371,19 @@ public class VideoEditorActivity extends Activity {
             seekExact(ms);
             updateTexts();
         });
-        tl.addView(timeline, new LinearLayout.LayoutParams(MATCH, dp(68)));
+        timeline.setOnCutTap((a, b) -> updateRestoreBtn());
+        tlWrap = new FrameLayout(this);
+        tlWrap.setClipChildren(false);
+        tlWrap.addView(timeline, new FrameLayout.LayoutParams(MATCH, dp(68), Gravity.BOTTOM));
+        restoreBtn = text("↩  Ripristina", 12, R.color.accent, true);
+        restoreBtn.setGravity(Gravity.CENTER);
+        restoreBtn.setPadding(dp(12), 0, dp(12), 0);
+        restoreBtn.setBackground(Ui.round(this, Ui.CARD2, 100));
+        restoreBtn.setClickable(true);
+        restoreBtn.setVisibility(View.GONE);
+        restoreBtn.setOnClickListener(v -> restoreSelectedCut());
+        tlWrap.addView(restoreBtn, new FrameLayout.LayoutParams(WRAP, dp(28), Gravity.TOP | Gravity.START));
+        tl.addView(tlWrap, new LinearLayout.LayoutParams(MATCH, WRAP));
         LinearLayout timeRow = new LinearLayout(this);
         timeRow.setPadding(dp(2), dp(8), dp(2), 0);
         timeCur = text("0:00.0", 14, R.color.text, true);
@@ -391,6 +405,8 @@ public class VideoEditorActivity extends Activity {
                 lp(0, dp(Ui.H_BTN), 0, 8, 1.6f));
         r2.addView(btn("↶  Annulla", C_CARD2, C_TEXT, v -> undoCut()), lp(0, dp(Ui.H_BTN), 8, 8, 1f));
         tl.addView(r2, new LinearLayout.LayoutParams(MATCH, WRAP));
+        tl.addView(btn("🧹  Compatta: elimina le parti tagliate", C_CARD2, C_ACCENT, v -> confirmCompact()),
+                lp(MATCH, dp(46), 0, 8));
         tl.addView(btn("🎞  Aggiungi clip nel punto del cursore", C_CARD2, C_ACCENT, v -> pickClip()),
                 lp(MATCH, dp(46), 0, 8));
         editorBox.addView(tl, lp(MATCH, WRAP, 0, 12));
@@ -4498,6 +4514,229 @@ public class VideoEditorActivity extends Activity {
         refreshMarks();
     }
 
+    /** Mostra "Ripristina" sopra la zona rossa selezionata. */
+    private void updateRestoreBtn() {
+        if (restoreBtn == null) {
+            return;
+        }
+        if (timeline.selCutA < 0 || timeline.selCutB < 0) {
+            restoreBtn.setVisibility(View.GONE);
+            return;
+        }
+        restoreBtn.setVisibility(View.VISIBLE);
+        timeline.post(() -> {
+            int w = timeline.getWidth();
+            restoreBtn.measure(View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                    View.MeasureSpec.makeMeasureSpec(dp(28), View.MeasureSpec.EXACTLY));
+            int bw = restoreBtn.getMeasuredWidth();
+            float cx = timeline.cutCenterX();
+            FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) restoreBtn.getLayoutParams();
+            lp.leftMargin = Math.max(0, Math.min(Math.max(0, w - bw), Math.round(cx - bw / 2f)));
+            lp.topMargin = dp(2);
+            restoreBtn.setLayoutParams(lp);
+        });
+    }
+
+    /** Elimina il taglio selezionato: la parte torna nel video. */
+    private void restoreSelectedCut() {
+        long a = timeline.selCutA, b = timeline.selCutB;
+        for (int i = 0; i < cuts.size(); i++) {
+            if (cuts.get(i)[0] == a && cuts.get(i)[1] == b) {
+                cuts.remove(i);
+                break;
+            }
+        }
+        timeline.clearCutSelection();
+        refreshMarks();
+        scheduleAutoSave();
+    }
+
+    // ---- compattazione: le parti tagliate escono davvero dalla timeline
+
+    private void confirmCompact() {
+        if (busy || videoUri == null) {
+            return;
+        }
+        if (cuts.isEmpty()) {
+            Toast.makeText(this, "Non ci sono parti tagliate (rosse) da eliminare.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        long removed = 0;
+        for (long[] c : cuts) {
+            removed += c[1] - c[0];
+        }
+        new android.app.AlertDialog.Builder(this).setTitle("Compattare la timeline?")
+                .setMessage("Le " + cuts.size() + (cuts.size() == 1 ? " parte tagliata" : " parti tagliate")
+                        + " (" + fmt(removed) + " in tutto) vengono eliminate e il video si ricompatta. "
+                        + "Poi non potrai più ripristinarle.")
+                .setNegativeButton("Annulla", null)
+                .setPositiveButton("Compatta", (d, w) -> compact()).show();
+    }
+
+    private void compact() {
+        if (busy || cuts.isEmpty()) {
+            return;
+        }
+        Snap sn = snap();
+        List<long[]> todo = new ArrayList<>();
+        for (long[] c : cuts) {
+            todo.add(c.clone());
+        }
+        Collections.sort(todo, (x, y) -> Long.compare(y[0], x[0]));   // dall'ultimo al primo: i tempi prima non cambiano
+        long pos = timeline.pos;
+        int done = 0;
+        for (long[] c : todo) {
+            long[] r = removeRange(c[0] * 1000, c[1] * 1000);
+            if (r == null) {
+                continue;
+            }
+            pos = mapRem(pos, r[0] / 1000, r[1] / 1000, (r[1] - r[0]) / 1000);
+            done++;
+        }
+        cuts.clear();
+        timeline.clearCutSelection();
+        if (done == 0) {
+            restore(sn);
+            refreshMarks();
+            Toast.makeText(this, "Niente da compattare.", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        rebuild(pos, sn);
+    }
+
+    /** Divide, se serve, il tratto che contiene l'istante t (us) in modo che t diventi un confine fra tratti. */
+    private void splitPieceAt(long tUs) {
+        long cum = 0;
+        for (int i = 0; i < pieces.size(); i++) {
+            VideoComposer.Seg sg = pieces.get(i).s;
+            long len = VideoComposer.lengthUs(sg, i == 0);
+            if (tUs > cum && tUs < cum + len) {
+                long trK = (i > 0 && sg.trans > 0) ? sg.transUs : 0;
+                long off = tUs - cum - trK;
+                long body = sg.bodyUs();
+                if (off <= 0 || off >= body) {
+                    return;
+                }
+                long srcLen = sg.endUs - sg.startUs;
+                long srcOff = Math.max(1, Math.min(srcLen - 1, Math.round(off * (double) sg.speed)));
+                VideoComposer.Seg a = sg.copy(), b = sg.copy();
+                if (!sg.reverse) {
+                    a.endUs = sg.startUs + srcOff;
+                    b.startUs = sg.startUs + srcOff;
+                } else {
+                    a.startUs = sg.endUs - srcOff;
+                    b.endUs = sg.endUs - srcOff;
+                }
+                b.trans = 0;
+                b.transUs = 0;
+                if (sg.zoomOn()) {
+                    float zm = VideoFx.zoomAt(sg.zoom[0], sg.zoom[1], sg.zoom[4] >= 0.5f, off / (double) body);
+                    a.zoom[1] = zm;
+                    b.zoom[0] = zm;
+                    a.zoom[4] = 0f;
+                    b.zoom[4] = 0f;
+                }
+                if (sg.snd != null) {
+                    b.sndStartUs = sg.sndStartUs + off;
+                    a.sndFadeOutUs = 0;
+                    b.sndFadeInUs = 0;
+                }
+                String nm = pieces.get(i).name;
+                pieces.set(i, new Piece(a, nm));
+                pieces.add(i + 1, new Piece(b, nm));
+                return;
+            }
+            cum += len;
+        }
+    }
+
+    /** Porta t (us) sul confine di tratto piu' vicino se e' a meno di 60 ms (evita spezzoni minuscoli). */
+    private long snapToBoundary(long tUs) {
+        long cum = 0;
+        for (int i = 0; i < pieces.size(); i++) {
+            long len = VideoComposer.lengthUs(pieces.get(i).s, i == 0);
+            long end = cum + len;
+            if (Math.abs(tUs - cum) < 60000) {
+                return cum;
+            }
+            if (Math.abs(tUs - end) < 60000) {
+                return end;
+            }
+            cum = end;
+        }
+        return tUs;
+    }
+
+    /**
+     * Toglie l'intervallo [aUs, bUs) dai tratti del montaggio e ricompatta fisso/effetti/segni.
+     * Restituisce l'intervallo davvero tolto (us) oppure null se non c'era niente da togliere.
+     */
+    private long[] removeRange(long aUs, long bUs) {
+        aUs = Math.max(0, aUs);
+        bUs = Math.min(totalUs(), bUs);
+        // una transizione non si taglia a meta': l'inizio non entra nella dissolvenza, la fine la porta via per intero
+        boolean clearTrans = false;
+        long cum = 0;
+        for (int i = 0; i < pieces.size(); i++) {
+            VideoComposer.Seg sg = pieces.get(i).s;
+            long len = VideoComposer.lengthUs(sg, i == 0);
+            long trK = (i > 0 && sg.trans > 0) ? sg.transUs : 0;
+            if (aUs > cum && aUs < cum + trK) {
+                aUs = cum + trK;
+            }
+            if (bUs > cum && bUs < cum + trK) {
+                bUs = cum + trK;
+                clearTrans = true;
+            }
+            cum += len;
+        }
+        aUs = snapToBoundary(aUs);
+        bUs = snapToBoundary(bUs);
+        if (bUs - aUs < 20000) {
+            return null;
+        }
+        splitPieceAt(aUs);
+        splitPieceAt(bUs);
+        // via i tratti che stanno interamente nell'intervallo
+        cum = 0;
+        List<Piece> keep = new ArrayList<>();
+        for (int i = 0; i < pieces.size(); i++) {
+            long len = VideoComposer.lengthUs(pieces.get(i).s, i == 0);
+            if (cum >= aUs - 500 && cum + len <= bUs + 500) {
+                cum += len;
+                continue;
+            }
+            keep.add(pieces.get(i));
+            cum += len;
+        }
+        if (keep.isEmpty()) {
+            return null;
+        }
+        if (clearTrans) {
+            // il tratto che segue l'intervallo perde la dissolvenza che era stata portata via
+            cum = 0;
+            for (int i = 0; i < pieces.size(); i++) {
+                VideoComposer.Seg sg = pieces.get(i).s;
+                long len = VideoComposer.lengthUs(sg, i == 0);
+                if (cum < bUs && cum + len > bUs && i > 0 && sg.trans > 0) {
+                    sg.trans = 0;
+                    sg.transUs = 0;
+                }
+                cum += len;
+            }
+        }
+        pieces.clear();
+        pieces.addAll(keep);
+        if (aUs == 0 && pieces.get(0).s.trans > 0) {
+            // il nuovo primo tratto non ha niente prima: la sua transizione sparisce con il resto
+            bUs += pieces.get(0).s.transUs;
+            pieces.get(0).s.trans = 0;
+            pieces.get(0).s.transUs = 0;
+        }
+        remapRemove(aUs / 1000, bUs / 1000);
+        return new long[]{aUs, bUs};
+    }
+
     private long keptTotal() {
         long t = durMs;
         for (long[] c : cuts) {
@@ -4530,6 +4769,14 @@ public class VideoEditorActivity extends Activity {
 
     private void refreshMarks() {
         timeline.setCuts(cuts);
+        if (tlWrap != null) {
+            // con dei tagli si lascia sopra la timeline lo spazio per il pulsante "Ripristina"
+            int top = cuts.isEmpty() ? 0 : dp(34);
+            if (tlWrap.getPaddingTop() != top) {
+                tlWrap.setPadding(0, top, 0, 0);
+            }
+            updateRestoreBtn();
+        }
         timeline.setSelection(markA, markB);
         StringBuilder sb = new StringBuilder();
         sb.append("Selezione: ").append(markA < 0 ? "--" : fmt(markA)).append(" → ")
@@ -5018,8 +5265,41 @@ public class VideoEditorActivity extends Activity {
             invalidate();
         }
 
+        interface CutTap {
+            void onCutTap(long a, long b);
+        }
+
+        CutTap cutTap;
+        long selCutA = -1, selCutB = -1;
+        private float downX;
+
+        void setOnCutTap(CutTap l) {
+            cutTap = l;
+        }
+
+        void clearCutSelection() {
+            selCutA = selCutB = -1;
+            invalidate();
+        }
+
+        float cutCenterX() {
+            return x((selCutA + selCutB) / 2);
+        }
+
         void setCuts(List<long[]> c) {
             cuts = new ArrayList<>(c);
+            if (selCutA >= 0) {
+                boolean found = false;
+                for (long[] cut : cuts) {
+                    if (cut[0] == selCutA && cut[1] == selCutB) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    selCutA = selCutB = -1;
+                }
+            }
             invalidate();
         }
 
@@ -5145,8 +5425,19 @@ public class VideoEditorActivity extends Activity {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(0xAAFF3B30);
             for (long[] cut : cuts) {
+                boolean sel = cut[0] == selCutA && cut[1] == selCutB;
+                paint.setColor(sel ? 0xDDFF3B30 : 0xAAFF3B30);
                 c.drawRect(x(cut[0]), 0, x(cut[1]), h, paint);
+                if (sel) {
+                    paint.setColor(0xFFFFFFFF);
+                    float bw = 3 * getResources().getDisplayMetrics().density;
+                    c.drawRect(x(cut[0]), 0, x(cut[1]), bw, paint);
+                    c.drawRect(x(cut[0]), h - bw, x(cut[1]), h, paint);
+                    c.drawRect(x(cut[0]), 0, x(cut[0]) + bw, h, paint);
+                    c.drawRect(x(cut[1]) - bw, 0, x(cut[1]), h, paint);
+                }
             }
+            paint.setColor(0xAAFF3B30);
             if (selA >= 0 || selB >= 0) {
                 long a = selA >= 0 ? selA : selB;
                 long b = selB >= 0 ? selB : selA;
@@ -5185,6 +5476,7 @@ public class VideoEditorActivity extends Activity {
         public boolean onTouchEvent(MotionEvent e) {
             switch (e.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN:
+                    downX = e.getX();
                     getParent().requestDisallowInterceptTouchEvent(true);
                     // fallthrough
                 case MotionEvent.ACTION_MOVE:
@@ -5196,6 +5488,26 @@ public class VideoEditorActivity extends Activity {
                     }
                     return true;
                 case MotionEvent.ACTION_UP:
+                    getParent().requestDisallowInterceptTouchEvent(false);
+                    if (Math.abs(e.getX() - downX) < 10 * getResources().getDisplayMetrics().density) {
+                        // un tocco su una parte rossa la seleziona (compare "Ripristina"), altrove toglie la selezione
+                        long tap = (long) (Math.max(0, Math.min(1, e.getX() / Math.max(1, getWidth()))) * dur);
+                        long a = -1, b = -1;
+                        for (long[] cut : cuts) {
+                            if (tap >= cut[0] && tap <= cut[1]) {
+                                a = cut[0];
+                                b = cut[1];
+                                break;
+                            }
+                        }
+                        selCutA = a;
+                        selCutB = b;
+                        invalidate();
+                        if (cutTap != null) {
+                            cutTap.onCutTap(a, b);
+                        }
+                    }
+                    return true;
                 case MotionEvent.ACTION_CANCEL:
                     getParent().requestDisallowInterceptTouchEvent(false);
                     return true;
